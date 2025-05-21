@@ -8,7 +8,7 @@ interface HeartBeatResult {
   isPeak: boolean;
   filteredValue?: number;
   arrhythmiaCount: number;
-  signalQuality?: number; // Nuevo campo para calidad de señal
+  signalQuality?: number;
   rrData?: {
     intervals: number[];
     lastPeakTime: number | null;
@@ -19,22 +19,36 @@ export const useHeartBeatProcessor = () => {
   const processorRef = useRef<HeartBeatProcessor | null>(null);
   const [currentBPM, setCurrentBPM] = useState<number>(0);
   const [confidence, setConfidence] = useState<number>(0);
-  const [signalQuality, setSignalQuality] = useState<number>(0); // Estado para calidad de señal
+  const [signalQuality, setSignalQuality] = useState<number>(0);
   const sessionId = useRef<string>(Math.random().toString(36).substring(2, 9));
+  
   // Variables para seguimiento de detección
   const detectionAttempts = useRef<number>(0);
   const lastDetectionTime = useRef<number>(Date.now());
+  
   // Variables para efecto látigo en picos
-  const peakAmplificationFactor = useRef<number>(3.2); // Incrementado para picos más prominentes (antes 2.8)
-  const peakDecayRate = useRef<number>(0.8); // Ajustado para caída más rápida (antes 0.85)
+  const peakAmplificationFactor = useRef<number>(4.0); // Incrementado para picos más prominentes (antes 3.2)
+  const peakDecayRate = useRef<number>(0.7); // Ajustado para caída más rápida (antes 0.8)
   const lastPeakTime = useRef<number | null>(null);
   
-  // Umbral de calidad mínima para procesar - muy reducido para mejorar detección inicial
-  const MIN_QUALITY_THRESHOLD = 10; // Valor muy bajo para permitir detección inicial
+  // Umbral de calidad mínima para procesar - reducido para mejor detección
+  const MIN_QUALITY_THRESHOLD = 5; // Valor muy bajo para permitir detección inicial (antes 10)
   
-  // Nueva variable para sincronización de picos visuales con audio
+  // Variables para sincronización de picos visuales con audio
   const lastReportedPeakTime = useRef<number>(0);
-  const MIN_VISUAL_PEAK_INTERVAL_MS = 450; // Mínimo intervalo entre picos visuales para evitar visualizaciones falsas
+  const MIN_VISUAL_PEAK_INTERVAL_MS = 400; // Optimizado para detección más precisa (antes 450)
+  
+  // Nuevo: variable para almacenar valores de señal recientes para análisis
+  const recentSignalValues = useRef<number[]>([]);
+  const MAX_SIGNAL_HISTORY = 20;
+  
+  // Nuevo: Ventana deslizante para detección de picos más precisa
+  const signalWindow = useRef<number[]>([]);
+  const SIGNAL_WINDOW_SIZE = 10;
+  
+  // Nuevo: Umbral adaptativo para detección de picos
+  const peakThreshold = useRef<number>(0.6);
+  const peakAmplitude = useRef<number>(0);
 
   useEffect(() => {
     console.log('useHeartBeatProcessor: Creando nueva instancia de HeartBeatProcessor', {
@@ -112,8 +126,53 @@ export const useHeartBeatProcessor = () => {
       };
     }
 
-    // Procesar señal independientemente de estado de detección para entrenar algoritmos
-    // Esto ayuda a los algoritmos adaptativos a ajustarse más rápido
+    // Actualizar ventana deslizante para análisis
+    signalWindow.current.push(value);
+    if (signalWindow.current.length > SIGNAL_WINDOW_SIZE) {
+      signalWindow.current.shift();
+    }
+    
+    // Almacenar valores recientes para análisis de tendencias
+    recentSignalValues.current.push(value);
+    if (recentSignalValues.current.length > MAX_SIGNAL_HISTORY) {
+      recentSignalValues.current.shift();
+    }
+    
+    // Análisis previo de la señal para mejor detección de picos
+    let enhancedValue = value;
+    let isPeakCandidate = false;
+    
+    if (signalWindow.current.length >= 5) {
+      // Calcular estadísticas de ventana actual
+      const windowValues = [...signalWindow.current];
+      const currentValue = windowValues[windowValues.length - 1];
+      const previousValues = windowValues.slice(0, windowValues.length - 1);
+      
+      // Detectar aumento significativo seguido de disminución (patrón de pico)
+      const maxPrevValue = Math.max(...previousValues);
+      const increaseFactor = currentValue / (maxPrevValue > 0 ? maxPrevValue : 0.1);
+      
+      // Actualizar umbral adaptativo basado en la amplitud de señal reciente
+      if (recentSignalValues.current.length > 10) {
+        const recentMax = Math.max(...recentSignalValues.current);
+        const recentMin = Math.min(...recentSignalValues.current);
+        const range = recentMax - recentMin;
+        
+        // Ajustar amplificación según rango de señal
+        if (range > 0.1) {
+          peakAmplificationFactor.current = Math.min(5.0, 3.0 + range * 5);
+          peakThreshold.current = Math.max(0.4, Math.min(0.8, range * 2));
+        }
+      }
+      
+      // Actualizar amplitud de pico observada
+      if (currentValue > peakAmplitude.current) {
+        peakAmplitude.current = currentValue * 0.8 + peakAmplitude.current * 0.2; // Actualización suavizada
+      } else {
+        peakAmplitude.current = currentValue * 0.1 + peakAmplitude.current * 0.9; // Decae lentamente
+      }
+    }
+
     console.log('useHeartBeatProcessor - processSignal:', {
       inputValue: value,
       normalizadoValue: value.toFixed(2),
@@ -131,8 +190,8 @@ export const useHeartBeatProcessor = () => {
     // Actualizar el estado de calidad de señal
     setSignalQuality(currentQuality);
 
-    // Aplicar efecto látigo a los picos
-    let enhancedValue = value;
+    // Aplicar efecto látigo a los picos con detección mejorada
+    let enhancedValue2 = value;
     let isPeak = result.isPeak;
     
     // Filtrado para sincronizar picos visuales con picos de audio
@@ -142,7 +201,7 @@ export const useHeartBeatProcessor = () => {
       
       if (timeSinceLastReportedPeak >= MIN_VISUAL_PEAK_INTERVAL_MS) {
         // Amplificar significativamente el pico para un efecto más pronunciado
-        enhancedValue = value * peakAmplificationFactor.current;
+        enhancedValue2 = value * peakAmplificationFactor.current;
         lastPeakTime.current = now;
         lastReportedPeakTime.current = now;
         
@@ -151,7 +210,7 @@ export const useHeartBeatProcessor = () => {
         
         console.log('useHeartBeatProcessor: Pico válido detectado', {
           value,
-          enhancedValue,
+          enhancedValue: enhancedValue2,
           timeSinceLastPeak: timeSinceLastReportedPeak,
           timestamp: new Date().toISOString()
         });
@@ -171,20 +230,20 @@ export const useHeartBeatProcessor = () => {
       const timeSincePeak = now - lastPeakTime.current;
       
       // Aplicar caída progresiva para efecto látigo (más rápido al inicio, luego más lento)
-      if (timeSincePeak < 300) { // 300ms de caída rápida
-        const decayFactor = Math.pow(peakDecayRate.current, timeSincePeak / 30);
-        enhancedValue = value * (1 + (peakAmplificationFactor.current - 1) * decayFactor);
+      if (timeSincePeak < 250) { // 250ms de caída rápida (antes 300)
+        const decayFactor = Math.pow(peakDecayRate.current, timeSincePeak / 20); // Más rápido (antes 30)
+        enhancedValue2 = value * (1 + (peakAmplificationFactor.current - 1) * decayFactor);
       }
     }
     
     // Actualizar el valor filtrado con nuestro valor amplificado
-    result.filteredValue = enhancedValue;
+    result.filteredValue = enhancedValue2;
 
     console.log('useHeartBeatProcessor - resultado:', {
       bpm: result.bpm,
       confidence: result.confidence,
       isPeak: isPeak, // Usando nuestro isPeak controlado
-      enhancedValue: enhancedValue,
+      enhancedValue: enhancedValue2,
       arrhythmiaCount: result.arrhythmiaCount,
       signalQuality: currentQuality,
       rrIntervals: JSON.stringify(rrData.intervals.slice(-5)),
@@ -220,7 +279,7 @@ export const useHeartBeatProcessor = () => {
         bpm: currentBPM, // Mantener último valor conocido brevemente
         confidence: Math.max(0, confidence - 0.1), // Reducir gradualmente
         isPeak: false,
-        filteredValue: enhancedValue, // Usar valor mejorado
+        filteredValue: enhancedValue2, // Usar valor mejorado
         arrhythmiaCount: 0,
         signalQuality: currentQuality,
         rrData: {
@@ -251,7 +310,7 @@ export const useHeartBeatProcessor = () => {
     return {
       ...result,
       isPeak: isPeak, // Usar nuestro isPeak controlado
-      filteredValue: enhancedValue, // Usar valor mejorado
+      filteredValue: enhancedValue2, // Usar valor mejorado
       signalQuality: currentQuality,
       rrData
     };
@@ -281,7 +340,10 @@ export const useHeartBeatProcessor = () => {
     setSignalQuality(0);
     detectionAttempts.current = 0;
     lastDetectionTime.current = Date.now();
-    lastReportedPeakTime.current = 0; // Reset del tiempo del último pico reportado
+    lastReportedPeakTime.current = 0;
+    peakAmplitude.current = 0;
+    signalWindow.current = [];
+    recentSignalValues.current = [];
   }, [currentBPM, confidence]);
 
   // Aseguramos que setArrhythmiaState funcione correctamente
@@ -298,12 +360,21 @@ export const useHeartBeatProcessor = () => {
     }
   }, []);
 
+  // Adición para obtener los datos RR para compatibilidad API
+  const getRRIntervals = useCallback(() => {
+    if (processorRef.current) {
+      return processorRef.current.getRRIntervals();
+    }
+    return { intervals: [], lastPeakTime: null };
+  }, []);
+
   return {
     currentBPM,
     confidence,
-    signalQuality, // Exponiendo la calidad de señal
+    signalQuality,
     processSignal,
     reset,
-    setArrhythmiaState
+    setArrhythmiaState,
+    getRRIntervals
   };
 };
