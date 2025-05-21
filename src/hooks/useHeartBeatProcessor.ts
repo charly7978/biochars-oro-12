@@ -1,4 +1,3 @@
-
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { HeartBeatProcessor } from '../modules/HeartBeatProcessor';
 
@@ -27,16 +26,16 @@ export const useHeartBeatProcessor = () => {
   const lastDetectionTime = useRef<number>(Date.now());
   
   // Variables para efecto látigo en picos
-  const peakAmplificationFactor = useRef<number>(4.5); // Incrementado para picos más prominentes
-  const peakDecayRate = useRef<number>(0.65); // Ajustado para caída más rápida
+  const peakAmplificationFactor = useRef<number>(4.5);
+  const peakDecayRate = useRef<number>(0.65);
   const lastPeakTime = useRef<number | null>(null);
   
-  // Umbral de calidad mínima para procesar - reducido para mejor detección
-  const MIN_QUALITY_THRESHOLD = 5; // Valor muy bajo para permitir detección inicial
+  // Umbral de calidad mínima para procesar
+  const MIN_QUALITY_THRESHOLD = 5;
   
   // Variables para sincronización de picos visuales con audio
   const lastReportedPeakTime = useRef<number>(0);
-  const MIN_VISUAL_PEAK_INTERVAL_MS = 430; // Optimizado para mejor sincronización
+  const MIN_VISUAL_PEAK_INTERVAL_MS = 600; // Aumentado para mejor detección de ritmos cardíacos reales (60-100 BPM)
   
   // Variable para almacenar valores de señal recientes para análisis
   const recentSignalValues = useRef<number[]>([]);
@@ -44,15 +43,15 @@ export const useHeartBeatProcessor = () => {
   
   // Ventana deslizante para detección de picos más precisa
   const signalWindow = useRef<number[]>([]);
-  const SIGNAL_WINDOW_SIZE = 8; // Reducido para mejor respuesta
+  const SIGNAL_WINDOW_SIZE = 8;
   
   // Umbral adaptativo para detección de picos
   const peakThreshold = useRef<number>(0.6);
   const peakAmplitude = useRef<number>(0);
   
-  // Control de picos para evitar duplicados
+  // Control estricto de picos para evitar duplicados
   const processingPeakLock = useRef<boolean>(false);
-  const PEAK_LOCK_TIMEOUT_MS = 300; // Bloqueo temporal para evitar picos duplicados
+  const PEAK_LOCK_TIMEOUT_MS = 450; // Aumentado para corresponder mejor con latidos reales
 
   useEffect(() => {
     console.log('useHeartBeatProcessor: Creando nueva instancia de HeartBeatProcessor', {
@@ -130,63 +129,48 @@ export const useHeartBeatProcessor = () => {
       };
     }
 
-    // Actualizar ventana deslizante para análisis
+    // Actualizar ventana deslizante para análisis de tendencias
     signalWindow.current.push(value);
     if (signalWindow.current.length > SIGNAL_WINDOW_SIZE) {
       signalWindow.current.shift();
     }
     
-    // Almacenar valores recientes para análisis de tendencias
+    // Almacenar valores recientes para análisis
     recentSignalValues.current.push(value);
     if (recentSignalValues.current.length > MAX_SIGNAL_HISTORY) {
       recentSignalValues.current.shift();
     }
     
-    // Análisis previo de la señal para mejor detección de picos
-    let enhancedValue = value;
+    // Análisis de tendencias para mejor detección de picos genuinos
     let isPeakCandidate = false;
     
-    if (signalWindow.current.length >= 4) { // Reducido para respuesta más rápida
+    if (signalWindow.current.length >= 4) { 
       // Calcular estadísticas de ventana actual
       const windowValues = [...signalWindow.current];
       const currentValue = windowValues[windowValues.length - 1];
       const previousValues = windowValues.slice(0, windowValues.length - 1);
       
-      // Detectar aumento significativo seguido de disminución (patrón de pico)
-      const maxPrevValue = Math.max(...previousValues);
-      const increaseFactor = currentValue / (maxPrevValue > 0 ? maxPrevValue : 0.1);
-      
       // Actualizar umbral adaptativo basado en la amplitud de señal reciente
-      if (recentSignalValues.current.length > 8) { // Reducido para respuesta más rápida
+      if (recentSignalValues.current.length > 8) {
         const recentMax = Math.max(...recentSignalValues.current);
         const recentMin = Math.min(...recentSignalValues.current);
         const range = recentMax - recentMin;
         
-        // Ajustar amplificación según rango de señal
+        // Ajustar umbral según rango de señal - para latidos humanos reales
         if (range > 0.1) {
-          peakAmplificationFactor.current = Math.min(5.5, 3.0 + range * 5);
-          peakThreshold.current = Math.max(0.4, Math.min(0.8, range * 1.8)); // Más sensible
+          peakThreshold.current = Math.max(0.4, Math.min(0.7, range * 1.5));
         }
       }
       
       // Actualizar amplitud de pico observada
-      if (currentValue > peakAmplitude.current) {
-        peakAmplitude.current = currentValue * 0.9 + peakAmplitude.current * 0.1; // Actualización más rápida
+      if (value > peakAmplitude.current) {
+        peakAmplitude.current = value * 0.6 + peakAmplitude.current * 0.4;
       } else {
-        peakAmplitude.current = currentValue * 0.1 + peakAmplitude.current * 0.9; // Decae lentamente
+        peakAmplitude.current = value * 0.05 + peakAmplitude.current * 0.95;
       }
     }
 
-    console.log('useHeartBeatProcessor - processSignal:', {
-      inputValue: value,
-      normalizadoValue: value.toFixed(2),
-      fingerDetected,
-      detectionAttempts: detectionAttempts.current,
-      timeSinceLastDetection: now - lastDetectionTime.current,
-      sessionId: sessionId.current,
-      timestamp: new Date().toISOString()
-    });
-
+    // Procesar señal con HeartBeatProcessor
     const result = processorRef.current.processSignal(value);
     const rrData = processorRef.current.getRRIntervals();
     const currentQuality = result.signalQuality || 0;
@@ -194,45 +178,44 @@ export const useHeartBeatProcessor = () => {
     // Actualizar el estado de calidad de señal
     setSignalQuality(currentQuality);
 
-    // Aplicar efecto látigo a los picos con detección mejorada y sincronización con audio
-    let enhancedValue2 = value;
-    let isPeak = false; // Por defecto asumimos que no hay pico
+    // Verificación de picos estricta para mejorar sincronización de beeps y visualización
+    let isPeak = false;
     
     // PASO 1: Verificar si tenemos un pico real del procesador
     if (result.isPeak) {
-      // Verificar bloqueo de procesamiento para evitar duplicados
+      // Solo procesar picos si no estamos en periodo de bloqueo
       if (!processingPeakLock.current) {
-        // Verificar si el pico está suficientemente espaciado del último pico reportado
         const timeSinceLastReportedPeak = now - lastReportedPeakTime.current;
         
-        if (timeSinceLastReportedPeak >= MIN_VISUAL_PEAK_INTERVAL_MS) {
+        // Aplicar restricción temporal basada en ritmo cardíaco humano real (40-200 BPM)
+        // 40 BPM = 1500ms, 200 BPM = 300ms
+        const minAcceptablePeakInterval = 300; // 200 BPM máximo
+        
+        if (timeSinceLastReportedPeak >= minAcceptablePeakInterval) {
           // Iniciar bloqueo para evitar picos duplicados
           processingPeakLock.current = true;
           setTimeout(() => {
             processingPeakLock.current = false;
           }, PEAK_LOCK_TIMEOUT_MS);
           
-          // Amplificar significativamente el pico para efecto más pronunciado
-          enhancedValue2 = value * peakAmplificationFactor.current;
+          // Registrar tiempo del pico válido
           lastPeakTime.current = now;
           lastReportedPeakTime.current = now;
           
-          // Este es un pico válido que debe mostrarse
+          // Este es un pico válido que debe mostrarse y sonar
           isPeak = true;
           
-          console.log('useHeartBeatProcessor: Pico válido detectado', {
+          console.log('useHeartBeatProcessor: Pico válido detectado - LATIDO REAL', {
             value,
-            enhancedValue: enhancedValue2,
-            timeSinceLastPeak: timeSinceLastReportedPeak,
+            intervaloDesdeUltimoPico: timeSinceLastReportedPeak,
+            equivalenteBPM: Math.round(60000 / timeSinceLastReportedPeak),
             timestamp: new Date().toISOString()
           });
         } else {
-          // Este es un pico demasiado cercano al anterior, lo ignoramos visualmente
-          // pero mantenemos el procesamiento de audio
+          // Ignorar picos demasiado cercanos - no pueden ser latidos humanos reales
           isPeak = false;
           
-          console.log('useHeartBeatProcessor: Pico ignorado (demasiado cercano)', {
-            value,
+          console.log('useHeartBeatProcessor: Pico ignorado (demasiado cercano para ser latido real)', {
             timeSinceLastPeak: timeSinceLastReportedPeak,
             timestamp: new Date().toISOString()
           });
@@ -240,34 +223,7 @@ export const useHeartBeatProcessor = () => {
       } else {
         console.log('useHeartBeatProcessor: Pico bloqueado por procesamiento previo');
       }
-    } else if (lastPeakTime.current) {
-      // PASO 2: Aplicar efecto látigo si no es un pico pero estamos cerca de uno
-      // Calcular tiempo desde el último pico
-      const timeSincePeak = now - lastPeakTime.current;
-      
-      // Aplicar caída progresiva para efecto látigo (más rápido al inicio, luego más lento)
-      if (timeSincePeak < 220) { // 220ms de caída rápida (antes 250)
-        const decayFactor = Math.pow(peakDecayRate.current, timeSincePeak / 15); // Más rápido
-        enhancedValue2 = value * (1 + (peakAmplificationFactor.current - 1) * decayFactor);
-      }
     }
-    
-    // Actualizar el valor filtrado con nuestro valor amplificado
-    result.filteredValue = enhancedValue2;
-
-    console.log('useHeartBeatProcessor - resultado:', {
-      bpm: result.bpm,
-      confidence: result.confidence,
-      isPeak: isPeak, // Usando nuestro isPeak controlado
-      enhancedValue: enhancedValue2,
-      arrhythmiaCount: result.arrhythmiaCount,
-      signalQuality: currentQuality,
-      rrIntervals: JSON.stringify(rrData.intervals.slice(-5)),
-      ultimoPico: rrData.lastPeakTime,
-      tiempoDesdeUltimoPico: rrData.lastPeakTime ? Date.now() - rrData.lastPeakTime : null,
-      sessionId: sessionId.current,
-      timestamp: new Date().toISOString()
-    });
     
     // Si no hay dedo detectado pero tenemos una señal de calidad razonable
     // consideramos que el dedo está presente (corrige falsos negativos)
@@ -282,8 +238,7 @@ export const useHeartBeatProcessor = () => {
         timestamp: new Date().toISOString()
       });
       
-      // Reducir gradualmente los valores actuales en vez de resetearlos inmediatamente
-      // Esto evita cambios bruscos en la UI
+      // Reducir gradualmente los valores actuales
       if (currentBPM > 0) {
         const reducedBPM = Math.max(0, currentBPM - 5);
         const reducedConfidence = Math.max(0, confidence - 0.1);
@@ -292,10 +247,10 @@ export const useHeartBeatProcessor = () => {
       }
       
       return {
-        bpm: currentBPM, // Mantener último valor conocido brevemente
-        confidence: Math.max(0, confidence - 0.1), // Reducir gradualmente
+        bpm: currentBPM,
+        confidence: Math.max(0, confidence - 0.1),
         isPeak: false,
-        filteredValue: enhancedValue2, // Usar valor mejorado
+        filteredValue: value,
         arrhythmiaCount: 0,
         signalQuality: currentQuality,
         rrData: {
@@ -323,10 +278,11 @@ export const useHeartBeatProcessor = () => {
       setConfidence(result.confidence);
     }
 
+    // Devolver resultado con isPeak controlado para sincronización con beeps
     return {
       ...result,
-      isPeak: isPeak, // Usar nuestro isPeak controlado
-      filteredValue: enhancedValue2, // Usar valor mejorado
+      isPeak: isPeak, // Usar nuestro isPeak controlado para que coincida exactamente con los beeps
+      filteredValue: value,
       signalQuality: currentQuality,
       rrData
     };

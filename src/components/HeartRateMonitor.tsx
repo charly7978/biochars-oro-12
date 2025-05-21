@@ -1,4 +1,3 @@
-
 import React, { useEffect, useRef } from 'react';
 import { cn } from "@/lib/utils";
 
@@ -53,10 +52,6 @@ const HeartRateMonitor = ({
       if (timeSinceLastPeak < MIN_PEAK_INTERVAL_MS) {
         // Ignorar picos demasiado cercanos
         validPeak = false;
-        console.log("HeartRateMonitor: Ignorando pico demasiado cercano", {
-          timeSinceLastPeak,
-          threshold: MIN_PEAK_INTERVAL_MS
-        });
       }
     }
     
@@ -88,12 +83,6 @@ const HeartRateMonitor = ({
         startValue: amplifiedValue,
         targetValue: amplifiedValue * 0.1 // Caída más dramática
       };
-      
-      console.log("HeartRateMonitor: Pico válido con efecto látigo detectado", {
-        valor: amplifiedValue.toFixed(2),
-        isPeak: validPeak,
-        timestamp: now
-      });
     }
     
     // Dibujar la señal actualizada
