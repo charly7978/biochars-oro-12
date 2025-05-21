@@ -153,6 +153,13 @@ export class HeartBeatProcessor {
 
       const currentTime = this.audioContext.currentTime;
 
+      // Log peak for debugging
+      console.log("HeartBeatProcessor: Reproduciendo sonido de latido", {
+        timestamp: now,
+        timeSinceLastBeep: now - this.lastBeepTime,
+        isArrhythmia: playArrhythmiaTone
+      });
+
       // Sonidos de latido mejorados - más claramente audibles
       // LUB - primer sonido del latido
       const oscillator1 = this.audioContext.createOscillator();

@@ -1,3 +1,4 @@
+
 import React, { useEffect, useRef, useCallback, useState } from 'react';
 import { Fingerprint, AlertCircle } from 'lucide-react';
 import { CircularBuffer, PPGDataPoint } from '../utils/CircularBuffer';
@@ -38,6 +39,7 @@ const PPGSignalMeter = ({
   const peaksRef = useRef<{time: number, value: number, isArrhythmia: boolean}[]>([]);
   const [showArrhythmiaAlert, setShowArrhythmiaAlert] = useState(false);
   const gridCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const lastConfirmedPeakRef = useRef<number>(0); // Nuevo ref para controlar tiempos entre picos
 
   const WINDOW_WIDTH_MS = 3600;
   const CANVAS_WIDTH = 1000;
@@ -51,7 +53,7 @@ const PPGSignalMeter = ({
   const BUFFER_SIZE = 600;
   const PEAK_DETECTION_WINDOW = 8;
   const PEAK_THRESHOLD = 3;
-  const MIN_PEAK_DISTANCE_MS = 300;
+  const MIN_PEAK_DISTANCE_MS = 450; // Aumentado desde 300ms a 450ms para mejor sincronización con audio
   const IMMEDIATE_RENDERING = true;
   const MAX_PEAKS_TO_DISPLAY = 25;
 
@@ -156,6 +158,15 @@ const PPGSignalMeter = ({
     for (let i = PEAK_DETECTION_WINDOW; i < points.length - PEAK_DETECTION_WINDOW; i++) {
       const currentPoint = points[i];
       
+      // Verificar que el punto actual no esté demasiado cerca de un pico ya detectado
+      const timeSinceLastPeak = currentPoint.time - lastConfirmedPeakRef.current;
+      
+      // Ignorar puntos que están demasiado cerca del último pico confirmado
+      if (timeSinceLastPeak < MIN_PEAK_DISTANCE_MS) {
+        continue;
+      }
+      
+      // Verificar que no esté demasiado cerca de picos ya procesados
       const recentlyProcessed = peaksRef.current.some(
         peak => Math.abs(peak.time - currentPoint.time) < MIN_PEAK_DISTANCE_MS
       );
@@ -164,6 +175,7 @@ const PPGSignalMeter = ({
       
       let isPeak = true;
       
+      // Verificar que sea un máximo local mirando puntos antes
       for (let j = i - PEAK_DETECTION_WINDOW; j < i; j++) {
         if (points[j].value >= currentPoint.value) {
           isPeak = false;
@@ -171,6 +183,7 @@ const PPGSignalMeter = ({
         }
       }
       
+      // Verificar que sea un máximo local mirando puntos después
       if (isPeak) {
         for (let j = i + 1; j <= i + PEAK_DETECTION_WINDOW; j++) {
           if (j < points.length && points[j].value > currentPoint.value) {
@@ -180,6 +193,7 @@ const PPGSignalMeter = ({
         }
       }
       
+      // Si es un pico y supera el umbral, registrarlo como potencial
       if (isPeak && Math.abs(currentPoint.value) > PEAK_THRESHOLD) {
         potentialPeaks.push({
           index: i,
@@ -190,6 +204,7 @@ const PPGSignalMeter = ({
       }
     }
     
+    // Procesar picos potenciales
     for (const peak of potentialPeaks) {
       const tooClose = peaksRef.current.some(
         existingPeak => Math.abs(existingPeak.time - peak.time) < MIN_PEAK_DISTANCE_MS
@@ -201,9 +216,14 @@ const PPGSignalMeter = ({
           value: peak.value,
           isArrhythmia: peak.isArrhythmia
         });
+        lastConfirmedPeakRef.current = peak.time;
+        
+        // Log para debug
+        console.log(`PPGSignalMeter: Pico detectado en tiempo ${peak.time}, valor ${peak.value}`);
       }
     }
     
+    // Ordenar por tiempo y limitar la cantidad de picos
     peaksRef.current.sort((a, b) => a.time - b.time);
     
     peaksRef.current = peaksRef.current

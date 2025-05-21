@@ -25,12 +25,16 @@ export const useHeartBeatProcessor = () => {
   const detectionAttempts = useRef<number>(0);
   const lastDetectionTime = useRef<number>(Date.now());
   // Variables para efecto látigo en picos
-  const peakAmplificationFactor = useRef<number>(2.8); // Factor de amplificación para picos (mayor)
-  const peakDecayRate = useRef<number>(0.85); // Velocidad de caída para efecto látigo
+  const peakAmplificationFactor = useRef<number>(3.2); // Incrementado para picos más prominentes (antes 2.8)
+  const peakDecayRate = useRef<number>(0.8); // Ajustado para caída más rápida (antes 0.85)
   const lastPeakTime = useRef<number | null>(null);
   
   // Umbral de calidad mínima para procesar - muy reducido para mejorar detección inicial
   const MIN_QUALITY_THRESHOLD = 10; // Valor muy bajo para permitir detección inicial
+  
+  // Nueva variable para sincronización de picos visuales con audio
+  const lastReportedPeakTime = useRef<number>(0);
+  const MIN_VISUAL_PEAK_INTERVAL_MS = 450; // Mínimo intervalo entre picos visuales para evitar visualizaciones falsas
 
   useEffect(() => {
     console.log('useHeartBeatProcessor: Creando nueva instancia de HeartBeatProcessor', {
@@ -129,10 +133,39 @@ export const useHeartBeatProcessor = () => {
 
     // Aplicar efecto látigo a los picos
     let enhancedValue = value;
+    let isPeak = result.isPeak;
+    
+    // Filtrado para sincronizar picos visuales con picos de audio
     if (result.isPeak) {
-      // Amplificar significativamente el pico para un efecto más pronunciado
-      enhancedValue = value * peakAmplificationFactor.current;
-      lastPeakTime.current = now;
+      // Verificar si el pico está lo suficientemente espaciado del último pico reportado
+      const timeSinceLastReportedPeak = now - lastReportedPeakTime.current;
+      
+      if (timeSinceLastReportedPeak >= MIN_VISUAL_PEAK_INTERVAL_MS) {
+        // Amplificar significativamente el pico para un efecto más pronunciado
+        enhancedValue = value * peakAmplificationFactor.current;
+        lastPeakTime.current = now;
+        lastReportedPeakTime.current = now;
+        
+        // Este es un pico válido que debe mostrarse
+        isPeak = true;
+        
+        console.log('useHeartBeatProcessor: Pico válido detectado', {
+          value,
+          enhancedValue,
+          timeSinceLastPeak: timeSinceLastReportedPeak,
+          timestamp: new Date().toISOString()
+        });
+      } else {
+        // Este es un pico demasiado cercano al anterior, lo ignoramos visualmente
+        // pero mantenemos el procesamiento de audio
+        isPeak = false;
+        
+        console.log('useHeartBeatProcessor: Pico ignorado (demasiado cercano)', {
+          value,
+          timeSinceLastPeak: timeSinceLastReportedPeak,
+          timestamp: new Date().toISOString()
+        });
+      }
     } else if (lastPeakTime.current) {
       // Calcular tiempo desde el último pico
       const timeSincePeak = now - lastPeakTime.current;
@@ -150,7 +183,7 @@ export const useHeartBeatProcessor = () => {
     console.log('useHeartBeatProcessor - resultado:', {
       bpm: result.bpm,
       confidence: result.confidence,
-      isPeak: result.isPeak,
+      isPeak: isPeak, // Usando nuestro isPeak controlado
       enhancedValue: enhancedValue,
       arrhythmiaCount: result.arrhythmiaCount,
       signalQuality: currentQuality,
@@ -217,6 +250,7 @@ export const useHeartBeatProcessor = () => {
 
     return {
       ...result,
+      isPeak: isPeak, // Usar nuestro isPeak controlado
       filteredValue: enhancedValue, // Usar valor mejorado
       signalQuality: currentQuality,
       rrData
@@ -247,6 +281,7 @@ export const useHeartBeatProcessor = () => {
     setSignalQuality(0);
     detectionAttempts.current = 0;
     lastDetectionTime.current = Date.now();
+    lastReportedPeakTime.current = 0; // Reset del tiempo del último pico reportado
   }, [currentBPM, confidence]);
 
   // Aseguramos que setArrhythmiaState funcione correctamente

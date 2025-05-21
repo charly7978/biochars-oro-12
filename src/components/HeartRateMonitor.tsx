@@ -1,3 +1,4 @@
+
 import React, { useEffect, useRef } from 'react';
 import { cn } from "@/lib/utils";
 
@@ -43,7 +44,7 @@ const HeartRateMonitor = ({
     
     // Apply amplification for peaks to make them more prominent
     const amplifiedValue = isPeak 
-      ? normalizedValue * 2.5 // More amplification for peaks
+      ? normalizedValue * 3.5 // Increased amplification for peaks (was 2.5)
       : normalizedValue * 0.8; // Slightly reduce non-peaks for contrast
     
     // Add to history
@@ -61,9 +62,9 @@ const HeartRateMonitor = ({
       animationRef.current = {
         isAnimating: true,
         startTime: Date.now(),
-        duration: 300, // ms
+        duration: 250, // Slightly faster animation (was 300ms)
         startValue: amplifiedValue,
-        targetValue: amplifiedValue * 0.4 // Target is lower to create the whip effect
+        targetValue: amplifiedValue * 0.3 // More dramatic drop (was 0.4)
       };
     }
     
@@ -83,7 +84,7 @@ const HeartRateMonitor = ({
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     
     // Set up styles
-    ctx.lineWidth = 2;
+    ctx.lineWidth = 3; // Increased from 2 for more visible peaks
     ctx.lineJoin = 'round';
     
     // Use quality to determine color - red for good quality, orange/yellow for medium, gray for poor
@@ -115,15 +116,15 @@ const HeartRateMonitor = ({
       // For peak points, draw taller lines with potential whip effect
       if (isPeakPoint) {
         // Calculate peak height with potential whip effect animation
-        let peakHeight = canvas.height - (point * canvas.height * 0.9); // Use 90% of canvas height
+        let peakHeight = canvas.height - (point * canvas.height * 0.95); // Increased from 0.9 for taller peaks
         
         // Apply whip effect if we're still in animation for this peak
         if (animationRef.current.isAnimating) {
           const elapsed = Date.now() - animationRef.current.startTime;
           const progress = Math.min(1, elapsed / animationRef.current.duration);
           
-          // Non-linear easing for whip effect - fast initial movement, slower at the end
-          const easeOutQuint = 1 - Math.pow(1 - progress, 5);
+          // Non-linear easing for whip effect - even faster initial movement
+          const easeOutQuint = 1 - Math.pow(1 - progress, 6); // Increased power for more dramatic whip (was 5)
           
           // Apply the animation effect
           const animatedPoint = animationRef.current.startValue - 
@@ -131,7 +132,7 @@ const HeartRateMonitor = ({
           
           // Use the animated value for the latest points
           if (index >= historyRef.current.length - 5) {
-            peakHeight = canvas.height - (animatedPoint * canvas.height * 0.9);
+            peakHeight = canvas.height - (animatedPoint * canvas.height * 0.95);
           }
           
           // End animation when complete
@@ -143,14 +144,14 @@ const HeartRateMonitor = ({
         // Draw vertical peak line
         ctx.lineTo(x, peakHeight);
         
-        // Draw mini plateau at peak top
-        ctx.lineTo(x + pointWidth * 0.3, peakHeight);
+        // Draw mini plateau at peak top - shorter for sharper peaks
+        ctx.lineTo(x + pointWidth * 0.15, peakHeight); // Reduced from 0.3 for sharper peaks
         
         // Return back down
         ctx.lineTo(x + pointWidth, canvas.height);
       } else {
         // For non-peak points, draw much smaller vertical lines
-        const baselineHeight = canvas.height - (point * canvas.height * 0.3); // Only 30% height for non-peaks
+        const baselineHeight = canvas.height - (point * canvas.height * 0.25); // Reduced from 0.3 for more contrast
         
         // Draw smaller vertical line
         ctx.lineTo(x, baselineHeight);
@@ -167,8 +168,8 @@ const HeartRateMonitor = ({
       if (isPeakPoint) {
         const x = index * pointWidth;
         const point = historyRef.current[index];
-        const dotSize = 4;
-        const yPos = canvas.height - (point * canvas.height * 0.9);
+        const dotSize = 6; // Increased from 4
+        const yPos = canvas.height - (point * canvas.height * 0.95);
         ctx.beginPath();
         ctx.arc(x, yPos, dotSize, 0, Math.PI * 2);
         ctx.fill();
