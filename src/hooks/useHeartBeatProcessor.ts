@@ -27,16 +27,16 @@ export const useHeartBeatProcessor = () => {
   const lastDetectionTime = useRef<number>(Date.now());
   
   // Variables para efecto látigo en picos
-  const peakAmplificationFactor = useRef<number>(5.0); // Incrementado para picos más prominentes (antes 3.2)
+  const peakAmplificationFactor = useRef<number>(4.0); // Incrementado para picos más prominentes (antes 3.2)
   const peakDecayRate = useRef<number>(0.7); // Ajustado para caída más rápida (antes 0.8)
   const lastPeakTime = useRef<number | null>(null);
   
   // Umbral de calidad mínima para procesar - reducido para mejor detección
-  const MIN_QUALITY_THRESHOLD = 4; // Valor muy bajo para permitir detección inicial (antes 10)
+  const MIN_QUALITY_THRESHOLD = 5; // Valor muy bajo para permitir detección inicial (antes 10)
   
   // Variables para sincronización de picos visuales con audio
   const lastReportedPeakTime = useRef<number>(0);
-  const MIN_VISUAL_PEAK_INTERVAL_MS = 350; // Optimizado para detección más precisa (antes 450)
+  const MIN_VISUAL_PEAK_INTERVAL_MS = 400; // Optimizado para detección más precisa (antes 450)
   
   // Nuevo: variable para almacenar valores de señal recientes para análisis
   const recentSignalValues = useRef<number[]>([]);
