@@ -41,7 +41,7 @@ const PPGSignalMeter = ({
   const gridCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const lastConfirmedPeakRef = useRef<number>(0); // Nuevo ref para controlar tiempos entre picos
 
-  const WINDOW_WIDTH_MS = 3600;
+  const WINDOW_WIDTH_MS = 2900;
   const CANVAS_WIDTH = 1000;
   const CANVAS_HEIGHT = 900;
   const GRID_SIZE_X = 10;
