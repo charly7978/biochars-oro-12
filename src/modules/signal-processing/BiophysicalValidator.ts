@@ -6,7 +6,7 @@
 export class BiophysicalValidator {
   private lastPulsatilityValues: number[] = [];
   private readonly MAX_PULSATILITY_HISTORY = 30;
-  private readonly MIN_PULSATILITY = 0.08; // Antes 0.15, más permisivo para hardware débil
+  private readonly MIN_PULSATILITY = 0.05; // Antes 0.15, más permisivo para hardware débil
   private readonly MAX_PULSATILITY = 8.0;
   private lastRawValues: number[] = []; // Raw values for trend analysis
   private lastTimeStamps: number[] = []; // Timestamps for temporal analysis
