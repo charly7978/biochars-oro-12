@@ -5,11 +5,11 @@ export class HeartBeatProcessor {
   private readonly DEFAULT_WINDOW_SIZE = 30; // Aumentado para mejor análisis (antes 40)
   private readonly DEFAULT_MIN_BPM = 30;
   private readonly DEFAULT_MAX_BPM = 220;
-  private readonly DEFAULT_SIGNAL_THRESHOLD = 0.010; // Reducido para mejor sensibilidad (antes 0.02)
-  private readonly DEFAULT_MIN_CONFIDENCE = 0.20; // Reducido para mejor detección (antes 0.30)
-  private readonly DEFAULT_DERIVATIVE_THRESHOLD = -0.002; // Ajustado para mejor sensibilidad (antes -0.005)
+  private readonly DEFAULT_SIGNAL_THRESHOLD = 0.015; // Reducido para mejor sensibilidad (antes 0.02)
+  private readonly DEFAULT_MIN_CONFIDENCE = 0.25; // Reducido para mejor detección (antes 0.30)
+  private readonly DEFAULT_DERIVATIVE_THRESHOLD = -0.004; // Ajustado para mejor sensibilidad (antes -0.005)
   private readonly DEFAULT_MIN_PEAK_TIME_MS = 250; // Reducido para mayor sensibilidad (antes 300)
-  private readonly WARMUP_TIME_MS = 400; // Reducido para obtener lecturas más rápido (antes 1000)
+  private readonly WARMUP_TIME_MS = 800; // Reducido para obtener lecturas más rápido (antes 1000)
 
   // Parámetros de filtrado ajustados para precisión médica
   private readonly MEDIAN_FILTER_WINDOW = 5; // Aumentado para más estabilidad (antes 3)
@@ -42,8 +42,8 @@ export class HeartBeatProcessor {
   private readonly MAX_ADAPTIVE_DERIVATIVE_THRESHOLD = -0.003; // Mejorado para sensibilidad (antes -0.005)
 
   // ────────── PARÁMETROS PARA PROCESAMIENTO ──────────
-  private readonly SIGNAL_BOOST_FACTOR = 2.9; // Aumentado para mejor amplificación (antes 1.8)
-  private readonly PEAK_DETECTION_SENSITIVITY = 1.5; // Aumentado para mejor detección (antes 0.6)
+  private readonly SIGNAL_BOOST_FACTOR = 2.2; // Aumentado para mejor amplificación (antes 1.8)
+  private readonly PEAK_DETECTION_SENSITIVITY = 0.7; // Aumentado para mejor detección (antes 0.6)
   
   // Control del auto-ajuste
   private readonly ADAPTIVE_TUNING_PEAK_WINDOW = 8; // Ajustado para adaptarse con más precisión (antes 10)
