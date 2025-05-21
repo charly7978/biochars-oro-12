@@ -27,28 +27,32 @@ export const useHeartBeatProcessor = () => {
   const lastDetectionTime = useRef<number>(Date.now());
   
   // Variables para efecto látigo en picos
-  const peakAmplificationFactor = useRef<number>(4.0); // Incrementado para picos más prominentes (antes 3.2)
-  const peakDecayRate = useRef<number>(0.7); // Ajustado para caída más rápida (antes 0.8)
+  const peakAmplificationFactor = useRef<number>(4.5); // Incrementado para picos más prominentes
+  const peakDecayRate = useRef<number>(0.65); // Ajustado para caída más rápida
   const lastPeakTime = useRef<number | null>(null);
   
   // Umbral de calidad mínima para procesar - reducido para mejor detección
-  const MIN_QUALITY_THRESHOLD = 5; // Valor muy bajo para permitir detección inicial (antes 10)
+  const MIN_QUALITY_THRESHOLD = 5; // Valor muy bajo para permitir detección inicial
   
   // Variables para sincronización de picos visuales con audio
   const lastReportedPeakTime = useRef<number>(0);
-  const MIN_VISUAL_PEAK_INTERVAL_MS = 400; // Optimizado para detección más precisa (antes 450)
+  const MIN_VISUAL_PEAK_INTERVAL_MS = 430; // Optimizado para mejor sincronización
   
-  // Nuevo: variable para almacenar valores de señal recientes para análisis
+  // Variable para almacenar valores de señal recientes para análisis
   const recentSignalValues = useRef<number[]>([]);
   const MAX_SIGNAL_HISTORY = 20;
   
-  // Nuevo: Ventana deslizante para detección de picos más precisa
+  // Ventana deslizante para detección de picos más precisa
   const signalWindow = useRef<number[]>([]);
-  const SIGNAL_WINDOW_SIZE = 10;
+  const SIGNAL_WINDOW_SIZE = 8; // Reducido para mejor respuesta
   
-  // Nuevo: Umbral adaptativo para detección de picos
+  // Umbral adaptativo para detección de picos
   const peakThreshold = useRef<number>(0.6);
   const peakAmplitude = useRef<number>(0);
+  
+  // Control de picos para evitar duplicados
+  const processingPeakLock = useRef<boolean>(false);
+  const PEAK_LOCK_TIMEOUT_MS = 300; // Bloqueo temporal para evitar picos duplicados
 
   useEffect(() => {
     console.log('useHeartBeatProcessor: Creando nueva instancia de HeartBeatProcessor', {
@@ -142,7 +146,7 @@ export const useHeartBeatProcessor = () => {
     let enhancedValue = value;
     let isPeakCandidate = false;
     
-    if (signalWindow.current.length >= 5) {
+    if (signalWindow.current.length >= 4) { // Reducido para respuesta más rápida
       // Calcular estadísticas de ventana actual
       const windowValues = [...signalWindow.current];
       const currentValue = windowValues[windowValues.length - 1];
@@ -153,21 +157,21 @@ export const useHeartBeatProcessor = () => {
       const increaseFactor = currentValue / (maxPrevValue > 0 ? maxPrevValue : 0.1);
       
       // Actualizar umbral adaptativo basado en la amplitud de señal reciente
-      if (recentSignalValues.current.length > 10) {
+      if (recentSignalValues.current.length > 8) { // Reducido para respuesta más rápida
         const recentMax = Math.max(...recentSignalValues.current);
         const recentMin = Math.min(...recentSignalValues.current);
         const range = recentMax - recentMin;
         
         // Ajustar amplificación según rango de señal
         if (range > 0.1) {
-          peakAmplificationFactor.current = Math.min(5.0, 3.0 + range * 5);
-          peakThreshold.current = Math.max(0.4, Math.min(0.8, range * 2));
+          peakAmplificationFactor.current = Math.min(5.5, 3.0 + range * 5);
+          peakThreshold.current = Math.max(0.4, Math.min(0.8, range * 1.8)); // Más sensible
         }
       }
       
       // Actualizar amplitud de pico observada
       if (currentValue > peakAmplitude.current) {
-        peakAmplitude.current = currentValue * 0.8 + peakAmplitude.current * 0.2; // Actualización suavizada
+        peakAmplitude.current = currentValue * 0.9 + peakAmplitude.current * 0.1; // Actualización más rápida
       } else {
         peakAmplitude.current = currentValue * 0.1 + peakAmplitude.current * 0.9; // Decae lentamente
       }
@@ -190,48 +194,60 @@ export const useHeartBeatProcessor = () => {
     // Actualizar el estado de calidad de señal
     setSignalQuality(currentQuality);
 
-    // Aplicar efecto látigo a los picos con detección mejorada
+    // Aplicar efecto látigo a los picos con detección mejorada y sincronización con audio
     let enhancedValue2 = value;
-    let isPeak = result.isPeak;
+    let isPeak = false; // Por defecto asumimos que no hay pico
     
-    // Filtrado para sincronizar picos visuales con picos de audio
+    // PASO 1: Verificar si tenemos un pico real del procesador
     if (result.isPeak) {
-      // Verificar si el pico está lo suficientemente espaciado del último pico reportado
-      const timeSinceLastReportedPeak = now - lastReportedPeakTime.current;
-      
-      if (timeSinceLastReportedPeak >= MIN_VISUAL_PEAK_INTERVAL_MS) {
-        // Amplificar significativamente el pico para un efecto más pronunciado
-        enhancedValue2 = value * peakAmplificationFactor.current;
-        lastPeakTime.current = now;
-        lastReportedPeakTime.current = now;
+      // Verificar bloqueo de procesamiento para evitar duplicados
+      if (!processingPeakLock.current) {
+        // Verificar si el pico está suficientemente espaciado del último pico reportado
+        const timeSinceLastReportedPeak = now - lastReportedPeakTime.current;
         
-        // Este es un pico válido que debe mostrarse
-        isPeak = true;
-        
-        console.log('useHeartBeatProcessor: Pico válido detectado', {
-          value,
-          enhancedValue: enhancedValue2,
-          timeSinceLastPeak: timeSinceLastReportedPeak,
-          timestamp: new Date().toISOString()
-        });
+        if (timeSinceLastReportedPeak >= MIN_VISUAL_PEAK_INTERVAL_MS) {
+          // Iniciar bloqueo para evitar picos duplicados
+          processingPeakLock.current = true;
+          setTimeout(() => {
+            processingPeakLock.current = false;
+          }, PEAK_LOCK_TIMEOUT_MS);
+          
+          // Amplificar significativamente el pico para efecto más pronunciado
+          enhancedValue2 = value * peakAmplificationFactor.current;
+          lastPeakTime.current = now;
+          lastReportedPeakTime.current = now;
+          
+          // Este es un pico válido que debe mostrarse
+          isPeak = true;
+          
+          console.log('useHeartBeatProcessor: Pico válido detectado', {
+            value,
+            enhancedValue: enhancedValue2,
+            timeSinceLastPeak: timeSinceLastReportedPeak,
+            timestamp: new Date().toISOString()
+          });
+        } else {
+          // Este es un pico demasiado cercano al anterior, lo ignoramos visualmente
+          // pero mantenemos el procesamiento de audio
+          isPeak = false;
+          
+          console.log('useHeartBeatProcessor: Pico ignorado (demasiado cercano)', {
+            value,
+            timeSinceLastPeak: timeSinceLastReportedPeak,
+            timestamp: new Date().toISOString()
+          });
+        }
       } else {
-        // Este es un pico demasiado cercano al anterior, lo ignoramos visualmente
-        // pero mantenemos el procesamiento de audio
-        isPeak = false;
-        
-        console.log('useHeartBeatProcessor: Pico ignorado (demasiado cercano)', {
-          value,
-          timeSinceLastPeak: timeSinceLastReportedPeak,
-          timestamp: new Date().toISOString()
-        });
+        console.log('useHeartBeatProcessor: Pico bloqueado por procesamiento previo');
       }
     } else if (lastPeakTime.current) {
+      // PASO 2: Aplicar efecto látigo si no es un pico pero estamos cerca de uno
       // Calcular tiempo desde el último pico
       const timeSincePeak = now - lastPeakTime.current;
       
       // Aplicar caída progresiva para efecto látigo (más rápido al inicio, luego más lento)
-      if (timeSincePeak < 250) { // 250ms de caída rápida (antes 300)
-        const decayFactor = Math.pow(peakDecayRate.current, timeSincePeak / 20); // Más rápido (antes 30)
+      if (timeSincePeak < 220) { // 220ms de caída rápida (antes 250)
+        const decayFactor = Math.pow(peakDecayRate.current, timeSincePeak / 15); // Más rápido
         enhancedValue2 = value * (1 + (peakAmplificationFactor.current - 1) * decayFactor);
       }
     }

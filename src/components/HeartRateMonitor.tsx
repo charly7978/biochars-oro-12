@@ -19,10 +19,12 @@ const HeartRateMonitor = ({
 }: HeartRateMonitorProps) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const historyRef = useRef<number[]>([]);
-  const maxHistoryLength = 100; // Points to display
+  const maxHistoryLength = 100; // Puntos a mostrar
   const peakMarkerRef = useRef<boolean[]>([]);
+  const lastPeakTimeRef = useRef<number | null>(null);
+  const MIN_PEAK_INTERVAL_MS = 300; // Intervalo mínimo entre picos para evitar duplicados
   
-  // Track the animation state for whip effect
+  // Control de animación para efecto látigo
   const animationRef = useRef<{
     isAnimating: boolean;
     startTime: number;
@@ -32,43 +34,69 @@ const HeartRateMonitor = ({
   }>({
     isAnimating: false,
     startTime: 0,
-    duration: 200, // Faster whip animation (was 250ms)
+    duration: 180, // Animación más rápida para mejor sincronización
     startValue: 0,
     targetValue: 0
   });
 
-  // Add the new value to history with improved peak handling
+  // Añadir nuevo valor al historial con mejor manejo de picos
   useEffect(() => {
-    // Normalize the value between 0-1 for easier scaling
+    // Normalizar el valor entre 0-1 para facilitar escalado
     const normalizedValue = Math.max(0, Math.min(1, Math.abs(value) / 100));
     
-    // Apply amplification for peaks to make them more prominent and more consistent
-    const amplifiedValue = isPeak 
-      ? normalizedValue * 4.5 // Increased amplification for peaks (was 3.5)
-      : normalizedValue * 0.6; // Reduce non-peaks more for better contrast (was 0.8)
+    // Verificar si este es un pico válido (evitar picos muy cercanos)
+    const now = Date.now();
+    let validPeak = isPeak;
     
-    // Add to history
+    if (isPeak && lastPeakTimeRef.current) {
+      const timeSinceLastPeak = now - lastPeakTimeRef.current;
+      if (timeSinceLastPeak < MIN_PEAK_INTERVAL_MS) {
+        // Ignorar picos demasiado cercanos
+        validPeak = false;
+        console.log("HeartRateMonitor: Ignorando pico demasiado cercano", {
+          timeSinceLastPeak,
+          threshold: MIN_PEAK_INTERVAL_MS
+        });
+      }
+    }
+    
+    if (validPeak) {
+      lastPeakTimeRef.current = now;
+    }
+    
+    // Aplicar amplificación para picos
+    const amplifiedValue = validPeak 
+      ? normalizedValue * 5.5 // Mayor amplificación para picos confirmados
+      : normalizedValue * 0.5; // Reducir no-picos para mejor contraste
+    
+    // Añadir al historial
     historyRef.current.push(amplifiedValue);
-    peakMarkerRef.current.push(isPeak);
+    peakMarkerRef.current.push(validPeak);
     
-    // Keep history at desired length
+    // Mantener historial en longitud deseada
     if (historyRef.current.length > maxHistoryLength) {
       historyRef.current.shift();
       peakMarkerRef.current.shift();
     }
     
-    // Start whip effect animation if this is a peak
-    if (isPeak && showWhipEffect) {
+    // Iniciar efecto látigo si es un pico válido
+    if (validPeak && showWhipEffect) {
       animationRef.current = {
         isAnimating: true,
         startTime: Date.now(),
-        duration: 200, // Faster animation for more responsive feel
+        duration: 180, // Más rápido para mejor sincronización
         startValue: amplifiedValue,
-        targetValue: amplifiedValue * 0.2 // Even more dramatic drop (was 0.3)
+        targetValue: amplifiedValue * 0.1 // Caída más dramática
       };
+      
+      console.log("HeartRateMonitor: Pico válido con efecto látigo detectado", {
+        valor: amplifiedValue.toFixed(2),
+        isPeak: validPeak,
+        timestamp: now
+      });
     }
     
-    // Draw the updated signal
+    // Dibujar la señal actualizada
     drawSignal();
     
   }, [value, isPeak, showWhipEffect]);
@@ -80,95 +108,95 @@ const HeartRateMonitor = ({
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
     
-    // Clear canvas
+    // Limpiar canvas
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     
-    // Set up styles
-    ctx.lineWidth = 4; // Thicker line for better visibility (was 3)
+    // Establecer estilos
+    ctx.lineWidth = 5; // Línea más gruesa para mejor visibilidad
     ctx.lineJoin = 'round';
     
-    // Use quality to determine color with improved contrast
+    // Usar calidad para determinar color con mejor contraste
     let signalColor;
     if (quality >= 80) {
-      signalColor = '#ef4444'; // Bright red for good quality
+      signalColor = '#ef4444'; // Rojo brillante para buena calidad
     } else if (quality >= 50) {
-      signalColor = '#f97316'; // Orange for medium quality
+      signalColor = '#f97316'; // Naranja para calidad media
     } else if (quality >= 20) {
-      signalColor = '#eab308'; // Yellow for low quality
+      signalColor = '#eab308'; // Amarillo para calidad baja
     } else {
-      signalColor = '#6b7280'; // Gray for very poor quality
+      signalColor = '#6b7280'; // Gris para calidad muy baja
     }
     
     ctx.strokeStyle = signalColor;
     
-    // Calculate width for each point
+    // Calcular ancho para cada punto
     const pointWidth = canvas.width / maxHistoryLength;
     
-    // Start drawing from bottom of last point
+    // Comenzar a dibujar desde la parte inferior del último punto
     ctx.beginPath();
     ctx.moveTo(0, canvas.height);
     
-    // Draw the signal as vertical lines (peaks) rather than a continuous wave
+    // Dibujar la señal como líneas verticales (picos) en lugar de una onda continua
     historyRef.current.forEach((point, index) => {
       const x = index * pointWidth;
       const isPeakPoint = peakMarkerRef.current[index];
       
-      // For peak points, draw taller lines with potential whip effect
+      // Para puntos de pico, dibujar líneas más altas con posible efecto látigo
       if (isPeakPoint) {
-        // Calculate peak height with potential whip effect animation
-        let peakHeight = canvas.height - (point * canvas.height * 0.98); // Higher peaks (was 0.95)
+        // Calcular altura de pico con potencial efecto látigo
+        let peakHeight = canvas.height - (point * canvas.height * 0.98); // Picos más altos
         
-        // Apply whip effect if we're still in animation for this peak
+        // Aplicar efecto látigo si estamos aún en animación para este pico
         if (animationRef.current.isAnimating) {
           const elapsed = Date.now() - animationRef.current.startTime;
           const progress = Math.min(1, elapsed / animationRef.current.duration);
           
-          // Non-linear easing for whip effect - even faster initial movement
-          const easeOutQuint = 1 - Math.pow(1 - progress, 8); // Increased power for more dramatic whip (was 6)
+          // Efecto no lineal para efecto látigo - movimiento inicial más rápido
+          const easeOutQuint = 1 - Math.pow(1 - progress, 8); // Aumentado para efecto más dramático
           
-          // Apply the animation effect
+          // Aplicar el efecto de animación
           const animatedPoint = animationRef.current.startValue - 
             (animationRef.current.startValue - animationRef.current.targetValue) * easeOutQuint;
           
-          // Use the animated value for the latest points
+          // Usar el valor animado para los últimos puntos
           if (index >= historyRef.current.length - 5) {
             peakHeight = canvas.height - (animatedPoint * canvas.height * 0.98);
           }
           
-          // End animation when complete
+          // Finalizar animación cuando completa
           if (progress >= 1) {
             animationRef.current.isAnimating = false;
           }
         }
         
-        // Draw vertical peak line
+        // Dibujar línea vertical de pico
         ctx.lineTo(x, peakHeight);
         
-        // Draw even sharper peak (minimal plateau)
-        ctx.lineTo(x + pointWidth * 0.1, peakHeight); // Shorter plateau (was 0.15)
+        // Dibujar pico más afilado (meseta mínima)
+        ctx.lineTo(x + pointWidth * 0.1, peakHeight); // Meseta más corta
         
-        // Return back down
+        // Volver hacia abajo
         ctx.lineTo(x + pointWidth, canvas.height);
       } else {
-        // For non-peak points, draw much smaller vertical lines
-        const baselineHeight = canvas.height - (point * canvas.height * 0.2); // Even flatter baseline (was 0.25)
+        // Para puntos que no son picos, dibujar líneas verticales mucho más pequeñas
+        const baselineHeight = canvas.height - (point * canvas.height * 0.15); // Línea base aún más plana
         
-        // Draw smaller vertical line
+        // Dibujar línea vertical más pequeña
         ctx.lineTo(x, baselineHeight);
         ctx.lineTo(x + pointWidth, canvas.height);
       }
     });
     
-    // Close the path and stroke
+    // Cerrar el trazado y trazar
     ctx.stroke();
     
-    // Draw peak markers with improved visibility
+    // Dibujar marcadores de pico con mejor visibilidad
     ctx.fillStyle = '#ef4444';
     peakMarkerRef.current.forEach((isPeakPoint, index) => {
       if (isPeakPoint) {
         const x = index * pointWidth;
         const point = historyRef.current[index];
-        const dotSize = 8; // Larger dots for better visibility (was 6)
+        const dotSize = 9; // Puntos más grandes para mejor visibilidad
         const yPos = canvas.height - (point * canvas.height * 0.98);
         ctx.beginPath();
         ctx.arc(x, yPos, dotSize, 0, Math.PI * 2);

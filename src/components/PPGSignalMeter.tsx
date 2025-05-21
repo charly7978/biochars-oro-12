@@ -39,7 +39,9 @@ const PPGSignalMeter = ({
   const peaksRef = useRef<{time: number, value: number, isArrhythmia: boolean}[]>([]);
   const [showArrhythmiaAlert, setShowArrhythmiaAlert] = useState(false);
   const gridCanvasRef = useRef<HTMLCanvasElement | null>(null);
-  const lastConfirmedPeakRef = useRef<number>(0); // Nuevo ref para controlar tiempos entre picos
+  const lastConfirmedPeakRef = useRef<number>(0); // Ref para controlar tiempos entre picos
+  const lastPeakLockRef = useRef<boolean>(false); // Nuevo ref para evitar picos duplicados
+  const peakLockTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const WINDOW_WIDTH_MS = 2900;
   const CANVAS_WIDTH = 1000;
@@ -51,9 +53,10 @@ const PPGSignalMeter = ({
   const TARGET_FPS = 60;
   const FRAME_TIME = 1000 / TARGET_FPS;
   const BUFFER_SIZE = 600;
-  const PEAK_DETECTION_WINDOW = 8;
-  const PEAK_THRESHOLD = 3;
-  const MIN_PEAK_DISTANCE_MS = 300; // Aumentado desde 300ms a 450ms para mejor sincronización con audio
+  const PEAK_DETECTION_WINDOW = 7; // Reducido para mejor respuesta
+  const PEAK_THRESHOLD = 2.8; // Ajustado para mejor sensibilidad
+  const MIN_PEAK_DISTANCE_MS = 430; // Sincronizado con el intervalo de audio para coherencia
+  const PEAK_LOCK_TIMEOUT_MS = 300; // Tiempo de bloqueo para evitar picos duplicados
   const IMMEDIATE_RENDERING = true;
   const MAX_PEAKS_TO_DISPLAY = 25;
 
@@ -153,6 +156,11 @@ const PPGSignalMeter = ({
   const detectPeaks = useCallback((points: PPGDataPoint[], now: number) => {
     if (points.length < PEAK_DETECTION_WINDOW) return;
     
+    // Si hay un bloqueo activo, no detectar nuevos picos
+    if (lastPeakLockRef.current) {
+      return;
+    }
+    
     const potentialPeaks: {index: number, value: number, time: number, isArrhythmia: boolean}[] = [];
     
     for (let i = PEAK_DETECTION_WINDOW; i < points.length - PEAK_DETECTION_WINDOW; i++) {
@@ -211,6 +219,18 @@ const PPGSignalMeter = ({
       );
       
       if (!tooClose) {
+        // Activar bloqueo para evitar picos duplicados
+        lastPeakLockRef.current = true;
+        
+        // Configurar temporizador para liberar el bloqueo
+        if (peakLockTimeoutRef.current) {
+          clearTimeout(peakLockTimeoutRef.current);
+        }
+        
+        peakLockTimeoutRef.current = setTimeout(() => {
+          lastPeakLockRef.current = false;
+        }, PEAK_LOCK_TIMEOUT_MS);
+        
         peaksRef.current.push({
           time: peak.time,
           value: peak.value,
@@ -378,6 +398,9 @@ const PPGSignalMeter = ({
       if (animationFrameRef.current) {
         cancelAnimationFrame(animationFrameRef.current);
       }
+      if (peakLockTimeoutRef.current) {
+        clearTimeout(peakLockTimeoutRef.current);
+      }
     };
   }, [renderSignal]);
 
@@ -396,6 +419,10 @@ const PPGSignalMeter = ({
   const handleReset = useCallback(() => {
     setShowArrhythmiaAlert(false);
     peaksRef.current = [];
+    lastPeakLockRef.current = false;
+    if (peakLockTimeoutRef.current) {
+      clearTimeout(peakLockTimeoutRef.current);
+    }
     onReset();
   }, [onReset]);
 
