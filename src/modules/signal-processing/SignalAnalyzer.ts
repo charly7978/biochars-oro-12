@@ -1,3 +1,4 @@
+
 import { ProcessedSignal } from '../../types/signal';
 import { DetectorScores, DetectionResult } from './types';
 
@@ -35,6 +36,11 @@ export class SignalAnalyzer {
   private calibrationSamples: number[] = [];
   private readonly CALIBRATION_SAMPLE_SIZE = 20;
   private adaptiveThreshold: number = 0.1; // Umbral inicial que se ajustará (más estricto)
+  
+  // Nuevas propiedades para mejorar la visualización de picos
+  private peakAmplificationFactor: number = 2.5; // Factor de amplificación para picos
+  private peakSharpness: number = 0.8; // Factor de nitidez para picos (0-1)
+  private whipEffect: number = 1.5; // Factor de efecto látigo
   
   constructor(config: { 
     QUALITY_LEVELS: number;
@@ -155,6 +161,21 @@ export class SignalAnalyzer {
     
     // Limpiar muestras de calibración
     this.calibrationSamples = [];
+  }
+
+  // Nuevo método para amplificar picos con efecto látigo
+  enhanceSignalPeaks(value: number, isPeak: boolean): number {
+    // Si es un pico, aplicamos una amplificación mayor con efecto de látigo
+    if (isPeak) {
+      // Aplicar amplificación de pico con efecto látigo
+      // Esto crea un movimiento rápido inicial seguido de una caída más lenta
+      return value * this.peakAmplificationFactor * this.whipEffect;
+    } else {
+      // Si no es un pico, mantener el valor pero con ligera nitidez
+      const baselineValue = value * (1 + this.peakSharpness * 0.3);
+      // Aplicar una ligera atenuación en valores no pico para aumentar contraste
+      return baselineValue * 0.9;
+    }
   }
 
   // LÓGICA ULTRA-SIMPLIFICADA: solo detecta dedo si el canal rojo supera un umbral adaptativo

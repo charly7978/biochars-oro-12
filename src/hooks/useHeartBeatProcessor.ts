@@ -24,6 +24,10 @@ export const useHeartBeatProcessor = () => {
   // Variables para seguimiento de detección
   const detectionAttempts = useRef<number>(0);
   const lastDetectionTime = useRef<number>(Date.now());
+  // Variables para efecto látigo en picos
+  const peakAmplificationFactor = useRef<number>(2.8); // Factor de amplificación para picos (mayor)
+  const peakDecayRate = useRef<number>(0.85); // Velocidad de caída para efecto látigo
+  const lastPeakTime = useRef<number | null>(null);
   
   // Umbral de calidad mínima para procesar - muy reducido para mejorar detección inicial
   const MIN_QUALITY_THRESHOLD = 10; // Valor muy bajo para permitir detección inicial
@@ -123,10 +127,31 @@ export const useHeartBeatProcessor = () => {
     // Actualizar el estado de calidad de señal
     setSignalQuality(currentQuality);
 
+    // Aplicar efecto látigo a los picos
+    let enhancedValue = value;
+    if (result.isPeak) {
+      // Amplificar significativamente el pico para un efecto más pronunciado
+      enhancedValue = value * peakAmplificationFactor.current;
+      lastPeakTime.current = now;
+    } else if (lastPeakTime.current) {
+      // Calcular tiempo desde el último pico
+      const timeSincePeak = now - lastPeakTime.current;
+      
+      // Aplicar caída progresiva para efecto látigo (más rápido al inicio, luego más lento)
+      if (timeSincePeak < 300) { // 300ms de caída rápida
+        const decayFactor = Math.pow(peakDecayRate.current, timeSincePeak / 30);
+        enhancedValue = value * (1 + (peakAmplificationFactor.current - 1) * decayFactor);
+      }
+    }
+    
+    // Actualizar el valor filtrado con nuestro valor amplificado
+    result.filteredValue = enhancedValue;
+
     console.log('useHeartBeatProcessor - resultado:', {
       bpm: result.bpm,
       confidence: result.confidence,
       isPeak: result.isPeak,
+      enhancedValue: enhancedValue,
       arrhythmiaCount: result.arrhythmiaCount,
       signalQuality: currentQuality,
       rrIntervals: JSON.stringify(rrData.intervals.slice(-5)),
@@ -162,6 +187,7 @@ export const useHeartBeatProcessor = () => {
         bpm: currentBPM, // Mantener último valor conocido brevemente
         confidence: Math.max(0, confidence - 0.1), // Reducir gradualmente
         isPeak: false,
+        filteredValue: enhancedValue, // Usar valor mejorado
         arrhythmiaCount: 0,
         signalQuality: currentQuality,
         rrData: {
@@ -191,6 +217,7 @@ export const useHeartBeatProcessor = () => {
 
     return {
       ...result,
+      filteredValue: enhancedValue, // Usar valor mejorado
       signalQuality: currentQuality,
       rrData
     };
