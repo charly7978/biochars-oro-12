@@ -53,7 +53,7 @@ const PPGSignalMeter = ({
   const BUFFER_SIZE = 600;
   const PEAK_DETECTION_WINDOW = 8;
   const PEAK_THRESHOLD = 3;
-  const MIN_PEAK_DISTANCE_MS = 450; // Aumentado desde 300ms a 450ms para mejor sincronización con audio
+  const MIN_PEAK_DISTANCE_MS = 300; // Aumentado desde 300ms a 450ms para mejor sincronización con audio
   const IMMEDIATE_RENDERING = true;
   const MAX_PEAKS_TO_DISPLAY = 25;
 
