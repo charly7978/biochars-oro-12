@@ -19,8 +19,8 @@ export class SignalProcessor {
   private baselineValue: number = 0;
   
   // PARÁMETROS DE SENSIBILIDAD EXTREMA MEJORADOS
-  private readonly PEAK_ENHANCEMENT = 5.0; // Factor de amplificación extremo para picos (antes 3.5)
-  private readonly MIN_SIGNAL_BOOST = 12.0; // Amplificación máxima para señales débiles (antes 8.0)
+  private readonly PEAK_ENHANCEMENT = 6.0; // Factor de amplificación extremo para picos (antes 3.5)
+  private readonly MIN_SIGNAL_BOOST = 14.0; // Amplificación máxima para señales débiles (antes 8.0)
   private readonly ADAPTIVE_GAIN_ENABLED = true; // Mantener activada ganancia adaptativa
   private readonly NOISE_SUPPRESSION = 0.7; // Supresión de ruido más agresiva pero no excesiva (antes 0.8)
   
@@ -45,7 +45,7 @@ export class SignalProcessor {
    */
   public applySMAFilter(value: number): number {
     // NUEVO: Amplificación inicial para garantizar señal mínima detectable
-    value = value * 1.5 + 2;
+    value = value * 1.9 + 3;
     
     // Añadir valor al buffer
     this.ppgValues.push(value);
