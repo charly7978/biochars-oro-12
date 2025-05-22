@@ -1,3 +1,4 @@
+
 import { FrameData } from './types';
 import { ProcessedSignal } from '../../types/signal';
 
@@ -21,6 +22,11 @@ export class FrameProcessor {
   // Nuevo: historial de ROIs para estabilidad
   private roiHistory: Array<{x: number, y: number, width: number, height: number}> = [];
   private readonly ROI_HISTORY_SIZE = 5;
+  
+  // Nuevo: mejorar detección de bordes para cámara trasera
+  private edgeHistory: number[] = [];
+  private readonly EDGE_HISTORY_SIZE = 10;
+  private lastMaxEdge: number = 0;
   
   constructor(config: { TEXTURE_GRID_SIZE: number, ROI_SIZE_FACTOR: number }) {
     // Aumentar tamaño de ROI para capturar más área
@@ -55,7 +61,7 @@ export class FrameProcessor {
       cells.push({ red: 0, green: 0, blue: 0, count: 0, edgeScore: 0 });
     }
     
-    // Edge detection matrices - Kernel mejorado
+    // Edge detection matrices - Kernel mejorado para detección de dedos
     const edgeDetectionMatrix = [
       [-1, -2, -1],
       [-2,  12, -2], // Valor central incrementado para mejor detección
@@ -126,6 +132,27 @@ export class FrameProcessor {
       this.lastLightLevel = avgLuminance;
     } else {
       this.lastLightLevel = this.lastLightLevel * 0.7 + avgLuminance * 0.3;
+    }
+    
+    // Nuevo: calcular valor de detección de bordes para análisis de dedo
+    let edgeDetectionValue = 0;
+    if (edgeValues.length > 0) {
+      // Ordenamos para tomar el percentil 90 (ignoramos outliers)
+      const sortedEdges = [...edgeValues].sort((a, b) => a - b);
+      const p90Index = Math.floor(sortedEdges.length * 0.9);
+      const p90Edge = sortedEdges[p90Index];
+      
+      // Actualizar max edge con suavizado
+      this.lastMaxEdge = this.lastMaxEdge * 0.7 + p90Edge * 0.3;
+      
+      // Guardar en historial
+      this.edgeHistory.push(p90Edge);
+      if (this.edgeHistory.length > this.EDGE_HISTORY_SIZE) {
+        this.edgeHistory.shift();
+      }
+      
+      // Calcular valor normalizado de detección de bordes
+      edgeDetectionValue = this.calculateEdgeDetectionValue();
     }
     
     // Calculate texture (variation between cells) with physiological constraints
@@ -200,7 +227,8 @@ export class FrameProcessor {
         rToBRatio: 1.2,
         avgRed: 5,
         avgGreen: 4,
-        avgBlue: 4
+        avgBlue: 4,
+        edgeValue: 0 // Valor de borde predeterminado
       };
     }
     
@@ -241,6 +269,7 @@ export class FrameProcessor {
       lightLevel: this.lastLightLevel.toFixed(1),
       lightQuality: lightLevelFactor.toFixed(2),
       dynamicGain: dynamicGain.toFixed(2),
+      edgeDetection: edgeDetectionValue.toFixed(3),
       pixelCount,
       frameSize: `${imageData.width}x${imageData.height}`,
       roiSize: `${roiSize.toFixed(1)}`
@@ -253,8 +282,26 @@ export class FrameProcessor {
       avgBlue,
       textureScore,
       rToGRatio,
-      rToBRatio
+      rToBRatio,
+      edgeValue: edgeDetectionValue // Nuevo: añadir valor de detección de bordes
     };
+  }
+  
+  // Nuevo: calcular valor de detección de bordes
+  private calculateEdgeDetectionValue(): number {
+    if (this.edgeHistory.length === 0) return 0;
+    
+    // Calcular mediana en lugar de media para mayor robustez
+    const sortedValues = [...this.edgeHistory].sort((a, b) => a - b);
+    const medianIndex = Math.floor(sortedValues.length / 2);
+    const median = sortedValues.length % 2 === 0 
+      ? (sortedValues[medianIndex - 1] + sortedValues[medianIndex]) / 2
+      : sortedValues[medianIndex];
+    
+    // Normalizar a un rango 0-1 con ganancia adaptativa
+    const normalizedValue = Math.min(1.0, median * 3.5);
+    
+    return normalizedValue;
   }
   
   /**
@@ -332,3 +379,4 @@ export class FrameProcessor {
     return newROI;
   }
 }
+

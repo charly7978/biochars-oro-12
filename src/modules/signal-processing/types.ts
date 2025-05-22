@@ -1,5 +1,37 @@
 
-import { ProcessedSignal, ProcessingError } from '../../types/signal';
+export interface DetectorScores {
+  redChannel: number;
+  stability: number;
+  pulsatility: number;
+  biophysical: number;
+  periodicity: number;
+  textureScore?: number;
+}
+
+export interface DetectionResult {
+  isFingerDetected: boolean;
+  quality: number;
+  detectorDetails: DetectorScores & {
+    avgQuality: number;
+    consecutiveDetections: number;
+    consecutiveNoDetections: number;
+    rearCamera?: boolean;
+    fingerBorderDetected?: boolean;
+    edgeScore?: number;
+    textureConsistency?: number;
+  };
+}
+
+export interface FrameData {
+  redValue: number;
+  textureScore: number;
+  rToGRatio: number;
+  rToBRatio: number;
+  avgRed?: number;
+  avgGreen?: number;
+  avgBlue?: number;
+  edgeValue?: number; // Nuevo: valor de detección de bordes
+}
 
 export interface SignalProcessorConfig {
   BUFFER_SIZE: number;
@@ -15,37 +47,4 @@ export interface SignalProcessorConfig {
   CALIBRATION_SAMPLES: number;
   TEXTURE_GRID_SIZE: number;
   ROI_SIZE_FACTOR: number;
-}
-
-export interface CalibrationValues {
-  baselineRed: number;
-  baselineVariance: number;
-  minRedThreshold: number;
-  maxRedThreshold: number;
-  isCalibrated: boolean;
-}
-
-export interface DetectorScores {
-  redChannel: number;
-  stability: number;
-  pulsatility: number;
-  biophysical: number;
-  periodicity: number;
-  [key: string]: number;
-}
-
-export interface FrameData {
-  redValue: number;
-  avgRed?: number;
-  avgGreen?: number;
-  avgBlue?: number;
-  textureScore: number;
-  rToGRatio: number;
-  rToBRatio: number;
-}
-
-export interface DetectionResult {
-  isFingerDetected: boolean;
-  quality: number;
-  detectorDetails: Record<string, number | string>;
 }
