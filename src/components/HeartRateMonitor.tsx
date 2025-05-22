@@ -1,3 +1,4 @@
+
 import React, { useEffect, useRef } from 'react';
 import { cn } from "@/lib/utils";
 
@@ -21,7 +22,7 @@ const HeartRateMonitor = ({
   const maxHistoryLength = 100; // Puntos a mostrar
   const peakMarkerRef = useRef<boolean[]>([]);
   const lastPeakTimeRef = useRef<number | null>(null);
-  const MIN_PEAK_INTERVAL_MS = 300; // Intervalo mínimo entre picos para evitar duplicados
+  const MIN_PEAK_INTERVAL_MS = 350; // Intervalo mínimo entre picos para evitar duplicados
   
   // Control de animación para efecto látigo
   const animationRef = useRef<{
@@ -33,7 +34,7 @@ const HeartRateMonitor = ({
   }>({
     isAnimating: false,
     startTime: 0,
-    duration: 180, // Animación más rápida para mejor sincronización
+    duration: 150, // Animación más rápida para mejor sincronización con audio
     startValue: 0,
     targetValue: 0
   });
@@ -57,12 +58,15 @@ const HeartRateMonitor = ({
     
     if (validPeak) {
       lastPeakTimeRef.current = now;
+      console.log("HeartRateMonitor: Pico visual confirmado", { 
+        time: new Date(now).toISOString().substr(11, 12)
+      });
     }
     
-    // Aplicar amplificación para picos
+    // Aplicar amplificación para picos - más contraste para mejor visibilidad
     const amplifiedValue = validPeak 
-      ? normalizedValue * 5.5 // Mayor amplificación para picos confirmados
-      : normalizedValue * 0.5; // Reducir no-picos para mejor contraste
+      ? normalizedValue * 6.5 // Mayor amplificación para picos confirmados
+      : normalizedValue * 0.4; // Reducir no-picos para mejor contraste
     
     // Añadir al historial
     historyRef.current.push(amplifiedValue);
@@ -79,9 +83,9 @@ const HeartRateMonitor = ({
       animationRef.current = {
         isAnimating: true,
         startTime: Date.now(),
-        duration: 180, // Más rápido para mejor sincronización
+        duration: 150, // Más rápido para mejor sincronización
         startValue: amplifiedValue,
-        targetValue: amplifiedValue * 0.1 // Caída más dramática
+        targetValue: amplifiedValue * 0.15 // Caída más dramática
       };
     }
     
