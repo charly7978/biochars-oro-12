@@ -9,11 +9,11 @@ export class SavitzkyGolayFilter {
   private buffer: number[] = [];
   private readonly windowSize: number;
 
-  constructor(windowSize: number = 7) { // Reduced window size for less filtering (was 9)
-    // Coeficientes para ventana de 7 puntos (polinomio de grado 2) - más sensible
+  constructor(windowSize: number = 5) { // Reduced window size from 7 to 5 for less filtering
+    // Coeficientes para ventana de 5 puntos (polinomio de grado 2) - mucho más sensible
     this.windowSize = windowSize;
-    this.coefficients = [0.05, 0.15, 0.25, 0.3, 0.25, 0.15, 0.05]; // Less aggressive coefficients
-    this.normFactor = 1.2; // Reduced normalization factor to preserve more signal (was 1.405)
+    this.coefficients = [0.1, 0.2, 0.4, 0.2, 0.1]; // Even less aggressive coefficients
+    this.normFactor = 1.0; // Reduced normalization factor to preserve more signal (was 1.2)
     this.buffer = new Array(windowSize).fill(0);
   }
 
