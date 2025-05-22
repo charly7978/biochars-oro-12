@@ -48,3 +48,11 @@ export interface SignalProcessorConfig {
   TEXTURE_GRID_SIZE: number;
   ROI_SIZE_FACTOR: number;
 }
+
+export interface CalibrationValues {
+  baselineRed: number;
+  baselineVariance: number;
+  minRedThreshold: number;
+  maxRedThreshold: number;
+  isCalibrated: boolean;
+}
