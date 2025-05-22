@@ -1,53 +1,52 @@
-
 export class HeartBeatProcessor {
   // ────────── CONFIGURACIONES PRINCIPALES (Valores optimizados para precisión médica) ──────────
   private readonly DEFAULT_SAMPLE_RATE = 60;
-  private readonly DEFAULT_WINDOW_SIZE = 30; // Aumentado para mejor análisis (antes 40)
+  private readonly DEFAULT_WINDOW_SIZE = 25; // Reduced window size for faster response (was 30)
   private readonly DEFAULT_MIN_BPM = 30;
   private readonly DEFAULT_MAX_BPM = 220;
-  private readonly DEFAULT_SIGNAL_THRESHOLD = 0.015; // Reducido para mejor sensibilidad (antes 0.02)
-  private readonly DEFAULT_MIN_CONFIDENCE = 0.25; // Reducido para mejor detección (antes 0.30)
-  private readonly DEFAULT_DERIVATIVE_THRESHOLD = -0.004; // Ajustado para mejor sensibilidad (antes -0.005)
-  private readonly DEFAULT_MIN_PEAK_TIME_MS = 250; // Reducido para mayor sensibilidad (antes 300)
-  private readonly WARMUP_TIME_MS = 800; // Reducido para obtener lecturas más rápido (antes 1000)
+  private readonly DEFAULT_SIGNAL_THRESHOLD = 0.008; // Significantly lowered for better sensitivity (was 0.015)
+  private readonly DEFAULT_MIN_CONFIDENCE = 0.15; // Lowered to detect weaker signals (was 0.25)
+  private readonly DEFAULT_DERIVATIVE_THRESHOLD = -0.002; // Less strict threshold (was -0.004)
+  private readonly DEFAULT_MIN_PEAK_TIME_MS = 250; // Kept the same
+  private readonly WARMUP_TIME_MS = 600; // Reduced for faster initial detection (was 800)
 
-  // Parámetros de filtrado ajustados para precisión médica
-  private readonly MEDIAN_FILTER_WINDOW = 5; // Aumentado para más estabilidad (antes 3)
-  private readonly MOVING_AVERAGE_WINDOW = 5; // Aumentado para estabilidad (antes 3)
-  private readonly EMA_ALPHA = 0.45; // Ajustado para mejor equilibrio (antes 0.5)
-  private readonly BASELINE_FACTOR = 0.85; // Ajustado para seguimiento más suave (antes 0.8)
+  // Parámetros de filtrado ajustados para mayor sensibilidad
+  private readonly MEDIAN_FILTER_WINDOW = 3; // Reduced window for less filtering (was 5)
+  private readonly MOVING_AVERAGE_WINDOW = 3; // Reduced window (was 5)
+  private readonly EMA_ALPHA = 0.55; // Increased to be more responsive to new values (was 0.45)
+  private readonly BASELINE_FACTOR = 0.75; // Reduced for faster baseline adaptation (was 0.85)
 
   // Parámetros de beep y vibración
   private readonly BEEP_DURATION = 450; 
   private readonly BEEP_VOLUME = 1.0;
-  private readonly MIN_BEEP_INTERVAL_MS = 500; // Ajustado para prevenir beeps erróneos (antes 600)
+  private readonly MIN_BEEP_INTERVAL_MS = 450; // Reduced to allow detecting faster heart rates (was 500)
   private readonly VIBRATION_PATTERN = [40, 20, 60];
 
   // AUTO-RESET mejorado
-  private readonly LOW_SIGNAL_THRESHOLD = 0; // Deshabilitado auto-reset por baja señal
-  private readonly LOW_SIGNAL_FRAMES = 30; // Aumentado para mayor tolerancia (antes 25)
+  private readonly LOW_SIGNAL_THRESHOLD = 0; // Kept disabled
+  private readonly LOW_SIGNAL_FRAMES = 40; // Increased to be more tolerant (was 30)
   private lowSignalCount = 0;
 
-  // ────────── PARÁMETROS ADAPTATIVOS MÉDICAMENTE VÁLIDOS ──────────
+  // ────────── PARÁMETROS ADAPTATIVOS MÁS SENSIBLES ──────────
   private adaptiveSignalThreshold: number;
   private adaptiveMinConfidence: number;
   private adaptiveDerivativeThreshold: number;
 
-  // Límites para los parámetros adaptativos - Valores médicamente apropiados
-  private readonly MIN_ADAPTIVE_SIGNAL_THRESHOLD = 0.01; // Reducido para mejor sensibilidad (antes 0.05)
-  private readonly MAX_ADAPTIVE_SIGNAL_THRESHOLD = 0.4;
-  private readonly MIN_ADAPTIVE_MIN_CONFIDENCE = 0.35; // Ajustado para equilibrar (antes 0.40)
-  private readonly MAX_ADAPTIVE_MIN_CONFIDENCE = 0.80;
-  private readonly MIN_ADAPTIVE_DERIVATIVE_THRESHOLD = -0.08;
-  private readonly MAX_ADAPTIVE_DERIVATIVE_THRESHOLD = -0.003; // Mejorado para sensibilidad (antes -0.005)
+  // Límites para los parámetros adaptativos - valores más sensibles
+  private readonly MIN_ADAPTIVE_SIGNAL_THRESHOLD = 0.005; // Reduced to detect weak signals (was 0.01)
+  private readonly MAX_ADAPTIVE_SIGNAL_THRESHOLD = 0.3; // Slightly reduced (was 0.4)
+  private readonly MIN_ADAPTIVE_MIN_CONFIDENCE = 0.2; // Lowered for better detection (was 0.35)
+  private readonly MAX_ADAPTIVE_MIN_CONFIDENCE = 0.7; // Lowered max confidence (was 0.8)
+  private readonly MIN_ADAPTIVE_DERIVATIVE_THRESHOLD = -0.06; // Less extreme (was -0.08)
+  private readonly MAX_ADAPTIVE_DERIVATIVE_THRESHOLD = -0.001; // More sensitive (was -0.003)
 
   // ────────── PARÁMETROS PARA PROCESAMIENTO ──────────
-  private readonly SIGNAL_BOOST_FACTOR = 2.2; // Aumentado para mejor amplificación (antes 1.8)
-  private readonly PEAK_DETECTION_SENSITIVITY = 0.7; // Aumentado para mejor detección (antes 0.6)
+  private readonly SIGNAL_BOOST_FACTOR = 3.5; // Significantly increased for stronger amplification (was 2.2)
+  private readonly PEAK_DETECTION_SENSITIVITY = 0.85; // Increased for better detection (was 0.7)
   
   // Control del auto-ajuste
-  private readonly ADAPTIVE_TUNING_PEAK_WINDOW = 8; // Ajustado para adaptarse con más precisión (antes 10)
-  private readonly ADAPTIVE_TUNING_LEARNING_RATE = 0.25; // Aumentado para adaptarse más rápido (antes 0.20)
+  private readonly ADAPTIVE_TUNING_PEAK_WINDOW = 6; // Reduced to adapt faster (was 8)
+  private readonly ADAPTIVE_TUNING_LEARNING_RATE = 0.35; // Increased for faster adaptation (was 0.25)
   
   // Variables internas
   private recentPeakAmplitudes: number[] = [];
@@ -375,7 +374,7 @@ export class HeartBeatProcessor {
    * Amplificación adaptativa de señal - limitada a niveles médicamente válidos
    */
   private boostSignal(value: number): number {
-    if (this.signalBuffer.length < 10) return value * this.SIGNAL_BOOST_FACTOR;
+    if (this.signalBuffer.length < 10) return value * this.SIGNAL_BOOST_FACTOR * 1.5; // Extra boost initially
     
     // Calcular estadísticas de señal reciente
     const recentSignals = this.signalBuffer.slice(-10);
@@ -387,15 +386,15 @@ export class HeartBeatProcessor {
     // Calcular factor de amplificación proporcional a la fuerza de la señal
     let boostFactor = this.SIGNAL_BOOST_FACTOR;
     
-    if (range < 0.8) { // Ajustado para mejor detección en señales débiles (antes 1.0)
-      // Señal débil - amplificar moderadamente
-      boostFactor = this.SIGNAL_BOOST_FACTOR * 2.1; // Más amplificación para señales débiles (antes 1.8)
-    } else if (range < 3.0) {
-      // Señal moderada - amplificar ligeramente
-      boostFactor = this.SIGNAL_BOOST_FACTOR * 1.5; // Ajustado para mejor detección (antes 1.4)
-    } else if (range > 10.0) {
-      // Señal fuerte - no amplificar
-      boostFactor = 1.0;
+    if (range < 0.5) { // Lower threshold to boost more signals (was 0.8)
+      // Señal muy débil - amplificar más agresivamente
+      boostFactor = this.SIGNAL_BOOST_FACTOR * 3.5; // Much stronger boost (was 2.1)
+    } else if (range < 2.0) { // Lower threshold (was 3.0)
+      // Señal débil-moderada - amplificar moderadamente
+      boostFactor = this.SIGNAL_BOOST_FACTOR * 2.5; // Stronger boost (was 1.5)
+    } else if (range > 8.0) { // Lower threshold (was 10.0)
+      // Señal fuerte - amplificación mínima
+      boostFactor = 1.2; // Small amplification instead of none (was 1.0)
     }
     
     // Aplicar amplificación lineal centrada en el promedio
@@ -699,13 +698,11 @@ export class HeartBeatProcessor {
 
   /**
    * Validación de picos basada estrictamente en criterios médicos
-   * para reducir falsos positivos
+   * pero con mayor tolerancia para señales débiles
    */
   private validatePeak(peakValue: number, confidence: number): boolean {
-    // Para simplificar la implementación, vamos a permitir casi todos los picos
-    // que han pasado las etapas anteriores de validación, pero rechazaremos los 
-    // que tienen confianza muy baja
-    return confidence >= this.adaptiveMinConfidence * 0.8; // Permitir ligeramente por debajo del umbral
+    // Reducir umbral para permitir picos más débiles
+    return confidence >= this.adaptiveMinConfidence * 0.6; // More permissive threshold (was 0.8)
   }
 
   private updateBPM() {

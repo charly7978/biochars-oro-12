@@ -1,51 +1,50 @@
-
 /**
  * Enhanced Signal Processor based on advanced biomedical signal processing techniques
  * Implementa algoritmos de detección ultra-sensibles para señales PPG
  */
 export class SignalProcessor {
   // Ajuste: reducimos la ventana del SMA para mayor reactividad
-  private readonly SMA_WINDOW = 2; 
+  private readonly SMA_WINDOW = 1; // Minimal window (was 2)
   private ppgValues: number[] = [];
-  private readonly WINDOW_SIZE = 200; // Reducido para más rápida adaptación (antes 250)
+  private readonly WINDOW_SIZE = 150; // Further reduced for faster adaptation (was 200)
   
-  // Coeficientes de filtrado avanzados basados en investigación de filtros Savitzky-Golay
-  private readonly SG_COEFFS = [0.2, 0.3, 0.5, 0.7, 1.0, 0.7, 0.5, 0.3, 0.2];
-  private readonly SG_NORM = 4.4; // Factor de normalización para coeficientes
+  // Coeficientes de filtrado menos agresivos para preservar más señal
+  private readonly SG_COEFFS = [0.1, 0.2, 0.4, 0.6, 1.0, 0.6, 0.4, 0.2, 0.1]; // Less aggressive filtering
+  private readonly SG_NORM = 3.6; // Lower normalization factor (was 4.4)
   
-  // Parámetros de eliminación de ruido tipo wavelet - VALORES DE SENSIBILIDAD AUMENTADOS
-  private readonly WAVELET_THRESHOLD = 0.003; // Reducido para máxima sensibilidad (antes 0.005)
-  private readonly BASELINE_FACTOR = 0.98; // Incrementado para mejor seguimiento (antes 0.97)
+  // Parámetros de eliminación de ruido tipo wavelet - SENSIBILIDAD EXTREMA
+  private readonly WAVELET_THRESHOLD = 0.0015; // Reduced for extreme sensitivity (was 0.003)
+  private readonly BASELINE_FACTOR = 0.92; // Faster baseline tracking (was 0.98)
   private baselineValue: number = 0;
   
-  // PARÁMETROS DE SENSIBILIDAD EXTREMA MEJORADOS
-  private readonly PEAK_ENHANCEMENT = 5.0; // Factor de amplificación extremo para picos (antes 3.5)
-  private readonly MIN_SIGNAL_BOOST = 12.0; // Amplificación máxima para señales débiles (antes 8.0)
-  private readonly ADAPTIVE_GAIN_ENABLED = true; // Mantener activada ganancia adaptativa
-  private readonly NOISE_SUPPRESSION = 0.7; // Supresión de ruido más agresiva pero no excesiva (antes 0.8)
+  // PARÁMETROS DE SENSIBILIDAD ULTRA-EXTREMA
+  private readonly PEAK_ENHANCEMENT = 6.5; // Significantly increased (was 5.0)
+  private readonly MIN_SIGNAL_BOOST = 18.0; // Significantly increased (was 12.0)
+  private readonly ADAPTIVE_GAIN_ENABLED = true;
+  private readonly NOISE_SUPPRESSION = 0.5; // More aggressive noise suppression (was 0.7)
   
   // Seguimiento de máximos y mínimos para normalización
   private recentMax: number = 0;
   private recentMin: number = 0;
-  private readonly NORMALIZATION_FACTOR = 0.92; // Respuesta más rápida (antes 0.95)
+  private readonly NORMALIZATION_FACTOR = 0.85; // Even faster response (was 0.92)
   
-  // NUEVO: Retroalimentación temporal para mejorar detección de picos
+  // RETROALIMENTACIÓN para mejorar detección de picos
   private peakHistory: number[] = [];
-  private readonly PEAK_HISTORY_SIZE = 10;
-  private readonly PEAK_SIMILARITY_THRESHOLD = 0.4;
+  private readonly PEAK_HISTORY_SIZE = 8; // Reduced (was 10)
+  private readonly PEAK_SIMILARITY_THRESHOLD = 0.3; // Lower threshold for similarity (was 0.4)
   
-  // NUEVO: Estabilización de señal con compensación adaptativa
+  // Estabilización de señal con compensación adaptativa
   private stabilizationBuffer: number[] = [];
-  private readonly STAB_BUFFER_SIZE = 5;
-  private readonly TREND_AMPLIFIER = 2.5;
+  private readonly STAB_BUFFER_SIZE = 3; // Reduced buffer size (was 5)
+  private readonly TREND_AMPLIFIER = 3.5; // Increased trend amplification (was 2.5)
   
   /**
    * Procesamiento principal - ahora con amplificación extrema para señales débiles
    * y mejor preservación de picos cardíacos
    */
   public applySMAFilter(value: number): number {
-    // NUEVO: Amplificación inicial para garantizar señal mínima detectable
-    value = value * 1.5 + 2;
+    // NUEVO: Amplificación inicial extrema para señales débiles
+    value = value * 2.5 + 3; // Significantly increased (was value * 1.5 + 2)
     
     // Añadir valor al buffer
     this.ppgValues.push(value);
@@ -53,19 +52,19 @@ export class SignalProcessor {
       this.ppgValues.shift();
     }
     
-    // MEJORA: Actualizar línea base con respuesta adaptativa
+    // MEJORA: Actualizar línea base con respuesta adaptativa ultrarrápida
     if (this.baselineValue === 0 && this.ppgValues.length > 0) {
       this.baselineValue = value;
     } else {
-      // Adaptación dinámica ultra-rápida
-      const adaptationSpeed = this.detectSignalChange() ? 0.3 : 0.08; // Más rápida (antes 0.2 y 0.05)
+      // Adaptación dinámica extremadamente rápida
+      const adaptationSpeed = this.detectSignalChange() ? 0.5 : 0.15; // Much faster (was 0.3 and 0.08)
       this.baselineValue = this.baselineValue * (1 - adaptationSpeed) + value * adaptationSpeed;
     }
     
-    // Usar SMA como filtro inicial - ahora con estabilización mejorada
+    // Usar SMA como filtro inicial - con estabilización mejorada
     const smaValue = this.calculateStabilizedSMA(value);
     
-    // MEJORA CRÍTICA: Amplificación ultra-potente para señales débiles
+    // AMPLIFICACIÓN ULTRA-EXTREMA para señales débiles
     let amplifiedValue = this.ultraAmplifySignal(smaValue);
     
     // Denoising con umbral adaptativo ultra-bajo
@@ -134,27 +133,27 @@ export class SignalProcessor {
   }
   
   /**
-   * NUEVO: Ultra-amplificación para señales extremadamente débiles
+   * NUEVO: Ultra-amplificación extrema para señales imperceptibles
    */
   private ultraAmplifySignal(value: number): number {
     // Primera fase: amplificación adaptativa estándar
     let amplifiedValue = this.amplifyWeakSignals(value);
     
     // Segunda fase: amplificación extrema para señales que siguen siendo débiles
-    if (this.ppgValues.length >= 10) {
-      const recentValues = this.ppgValues.slice(-10);
+    if (this.ppgValues.length >= 8) { // Reduced requirement (was 10)
+      const recentValues = this.ppgValues.slice(-8);
       const recentRange = Math.max(...recentValues) - Math.min(...recentValues);
       
       // Si el rango sigue siendo muy pequeño después de la primera amplificación
-      if (recentRange < 5) {
+      if (recentRange < 3) { // Lower threshold (was 5)
         const normalizedValue = amplifiedValue - this.baselineValue;
         
         // Amplificación exponencial para señales extremadamente débiles
         const sign = Math.sign(normalizedValue);
-        const magnitude = Math.pow(Math.abs(normalizedValue), 0.6); // Exponente reducido para amplificación extrema
+        const magnitude = Math.pow(Math.abs(normalizedValue), 0.4); // Less exponential compression (was 0.6)
         
-        // Factor de ultra-amplificación
-        const ultraFactor = 5.0;
+        // Factor de ultra-amplificación extremo
+        const ultraFactor = 8.0; // Significantly increased (was 5.0)
         
         return this.baselineValue + (sign * magnitude * ultraFactor);
       }
@@ -164,12 +163,12 @@ export class SignalProcessor {
   }
   
   /**
-   * MEJORADO: Amplificación adaptativa para señales débiles
+   * MEJORADO: Amplificación adaptativa para señales débiles con sensibilidad extrema
    */
   private amplifyWeakSignals(value: number): number {
     // Determinar si la señal es débil analizando el historial reciente
-    const recentValues = this.ppgValues.slice(-15);
-    if (recentValues.length < 3) return value * this.MIN_SIGNAL_BOOST;
+    const recentValues = this.ppgValues.slice(-12); // Reduced history (was 15)
+    if (recentValues.length < 2) return value * this.MIN_SIGNAL_BOOST * 1.5; // Extra boost for very early signals
     
     // Actualizar máximos y mínimos con memoria histórica
     const currentMax = Math.max(...recentValues);
@@ -188,23 +187,23 @@ export class SignalProcessor {
     const range = this.recentMax - this.recentMin;
     const normalizedValue = value - this.baselineValue;
     
-    // AMPLIFICACIÓN EXTREMA para señales débiles
-    if (range < 5.0) { // Umbral elevado para capturar más señales como "débiles"
+    // AMPLIFICACIÓN ULTRA-EXTREMA para señales débiles
+    if (range < 3.0) { // Much lower threshold (was 5.0)
       // Amplificación extrema para señales muy débiles
-      const amplificationFactor = Math.max(this.MIN_SIGNAL_BOOST, 
-                                          30.0 / (range + 0.1)); // Factor más agresivo
+      const amplificationFactor = Math.max(this.MIN_SIGNAL_BOOST * 1.5, 
+                                          45.0 / (range + 0.05)); // Much more aggressive (was 30.0 / (range + 0.1))
       
       // Amplificación no lineal para preservar forma de onda
       const sign = Math.sign(normalizedValue);
-      // Compresión logarítmica más agresiva
-      const magnitude = Math.pow(Math.abs(normalizedValue), 0.5); // Exponente reducido
+      // Compresión logarítmica extremadamente suave
+      const magnitude = Math.pow(Math.abs(normalizedValue), 0.3); // More linear (was 0.5)
       const amplified = sign * magnitude * amplificationFactor;
       
       return this.baselineValue + amplified;
     }
     
     // Para señales normales, aplicar amplificación moderada
-    return this.baselineValue + normalizedValue * this.MIN_SIGNAL_BOOST;
+    return this.baselineValue + normalizedValue * (this.MIN_SIGNAL_BOOST * 1.5); // 50% stronger (was MIN_SIGNAL_BOOST)
   }
   
   /**
