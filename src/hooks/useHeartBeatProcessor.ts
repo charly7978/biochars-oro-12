@@ -1,4 +1,3 @@
-
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { HeartBeatProcessor } from '../modules/HeartBeatProcessor';
 
@@ -27,12 +26,12 @@ export const useHeartBeatProcessor = () => {
   const lastDetectionTime = useRef<number>(Date.now());
   
   // Variables para efecto látigo en picos
-  const peakAmplificationFactor = useRef<number>(4.5);
-  const peakDecayRate = useRef<number>(0.65);
+  const peakAmplificationFactor = useRef<number>(5.5); // Aumentado de 4.5 a 5.5 para más amplificación
+  const peakDecayRate = useRef<number>(0.55); // Reducido de 0.65 a 0.55 para caída más rápida
   const lastPeakTime = useRef<number | null>(null);
   
   // Umbral de calidad mínima para procesar
-  const MIN_QUALITY_THRESHOLD = 5;
+  const MIN_QUALITY_THRESHOLD = 3; // Reducido desde 5 para aceptar señales de menor calidad
   
   // Variables para sincronización de picos visuales con audio
   const lastReportedPeakTime = useRef<number>(0);
@@ -47,7 +46,7 @@ export const useHeartBeatProcessor = () => {
   const SIGNAL_WINDOW_SIZE = 10; // Aumentado para mejor análisis de tendencia
   
   // Umbral adaptativo para detección de picos
-  const peakThreshold = useRef<number>(0.5); // Más sensible para captar señales débiles
+  const peakThreshold = useRef<number>(0.35); // Más sensible para captar señales débiles (antes 0.5)
   const peakAmplitude = useRef<number>(0);
   
   // Control estricto de picos para evitar duplicados
@@ -55,7 +54,7 @@ export const useHeartBeatProcessor = () => {
   const PEAK_LOCK_TIMEOUT_MS = 350; // Tiempo de bloqueo ajustado para latidos normales
 
   // Nuevo: Control de sensibilidad adaptativo
-  const sensitivityLevel = useRef<number>(1.0); // Nivel base de sensibilidad
+  const sensitivityLevel = useRef<number>(1.5); // Mayor nivel base de sensibilidad (antes 1.0)
   const lastValidPeakValue = useRef<number>(0); // Último valor de pico válido
   const consistentSignalCounter = useRef<number>(0); // Contador para señales consistentes
 
@@ -163,22 +162,22 @@ export const useHeartBeatProcessor = () => {
         const range = recentMax - recentMin;
         
         // Si la señal es estable aumentar sensibilidad, si es errática reducirla
-        if (range > 0.05) {
+        if (range > 0.03) { // Reducido desde 0.05 para detectar señales más débiles
           // Para señales fuertes con buena variación, aumentar sensibilidad
-          sensitivityLevel.current = Math.min(1.5, sensitivityLevel.current * 1.05);
+          sensitivityLevel.current = Math.min(2.0, sensitivityLevel.current * 1.08); // Mayor límite y factor de aumento
           consistentSignalCounter.current++;
-        } else if (range < 0.02) {
-          // Para señales con poca variación, reducir sensibilidad
-          sensitivityLevel.current = Math.max(0.7, sensitivityLevel.current * 0.95);
+        } else if (range < 0.01) { // Reducido desde 0.02 para ser más permisivo
+          // Para señales con poca variación, reducir sensibilidad más lentamente
+          sensitivityLevel.current = Math.max(1.0, sensitivityLevel.current * 0.98); // Reducción más suave
           consistentSignalCounter.current = 0;
         }
         
         // Ajustar umbral adaptativo según rango y sensibilidad
-        if (range > 0.1) {
-          peakThreshold.current = Math.max(0.25, Math.min(0.6, range * (1.2 * sensitivityLevel.current)));
+        if (range > 0.08) { // Reducido desde 0.1
+          peakThreshold.current = Math.max(0.15, Math.min(0.5, range * (1.3 * sensitivityLevel.current)));
         } else {
           // Con señales débiles ser más sensible
-          peakThreshold.current = Math.max(0.15, Math.min(0.4, 0.3 * sensitivityLevel.current));
+          peakThreshold.current = Math.max(0.1, Math.min(0.3, 0.25 * sensitivityLevel.current));
         }
         
         // Log para debug cada 50 frames
@@ -194,9 +193,9 @@ export const useHeartBeatProcessor = () => {
       
       // Actualizar amplitud de pico observada con mayor peso a señales fuertes
       if (value > peakAmplitude.current) {
-        peakAmplitude.current = value * 0.35 + peakAmplitude.current * 0.65; // Peso para alzas
+        peakAmplitude.current = value * 0.4 + peakAmplitude.current * 0.6; // Mayor peso para alzas (antes 0.35/0.65)
       } else {
-        peakAmplitude.current = value * 0.05 + peakAmplitude.current * 0.95; // Mayor inercia para bajadas
+        peakAmplitude.current = value * 0.08 + peakAmplitude.current * 0.92; // Menor inercia para bajadas (antes 0.05/0.95)
       }
     }
 
@@ -264,8 +263,8 @@ export const useHeartBeatProcessor = () => {
     // consideramos que el dedo está presente (corrige falsos negativos)
     const effectiveFingerDetected = fingerDetected || 
                                    (currentQuality > MIN_QUALITY_THRESHOLD && 
-                                    result.confidence > 0.25 && 
-                                    consistentSignalCounter.current > 5);
+                                    result.confidence > 0.2 && // Reducido desde 0.25 para más sensibilidad
+                                    consistentSignalCounter.current > 3); // Reducido desde 5 para detección más rápida
     
     // Si no hay dedo detectado efectivamente, reducir los valores
     if (!effectiveFingerDetected) {
