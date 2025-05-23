@@ -1,3 +1,4 @@
+
 import React, { useEffect, useRef, useCallback, useState } from 'react';
 import { Fingerprint, AlertCircle, BarChart2 } from 'lucide-react';
 import { CircularBuffer, PPGDataPoint } from '../utils/CircularBuffer';
@@ -55,10 +56,10 @@ const PPGSignalMeter = ({
   const TARGET_FPS = 60;
   const FRAME_TIME = 1000 / TARGET_FPS;
   const BUFFER_SIZE = 600;
-  const PEAK_DETECTION_WINDOW = 7; // Reducido para mejor respuesta
-  const PEAK_THRESHOLD = 2.8; // Ajustado para mejor sensibilidad
-  const MIN_PEAK_DISTANCE_MS = 430; // Sincronizado con el intervalo de audio para coherencia
-  const PEAK_LOCK_TIMEOUT_MS = 300; // Tiempo de bloqueo para evitar picos duplicados
+  const PEAK_DETECTION_WINDOW = 5; // Reducido para mejor respuesta
+  const PEAK_THRESHOLD = 1.5; // Ajustado para mayor sensibilidad
+  const MIN_PEAK_DISTANCE_MS = 350; // Optimizado para detección más precisa
+  const PEAK_LOCK_TIMEOUT_MS = 250; // Tiempo de bloqueo reducido
   const IMMEDIATE_RENDERING = true;
   const MAX_PEAKS_TO_DISPLAY = 25;
 
@@ -229,6 +230,7 @@ const PPGSignalMeter = ({
       
       if (recentlyProcessed) continue;
       
+      // Mejora: comprobar si es un pico global comparando con un rango amplio
       let isPeak = true;
       
       // Verificar que sea un máximo local mirando puntos antes
@@ -311,7 +313,7 @@ const PPGSignalMeter = ({
     peaksRef.current = peaksRef.current
       .filter(peak => now - peak.time < WINDOW_WIDTH_MS)
       .slice(-MAX_PEAKS_TO_DISPLAY);
-  }, [getLastRRInterval, verticalScale]);
+  }, [getLastRRInterval, verticalScale, PEAK_DETECTION_WINDOW, PEAK_THRESHOLD, MIN_PEAK_DISTANCE_MS, PEAK_LOCK_TIMEOUT_MS]);
 
   const renderSignal = useCallback(() => {
     if (!canvasRef.current || !dataBufferRef.current) {
@@ -354,8 +356,9 @@ const PPGSignalMeter = ({
     const smoothedValue = smoothValue(value, lastValueRef.current);
     lastValueRef.current = smoothedValue;
     
+    // Amplificación de señal para mejor visualización
     const normalizedValue = (baselineRef.current || 0) - smoothedValue;
-    const scaledValue = normalizedValue * verticalScale;
+    const scaledValue = normalizedValue * verticalScale * 1.5; // Mayor amplificación para mejor visualización
     
     let isArrhythmia = false;
     if (rawArrhythmiaData && 
@@ -428,23 +431,29 @@ const PPGSignalMeter = ({
         if (x >= 0 && x <= canvas.width) {
           // Círculo del pico más grande para mejor visualización
           ctx.beginPath();
-          ctx.arc(x, y, 6, 0, Math.PI * 2); // Incrementado tamaño
+          ctx.arc(x, y, 8, 0, Math.PI * 2); // Incrementado tamaño
           ctx.fillStyle = peak.isArrhythmia ? '#DC2626' : '#0EA5E9';
+          ctx.fill();
+          
+          // Añadir efecto de brillo para mejor visualización
+          ctx.beginPath();
+          ctx.arc(x, y, 4, 0, Math.PI * 2);
+          ctx.fillStyle = 'white';
           ctx.fill();
           
           // Efecto de "pulso" para picos recientes
           if (now - peak.time < 800) {
-            const pulseSize = 6 + 4 * Math.sin((now - peak.time) / 160); // Efecto pulsante
+            const pulseSize = 8 + 6 * Math.sin((now - peak.time) / 160); // Efecto pulsante más visible
             ctx.beginPath();
             ctx.arc(x, y, pulseSize, 0, Math.PI * 2);
             ctx.strokeStyle = peak.isArrhythmia ? '#F87171' : '#38BDF8';
-            ctx.lineWidth = 2;
+            ctx.lineWidth = 3;
             ctx.stroke();
           }
           
           if (peak.isArrhythmia) {
             ctx.beginPath();
-            ctx.arc(x, y, 10, 0, Math.PI * 2);
+            ctx.arc(x, y, 14, 0, Math.PI * 2);
             ctx.strokeStyle = '#FEF7CD';
             ctx.lineWidth = 3;
             ctx.stroke();
@@ -455,23 +464,17 @@ const PPGSignalMeter = ({
             ctx.fillText('ARRITMIA', x, y - 25);
           }
           
-          // Mostrar valor normalizado con mejor formato y tamaño
-          ctx.font = 'bold 17px Inter';
-          ctx.fillStyle = '#000000';
-          ctx.textAlign = 'center';
-          ctx.fillText(formatPeakValue(normalizedValue), x, y - 15);
+          // Mejora: Fondo para los valores de pico para mayor legibilidad
+          const valueText = formatPeakValue(normalizedValue);
+          const textWidth = ctx.measureText(valueText).width;
+          ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+          ctx.fillRect(x - textWidth/2 - 5, y - 28, textWidth + 10, 20);
           
-          // Añadir fondo para mejor legibilidad en picos recientes
-          if (now - peak.time < 1500) {
-            const textWidth = ctx.measureText(formatPeakValue(normalizedValue)).width;
-            ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
-            ctx.fillRect(x - textWidth/2 - 4, y - 30, textWidth + 8, 20);
-            
-            ctx.font = 'bold 17px Inter';
-            ctx.fillStyle = getPeakColor(normalizedValue, 5.0);
-            ctx.textAlign = 'center';
-            ctx.fillText(formatPeakValue(normalizedValue), x, y - 15);
-          }
+          // Mostrar valor normalizado con mejor formato y tamaño
+          ctx.font = 'bold 16px Inter';
+          ctx.fillStyle = getPeakColor(normalizedValue, 3.5);
+          ctx.textAlign = 'center';
+          ctx.fillText(valueText, x, y - 15);
         }
       });
       
@@ -486,7 +489,7 @@ const PPGSignalMeter = ({
           
           // Línea de intervalo
           ctx.beginPath();
-          ctx.strokeStyle = 'rgba(20, 184, 166, 0.6)'; // Color turquesa semi-transparente
+          ctx.strokeStyle = 'rgba(20, 184, 166, 0.8)'; // Color turquesa más visible
           ctx.lineWidth = 2;
           ctx.setLineDash([3, 3]); // Línea punteada
           ctx.moveTo(x1, y);
@@ -494,19 +497,30 @@ const PPGSignalMeter = ({
           ctx.stroke();
           ctx.setLineDash([]); // Restaurar línea sólida
           
-          // Texto del intervalo
+          // Mejora: Fondo para el texto de intervalo
+          const intervalText = formatRRInterval(lastRRInterval);
+          const bpm = rrIntervalToBPM(lastRRInterval);
+          const bpmText = bpm ? `~${bpm} BPM` : '';
+          
           const midX = (x1 + x2) / 2;
-          ctx.font = '14px Inter';
-          ctx.fillStyle = 'rgba(20, 184, 166, 0.9)';
+          const textWidthRR = ctx.measureText(intervalText).width;
+          const textWidthBPM = bpm ? ctx.measureText(bpmText).width : 0;
+          const maxWidth = Math.max(textWidthRR, textWidthBPM);
+          
+          ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+          ctx.fillRect(midX - maxWidth/2 - 5, y - 45, maxWidth + 10, 40);
+          
+          // Texto del intervalo
+          ctx.font = '15px Inter';
+          ctx.fillStyle = 'rgba(20, 184, 166, 1.0)';
           ctx.textAlign = 'center';
-          ctx.fillText(formatRRInterval(lastRRInterval), midX, y - 10);
+          ctx.fillText(intervalText, midX, y - 10);
           
           // Valor de BPM aproximado
-          const bpm = rrIntervalToBPM(lastRRInterval);
           if (bpm) {
-            ctx.font = 'bold 16px Inter';
-            ctx.fillStyle = 'rgba(20, 184, 166, 0.9)';
-            ctx.fillText(`~${bpm} BPM`, midX, y - 30);
+            ctx.font = 'bold 17px Inter';
+            ctx.fillStyle = 'rgba(20, 184, 166, 1.0)';
+            ctx.fillText(bpmText, midX, y - 28);
           }
         }
       }
