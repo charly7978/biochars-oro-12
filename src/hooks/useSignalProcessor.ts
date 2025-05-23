@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { PPGSignalProcessor } from '../modules/SignalProcessor';
+import { useState, useRef, useCallback, useEffect } from 'react';
+import { PPGSignalProcessor } from '../modules/signal-processing/PPGSignalProcessor';
 import { ProcessedSignal, ProcessingError } from '../types/signal';
 
 /**
@@ -25,99 +25,98 @@ export const useSignalProcessor = () => {
   const errorCountRef = useRef(0);
   const lastErrorTimeRef = useRef(0);
 
-  // Create processor with well-defined callbacks
+  const handleSignalReady = useCallback((signal: ProcessedSignal) => {
+    console.log("[DIAG] useSignalProcessor/onSignalReady: Frame recibido", {
+      timestamp: new Date(signal.timestamp).toISOString(),
+      fingerDetected: signal.fingerDetected,
+      quality: signal.quality,
+      rawValue: signal.rawValue,
+      filteredValue: signal.filteredValue,
+      stack: new Error().stack
+    });
+    
+    // Use signal with medical validation - no forcing detection
+    setLastSignal(signal);
+    setError(null);
+    setFramesProcessed(prev => prev + 1);
+    
+    // Store for history tracking
+    signalHistoryRef.current.push(signal);
+    if (signalHistoryRef.current.length > 100) { // Keep last 100 signals
+      signalHistoryRef.current.shift();
+    }
+    
+    // Track quality transitions for analysis
+    const prevSignal = signalHistoryRef.current[signalHistoryRef.current.length - 2];
+    if (prevSignal && Math.abs(prevSignal.quality - signal.quality) > 15) {
+      qualityTransitionsRef.current.push({
+        time: signal.timestamp,
+        from: prevSignal.quality,
+        to: signal.quality
+      });
+      
+      // Keep limited history
+      if (qualityTransitionsRef.current.length > 20) {
+        qualityTransitionsRef.current.shift();
+      }
+    }
+    
+    // Update statistics with valid signals only
+    if (signal.fingerDetected && signal.quality > 30) {
+      setSignalStats(prev => {
+        const newStats = {
+          minValue: Math.min(prev.minValue, signal.filteredValue),
+          maxValue: Math.max(prev.maxValue, signal.filteredValue),
+          avgValue: (prev.avgValue * prev.totalValues + signal.filteredValue) / (prev.totalValues + 1),
+          totalValues: prev.totalValues + 1,
+          lastQualityUpdateTime: signal.timestamp
+        };
+        
+        return newStats;
+      });
+    }
+  }, []);
+
+  const handleError = useCallback((error: ProcessingError) => {
+    const currentTime = Date.now();
+    
+    // Avoid error flooding - limit to one error every 2 seconds
+    if (currentTime - lastErrorTimeRef.current < 2000) {
+      errorCountRef.current++;
+      
+      // Only log without toast if errors are coming too quickly
+      console.error("useSignalProcessor: Error suppressed to avoid flooding:", {
+        ...error,
+        formattedTime: new Date(error.timestamp).toISOString(),
+        errorCount: errorCountRef.current
+      });
+      
+      return;
+    }
+    
+    // Reset error count and update last error time
+    errorCountRef.current = 1;
+    lastErrorTimeRef.current = currentTime;
+    
+    console.error("useSignalProcessor: Detailed error:", {
+      ...error,
+      formattedTime: new Date(error.timestamp).toISOString(),
+      stack: new Error().stack
+    });
+    
+    setError(error);
+  }, []);
+
+  // Create processor with proper callbacks
   useEffect(() => {
     console.log("useSignalProcessor: Creating new processor instance", {
       timestamp: new Date().toISOString(),
       sessionId: Math.random().toString(36).substring(2, 9)
     });
 
-    // Define signal ready callback with proper physiological validation
-    const onSignalReady = (signal: ProcessedSignal) => {
-      console.log("[DIAG] useSignalProcessor/onSignalReady: Frame recibido", {
-        timestamp: new Date(signal.timestamp).toISOString(),
-        fingerDetected: signal.fingerDetected,
-        quality: signal.quality,
-        rawValue: signal.rawValue,
-        filteredValue: signal.filteredValue,
-        stack: new Error().stack
-      });
-      
-      // Use signal with medical validation - no forcing detection
-      setLastSignal(signal);
-      setError(null);
-      setFramesProcessed(prev => prev + 1);
-      
-      // Store for history tracking
-      signalHistoryRef.current.push(signal);
-      if (signalHistoryRef.current.length > 100) { // Keep last 100 signals
-        signalHistoryRef.current.shift();
-      }
-      
-      // Track quality transitions for analysis
-      const prevSignal = signalHistoryRef.current[signalHistoryRef.current.length - 2];
-      if (prevSignal && Math.abs(prevSignal.quality - signal.quality) > 15) {
-        qualityTransitionsRef.current.push({
-          time: signal.timestamp,
-          from: prevSignal.quality,
-          to: signal.quality
-        });
-        
-        // Keep limited history
-        if (qualityTransitionsRef.current.length > 20) {
-          qualityTransitionsRef.current.shift();
-        }
-      }
-      
-      // Update statistics with valid signals only
-      if (signal.fingerDetected && signal.quality > 30) {
-        setSignalStats(prev => {
-          const newStats = {
-            minValue: Math.min(prev.minValue, signal.filteredValue),
-            maxValue: Math.max(prev.maxValue, signal.filteredValue),
-            avgValue: (prev.avgValue * prev.totalValues + signal.filteredValue) / (prev.totalValues + 1),
-            totalValues: prev.totalValues + 1,
-            lastQualityUpdateTime: signal.timestamp
-          };
-          
-          return newStats;
-        });
-      }
-    };
-
-    // Enhanced error handling with rate limiting
-    const onError = (error: ProcessingError) => {
-      const currentTime = Date.now();
-      
-      // Avoid error flooding - limit to one error every 2 seconds
-      if (currentTime - lastErrorTimeRef.current < 2000) {
-        errorCountRef.current++;
-        
-        // Only log without toast if errors are coming too quickly
-        console.error("useSignalProcessor: Error suppressed to avoid flooding:", {
-          ...error,
-          formattedTime: new Date(error.timestamp).toISOString(),
-          errorCount: errorCountRef.current
-        });
-        
-        return;
-      }
-      
-      // Reset error count and update last error time
-      errorCountRef.current = 1;
-      lastErrorTimeRef.current = currentTime;
-      
-      console.error("useSignalProcessor: Detailed error:", {
-        ...error,
-        formattedTime: new Date(error.timestamp).toISOString(),
-        stack: new Error().stack
-      });
-      
-      setError(error);
-    };
-
-    // Create processor with proper callbacks
-    processorRef.current = new PPGSignalProcessor(onSignalReady, onError);
+    processorRef.current = new PPGSignalProcessor();
+    processorRef.current.onSignalReady = handleSignalReady;
+    processorRef.current.onError = handleError;
     
     console.log("useSignalProcessor: Processor created with callbacks established:", {
       hasOnSignalReadyCallback: !!processorRef.current.onSignalReady,
@@ -132,9 +131,9 @@ export const useSignalProcessor = () => {
       signalHistoryRef.current = [];
       qualityTransitionsRef.current = [];
     };
-  }, []);
+  }, [handleSignalReady, handleError]);
 
-  const startProcessing = useCallback(() => {
+  const startProcessing = useCallback(async () => {
     if (!processorRef.current) {
       console.error("useSignalProcessor: No processor available");
       return;
@@ -185,7 +184,7 @@ export const useSignalProcessor = () => {
     calibrationInProgressRef.current = false;
   }, [isProcessing, framesProcessed, signalStats]);
 
-  const calibrate = useCallback(async () => {
+  const calibrate = useCallback(async (): Promise<boolean> => {
     if (!processorRef.current) {
       console.error("useSignalProcessor: No processor available to calibrate");
       return false;
