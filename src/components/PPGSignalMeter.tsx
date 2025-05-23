@@ -1,7 +1,9 @@
 
 import React, { useEffect, useRef, useCallback, useState } from 'react';
-import { Fingerprint, AlertCircle } from 'lucide-react';
+import { Fingerprint, AlertCircle, BarChart2 } from 'lucide-react';
 import { CircularBuffer, PPGDataPoint } from '../utils/CircularBuffer';
+import { formatPeakValue, getPeakColor, formatRRInterval, rrIntervalToBPM } from '../modules/heart-beat/peak-visualization';
+import { PeakHistoryChart } from './PeakHistoryChart';
 
 interface PPGSignalMeterProps {
   value: number;
@@ -39,9 +41,10 @@ const PPGSignalMeter = ({
   const peaksRef = useRef<{time: number, value: number, isArrhythmia: boolean}[]>([]);
   const [showArrhythmiaAlert, setShowArrhythmiaAlert] = useState(false);
   const gridCanvasRef = useRef<HTMLCanvasElement | null>(null);
-  const lastConfirmedPeakRef = useRef<number>(0); // Ref para controlar tiempos entre picos
-  const lastPeakLockRef = useRef<boolean>(false); // Nuevo ref para evitar picos duplicados
+  const lastConfirmedPeakRef = useRef<number>(0);
+  const lastPeakLockRef = useRef<boolean>(false);
   const peakLockTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const [showStatsPanel, setShowStatsPanel] = useState(false);
 
   const WINDOW_WIDTH_MS = 2900;
   const CANVAS_WIDTH = 1000;
@@ -59,6 +62,30 @@ const PPGSignalMeter = ({
   const PEAK_LOCK_TIMEOUT_MS = 300; // Tiempo de bloqueo para evitar picos duplicados
   const IMMEDIATE_RENDERING = true;
   const MAX_PEAKS_TO_DISPLAY = 25;
+
+  // Nueva ref para estadísticas de picos
+  const peakStatsRef = useRef({
+    maxPeak: 0,
+    minPeak: Infinity,
+    avgPeak: 0,
+    totalPeaks: 0,
+    lastRRInterval: null as number | null
+  });
+
+  // Get the peak values for history chart
+  const getPeakValues = useCallback(() => {
+    return peaksRef.current.map(peak => Math.abs(peak.value / verticalScale));
+  }, [verticalScale]);
+
+  // Calculate last RR interval
+  const getLastRRInterval = useCallback(() => {
+    if (peaksRef.current.length < 2) return null;
+    const sortedPeaks = [...peaksRef.current].sort((a, b) => b.time - a.time);
+    if (sortedPeaks.length >= 2) {
+      return sortedPeaks[0].time - sortedPeaks[1].time;
+    }
+    return null;
+  }, []);
 
   useEffect(() => {
     if (!dataBufferRef.current) {
@@ -133,19 +160,41 @@ const PPGSignalMeter = ({
     ctx.lineTo(CANVAS_WIDTH, CANVAS_HEIGHT / 2);
     ctx.stroke();
     
-    // Draw arrhythmia status if present - INCREASED FONT SIZE
+    // Añadir escala vertical de referencia en el lado izquierdo
+    ctx.fillStyle = 'rgba(40, 40, 40, 0.8)';
+    ctx.font = 'bold 11px Inter';
+    ctx.textAlign = 'left';
+    
+    // Dibujar marcas de escala en el lado izquierdo con valores numéricos
+    for (let i = 0; i <= 10; i++) {
+      const y = CANVAS_HEIGHT / 2 - (CANVAS_HEIGHT * 0.4 * (i / 10));
+      const value = (i / 10 * 10).toFixed(1);
+      
+      // Línea de marca
+      ctx.beginPath();
+      ctx.strokeStyle = 'rgba(40, 40, 40, 0.5)';
+      ctx.lineWidth = 1;
+      ctx.moveTo(0, y);
+      ctx.lineTo(10, y);
+      ctx.stroke();
+      
+      // Valor numérico
+      ctx.fillText(value, 15, y + 4);
+    }
+    
+    // Draw arrhythmia status if present
     if (arrhythmiaStatus) {
       const [status, count] = arrhythmiaStatus.split('|');
       
       if (status.includes("ARRITMIA") && count === "1" && !showArrhythmiaAlert) {
         ctx.fillStyle = '#ef4444';
-        ctx.font = 'bold 24px Inter'; // Increased from 20px to 24px
+        ctx.font = 'bold 24px Inter';
         ctx.textAlign = 'left';
         ctx.fillText('¡PRIMERA ARRITMIA DETECTADA!', 45, 95);
         setShowArrhythmiaAlert(true);
       } else if (status.includes("ARRITMIA") && Number(count) > 1) {
         ctx.fillStyle = '#ef4444';
-        ctx.font = 'bold 24px Inter'; // Increased from 20px to 24px
+        ctx.font = 'bold 24px Inter';
         ctx.textAlign = 'left';
         const redPeaksCount = peaksRef.current.filter(peak => peak.isArrhythmia).length;
         ctx.fillText(`Arritmias detectadas: ${count}`, 45, 95);
@@ -238,8 +287,22 @@ const PPGSignalMeter = ({
         });
         lastConfirmedPeakRef.current = peak.time;
         
+        // Actualizar estadísticas de picos
+        const normalizedPeakValue = Math.abs(peak.value / verticalScale);
+        peakStatsRef.current.totalPeaks++;
+        peakStatsRef.current.maxPeak = Math.max(peakStatsRef.current.maxPeak, normalizedPeakValue);
+        peakStatsRef.current.minPeak = Math.min(peakStatsRef.current.minPeak, normalizedPeakValue);
+        
+        // Actualizar promedio acumulativo
+        peakStatsRef.current.avgPeak = 
+          (peakStatsRef.current.avgPeak * (peakStatsRef.current.totalPeaks - 1) + normalizedPeakValue) / 
+          peakStatsRef.current.totalPeaks;
+          
+        // Actualizar último intervalo RR
+        peakStatsRef.current.lastRRInterval = getLastRRInterval();
+        
         // Log para debug
-        console.log(`PPGSignalMeter: Pico detectado en tiempo ${peak.time}, valor ${peak.value}`);
+        console.log(`PPGSignalMeter: Pico detectado en tiempo ${peak.time}, valor ${normalizedPeakValue.toFixed(2)}`);
       }
     }
     
@@ -249,7 +312,7 @@ const PPGSignalMeter = ({
     peaksRef.current = peaksRef.current
       .filter(peak => now - peak.time < WINDOW_WIDTH_MS)
       .slice(-MAX_PEAKS_TO_DISPLAY);
-  }, []);
+  }, [getLastRRInterval, verticalScale]);
 
   const renderSignal = useCallback(() => {
     if (!canvasRef.current || !dataBufferRef.current) {
@@ -315,6 +378,7 @@ const PPGSignalMeter = ({
     detectPeaks(points, now);
     
     if (points.length > 1) {
+      // Dibujar la señal principal
       ctx.beginPath();
       ctx.strokeStyle = '#0EA5E9';
       ctx.lineWidth = 2;
@@ -356,15 +420,28 @@ const PPGSignalMeter = ({
       
       ctx.stroke();
       
+      // Mostrar picos con etiquetas de valor
       peaksRef.current.forEach(peak => {
         const x = canvas.width - ((now - peak.time) * canvas.width / WINDOW_WIDTH_MS);
         const y = canvas.height / 2 - peak.value;
+        const normalizedValue = Math.abs(peak.value / verticalScale);
         
         if (x >= 0 && x <= canvas.width) {
+          // Círculo del pico más grande para mejor visualización
           ctx.beginPath();
-          ctx.arc(x, y, 5, 0, Math.PI * 2);
+          ctx.arc(x, y, 6, 0, Math.PI * 2); // Incrementado tamaño
           ctx.fillStyle = peak.isArrhythmia ? '#DC2626' : '#0EA5E9';
           ctx.fill();
+          
+          // Efecto de "pulso" para picos recientes
+          if (now - peak.time < 800) {
+            const pulseSize = 6 + 4 * Math.sin((now - peak.time) / 160); // Efecto pulsante
+            ctx.beginPath();
+            ctx.arc(x, y, pulseSize, 0, Math.PI * 2);
+            ctx.strokeStyle = peak.isArrhythmia ? '#F87171' : '#38BDF8';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+          }
           
           if (peak.isArrhythmia) {
             ctx.beginPath();
@@ -373,23 +450,72 @@ const PPGSignalMeter = ({
             ctx.lineWidth = 3;
             ctx.stroke();
             
-            ctx.font = 'bold 18px Inter'; // Increased from 14px to 18px
+            ctx.font = 'bold 18px Inter';
             ctx.fillStyle = '#F97316';
             ctx.textAlign = 'center';
             ctx.fillText('ARRITMIA', x, y - 25);
           }
           
-          ctx.font = 'bold 16px Inter'; // Increased from 14px to 16px
+          // Mostrar valor normalizado con mejor formato y tamaño
+          ctx.font = 'bold 17px Inter';
           ctx.fillStyle = '#000000';
           ctx.textAlign = 'center';
-          ctx.fillText(Math.abs(peak.value / verticalScale).toFixed(2), x, y - 15);
+          ctx.fillText(formatPeakValue(normalizedValue), x, y - 15);
+          
+          // Añadir fondo para mejor legibilidad en picos recientes
+          if (now - peak.time < 1500) {
+            const textWidth = ctx.measureText(formatPeakValue(normalizedValue)).width;
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+            ctx.fillRect(x - textWidth/2 - 4, y - 30, textWidth + 8, 20);
+            
+            ctx.font = 'bold 17px Inter';
+            ctx.fillStyle = getPeakColor(normalizedValue, 5.0);
+            ctx.textAlign = 'center';
+            ctx.fillText(formatPeakValue(normalizedValue), x, y - 15);
+          }
         }
       });
+      
+      // Mostrar el último intervalo RR si hay suficientes picos
+      const lastRRInterval = getLastRRInterval();
+      if (lastRRInterval && peaksRef.current.length >= 2) {
+        const lastPeaks = [...peaksRef.current].sort((a, b) => b.time - a.time).slice(0, 2);
+        if (lastPeaks.length === 2) {
+          const x1 = canvas.width - ((now - lastPeaks[0].time) * canvas.width / WINDOW_WIDTH_MS);
+          const x2 = canvas.width - ((now - lastPeaks[1].time) * canvas.width / WINDOW_WIDTH_MS);
+          const y = canvas.height / 2 - 100; // Posición por encima de la señal
+          
+          // Línea de intervalo
+          ctx.beginPath();
+          ctx.strokeStyle = 'rgba(20, 184, 166, 0.6)'; // Color turquesa semi-transparente
+          ctx.lineWidth = 2;
+          ctx.setLineDash([3, 3]); // Línea punteada
+          ctx.moveTo(x1, y);
+          ctx.lineTo(x2, y);
+          ctx.stroke();
+          ctx.setLineDash([]); // Restaurar línea sólida
+          
+          // Texto del intervalo
+          const midX = (x1 + x2) / 2;
+          ctx.font = '14px Inter';
+          ctx.fillStyle = 'rgba(20, 184, 166, 0.9)';
+          ctx.textAlign = 'center';
+          ctx.fillText(formatRRInterval(lastRRInterval), midX, y - 10);
+          
+          // Valor de BPM aproximado
+          const bpm = rrIntervalToBPM(lastRRInterval);
+          if (bpm) {
+            ctx.font = 'bold 16px Inter';
+            ctx.fillStyle = 'rgba(20, 184, 166, 0.9)';
+            ctx.fillText(`~${bpm} BPM`, midX, y - 30);
+          }
+        }
+      }
     }
     
     lastRenderTimeRef.current = currentTime;
     animationFrameRef.current = requestAnimationFrame(renderSignal);
-  }, [value, quality, isFingerDetected, rawArrhythmiaData, arrhythmiaStatus, drawGrid, detectPeaks, smoothValue, preserveResults]);
+  }, [value, quality, isFingerDetected, rawArrhythmiaData, arrhythmiaStatus, drawGrid, detectPeaks, smoothValue, preserveResults, getLastRRInterval, verticalScale]);
 
   useEffect(() => {
     renderSignal();
@@ -420,11 +546,22 @@ const PPGSignalMeter = ({
     setShowArrhythmiaAlert(false);
     peaksRef.current = [];
     lastPeakLockRef.current = false;
+    peakStatsRef.current = {
+      maxPeak: 0,
+      minPeak: Infinity,
+      avgPeak: 0,
+      totalPeaks: 0,
+      lastRRInterval: null
+    };
     if (peakLockTimeoutRef.current) {
       clearTimeout(peakLockTimeoutRef.current);
     }
     onReset();
   }, [onReset]);
+
+  const toggleStatsPanel = useCallback(() => {
+    setShowStatsPanel(prev => !prev);
+  }, []);
 
   return (
     <div className="fixed inset-0 bg-black/5 backdrop-blur-[1px]">
@@ -467,6 +604,64 @@ const PPGSignalMeter = ({
           </span>
         </div>
       </div>
+
+      {/* Botón para mostrar/ocultar panel de estadísticas */}
+      <button
+        onClick={toggleStatsPanel}
+        className="absolute top-3 right-3 bg-white/20 p-2 rounded-full hover:bg-white/30 transition-colors"
+      >
+        <BarChart2 size={20} className="text-gray-700" />
+      </button>
+
+      {/* Panel de estadísticas */}
+      {showStatsPanel && (
+        <div className="absolute top-16 right-3 bg-white/80 border border-gray-200 rounded-lg shadow-lg p-3 w-[240px] z-20">
+          <div className="flex justify-between items-center mb-2">
+            <h3 className="font-bold text-gray-800">Estadísticas de Picos</h3>
+            <button onClick={toggleStatsPanel} className="text-gray-600 hover:text-gray-800">×</button>
+          </div>
+          
+          <div className="space-y-2 mb-2">
+            <div className="flex justify-between">
+              <span className="text-xs text-gray-600">Picos detectados:</span>
+              <span className="text-xs font-semibold">{peakStatsRef.current.totalPeaks}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-xs text-gray-600">Valor máximo:</span>
+              <span className="text-xs font-semibold">{peakStatsRef.current.maxPeak.toFixed(2)}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-xs text-gray-600">Valor mínimo:</span>
+              <span className="text-xs font-semibold">
+                {peakStatsRef.current.minPeak === Infinity ? '0.00' : peakStatsRef.current.minPeak.toFixed(2)}
+              </span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-xs text-gray-600">Valor promedio:</span>
+              <span className="text-xs font-semibold">{peakStatsRef.current.avgPeak.toFixed(2)}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-xs text-gray-600">Último RR:</span>
+              <span className="text-xs font-semibold">
+                {formatRRInterval(peakStatsRef.current.lastRRInterval)}
+              </span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-xs text-gray-600">BPM estimado:</span>
+              <span className="text-xs font-semibold">
+                {peakStatsRef.current.lastRRInterval ? 
+                  `~${rrIntervalToBPM(peakStatsRef.current.lastRRInterval)}` : '--'}
+              </span>
+            </div>
+          </div>
+          
+          {/* Historial de picos como gráfico */}
+          <PeakHistoryChart 
+            peakValues={getPeakValues()}
+            className="mt-2" 
+          />
+        </div>
+      )}
 
       <div className="fixed bottom-0 left-0 right-0 h-[60px] grid grid-cols-2 bg-transparent z-10">
         <button 
