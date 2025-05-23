@@ -1,4 +1,3 @@
-
 import React, { useState, useRef, useEffect } from "react";
 import VitalSign from "@/components/VitalSign";
 import CameraView from "@/components/CameraView";
@@ -36,7 +35,7 @@ const Index = () => {
   const { processSignal: processHeartBeat } = useHeartBeatProcessor();
   const { processSignal: processVitalSigns, reset: resetVitalSigns, fullReset: fullResetVitalSigns } = useVitalSignsProcessor();
 
-  // Simplified fullscreen management
+  // Fullscreen management
   const [isFullscreen, setIsFullscreen] = useState(false);
 
   useEffect(() => {
@@ -62,17 +61,15 @@ const Index = () => {
   }, []);
 
   const startMonitoring = () => {
-    console.log("Index: Starting monitoring with unified system");
+    console.log("Index: Starting monitoring");
     
     setIsMonitoring(true);
     setShowResults(false);
     setElapsedTime(0);
     
-    // Start unified processing
     startProcessing();
     processingRef.current = true;
     
-    // Timer for 30-second measurement
     if (measurementTimerRef.current) {
       clearInterval(measurementTimerRef.current);
     }
@@ -142,7 +139,7 @@ const Index = () => {
   const handleStreamReady = (stream: MediaStream) => {
     if (!processingRef.current) return;
     
-    console.log("Index: Stream ready, starting frame processing");
+    console.log("Index: Stream ready with torch support");
     
     try {
       const videoTrack = stream.getVideoTracks()[0];
@@ -172,14 +169,13 @@ const Index = () => {
             processFrame(imageData);
           }
           
-          // Continue processing
           if (processingRef.current) {
             requestAnimationFrame(processFrames);
           }
         } catch (error) {
           console.error("Frame processing error:", error);
           if (processingRef.current) {
-            setTimeout(processFrames, 100); // Retry after delay
+            setTimeout(processFrames, 100);
           }
         }
       };
@@ -194,17 +190,14 @@ const Index = () => {
   // Process signals when received
   useEffect(() => {
     if (lastSignal && processingRef.current) {
-      // Update signal quality
       setSignalQuality(lastSignal.quality);
       
       if (lastSignal.fingerDetected) {
-        // Process heartbeat
         const heartBeatResult = processHeartBeat(lastSignal.rawValue);
         setHeartRate(heartBeatResult.bpm);
         setHeartbeatSignal(heartBeatResult.filteredValue);
         setBeatMarker(heartBeatResult.isPeak ? 1 : 0);
         
-        // Process vital signs
         const vitals = processVitalSigns(lastSignal.rawValue, heartBeatResult.rrData);
         if (vitals) {
           setVitalSigns(vitals);
@@ -215,7 +208,6 @@ const Index = () => {
 
   return (
     <div className="fixed inset-0 flex flex-col bg-black overflow-hidden">
-      {/* Fullscreen button if needed */}
       {!isFullscreen && (
         <button 
           onClick={() => document.documentElement.requestFullscreen()}
@@ -236,7 +228,6 @@ const Index = () => {
         />
 
         <div className="relative z-10 h-full flex flex-col">
-          {/* Header with quality and detection status */}
           <div className="px-4 py-2 flex justify-around items-center bg-black/20">
             <div className="text-white text-lg">
               Calidad: {signalQuality}
@@ -258,7 +249,6 @@ const Index = () => {
             />
           </div>
 
-          {/* Vital signs display */}
           <div className="absolute inset-x-0 top-[55%] bottom-[60px] bg-black/10 px-4 py-6">
             <div className="grid grid-cols-3 gap-4 place-items-center">
               <VitalSign 
@@ -300,7 +290,6 @@ const Index = () => {
             </div>
           </div>
 
-          {/* Control buttons */}
           <div className="absolute inset-x-0 bottom-4 flex gap-4 px-4">
             <div className="w-1/2">
               <MonitorButton 
