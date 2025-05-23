@@ -1,4 +1,3 @@
-
 import { ProcessedSignal } from '../../types/signal';
 import { DetectorScores, DetectionResult } from './types';
 
@@ -460,7 +459,7 @@ export class SignalAnalyzer {
         fingerBorderDetected: this.fingerBorderDetected,
         edgeScore: this.edgeDetectionScore,
         textureConsistency: this.getTextureConsistency(),
-        weightedScore: weightedSum,
+        weightedSum: weightedSum, // Fixed: renamed from weightedScore to weightedSum
         motionScore: this.motionArtifactScore,
         fingerMovement: this.fingerMovementScore
       }

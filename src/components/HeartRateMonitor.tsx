@@ -59,14 +59,15 @@ const HeartRateMonitor = ({
     if (validPeak) {
       lastPeakTimeRef.current = now;
       console.log("HeartRateMonitor: Pico visual confirmado", { 
-        time: new Date(now).toISOString().substr(11, 12)
+        time: new Date(now).toISOString().substr(11, 12),
+        value: normalizedValue.toFixed(3)
       });
     }
     
     // Aplicar amplificación para picos - más contraste para mejor visibilidad
     const amplifiedValue = validPeak 
-      ? normalizedValue * 6.5 // Mayor amplificación para picos confirmados
-      : normalizedValue * 0.4; // Reducir no-picos para mejor contraste
+      ? normalizedValue * 7.5 // Mayor amplificación para picos confirmados (aumentado de 6.5)
+      : normalizedValue * 0.35; // Reducir más no-picos para mejor contraste (reducido de 0.4)
     
     // Añadir al historial
     historyRef.current.push(amplifiedValue);
@@ -117,94 +118,113 @@ const HeartRateMonitor = ({
     } else if (quality >= 20) {
       signalColor = '#eab308'; // Amarillo para calidad baja
     } else {
-      signalColor = '#6b7280'; // Gris para calidad muy baja
+      signalColor = '#a1a1aa'; // Gris para muy baja calidad
     }
-    
-    ctx.strokeStyle = signalColor;
-    
-    // Calcular ancho para cada punto
-    const pointWidth = canvas.width / maxHistoryLength;
-    
-    // Comenzar a dibujar desde la parte inferior del último punto
+
+    // Dibujar la línea base para referencia
     ctx.beginPath();
-    ctx.moveTo(0, canvas.height);
-    
-    // Dibujar la señal como líneas verticales (picos) en lugar de una onda continua
-    historyRef.current.forEach((point, index) => {
-      const x = index * pointWidth;
-      const isPeakPoint = peakMarkerRef.current[index];
-      
-      // Para puntos de pico, dibujar líneas más altas con posible efecto látigo
-      if (isPeakPoint) {
-        // Calcular altura de pico con potencial efecto látigo
-        let peakHeight = canvas.height - (point * canvas.height * 0.98); // Picos más altos
-        
-        // Aplicar efecto látigo si estamos aún en animación para este pico
-        if (animationRef.current.isAnimating) {
-          const elapsed = Date.now() - animationRef.current.startTime;
-          const progress = Math.min(1, elapsed / animationRef.current.duration);
-          
-          // Efecto no lineal para efecto látigo - movimiento inicial más rápido
-          const easeOutQuint = 1 - Math.pow(1 - progress, 8); // Aumentado para efecto más dramático
-          
-          // Aplicar el efecto de animación
-          const animatedPoint = animationRef.current.startValue - 
-            (animationRef.current.startValue - animationRef.current.targetValue) * easeOutQuint;
-          
-          // Usar el valor animado para los últimos puntos
-          if (index >= historyRef.current.length - 5) {
-            peakHeight = canvas.height - (animatedPoint * canvas.height * 0.98);
-          }
-          
-          // Finalizar animación cuando completa
-          if (progress >= 1) {
-            animationRef.current.isAnimating = false;
-          }
-        }
-        
-        // Dibujar línea vertical de pico
-        ctx.lineTo(x, peakHeight);
-        
-        // Dibujar pico más afilado (meseta mínima)
-        ctx.lineTo(x + pointWidth * 0.1, peakHeight); // Meseta más corta
-        
-        // Volver hacia abajo
-        ctx.lineTo(x + pointWidth, canvas.height);
-      } else {
-        // Para puntos que no son picos, dibujar líneas verticales mucho más pequeñas
-        const baselineHeight = canvas.height - (point * canvas.height * 0.15); // Línea base aún más plana
-        
-        // Dibujar línea vertical más pequeña
-        ctx.lineTo(x, baselineHeight);
-        ctx.lineTo(x + pointWidth, canvas.height);
-      }
-    });
-    
-    // Cerrar el trazado y trazar
+    ctx.strokeStyle = 'rgba(100,100,100,0.2)';
+    ctx.lineWidth = 1;
+    ctx.moveTo(0, canvas.height / 2);
+    ctx.lineTo(canvas.width, canvas.height / 2);
     ctx.stroke();
     
-    // Dibujar marcadores de pico con mejor visibilidad
-    ctx.fillStyle = '#ef4444';
-    peakMarkerRef.current.forEach((isPeakPoint, index) => {
-      if (isPeakPoint) {
-        const x = index * pointWidth;
-        const point = historyRef.current[index];
-        const dotSize = 9; // Puntos más grandes para mejor visibilidad
-        const yPos = canvas.height - (point * canvas.height * 0.98);
-        ctx.beginPath();
-        ctx.arc(x, yPos, dotSize, 0, Math.PI * 2);
-        ctx.fill();
+    // Si no hay suficientes puntos, salir
+    if (historyRef.current.length < 2) return;
+    
+    // Dibujar línea principal con mejor visibilidad y grosor variable
+    ctx.beginPath();
+    ctx.strokeStyle = signalColor;
+    
+    const history = [...historyRef.current];
+    const peakMarkers = [...peakMarkerRef.current];
+    
+    for (let i = 0; i < history.length; i++) {
+      const x = (i / (maxHistoryLength - 1)) * canvas.width;
+      let y = canvas.height - (history[i] * canvas.height * 0.9);
+      
+      // Valores de altura limitados entre 10% y 90% del canvas
+      y = Math.min(Math.max(y, canvas.height * 0.1), canvas.height * 0.9);
+      
+      if (i === 0) {
+        ctx.moveTo(x, y);
+      } else {
+        // Si el punto actual o el anterior es un pico, usar línea curva para suavizar
+        const isPeakPoint = peakMarkers[i] || (i > 0 && peakMarkers[i-1]);
+        
+        if (isPeakPoint) {
+          // Aumentar grosor en los picos para mejor visibilidad
+          ctx.lineWidth = 6; // Aumentado (antes 5)
+          
+          // Calcular el punto de control para curva más natural
+          const prevX = ((i-1) / (maxHistoryLength - 1)) * canvas.width;
+          const prevY = canvas.height - (history[i-1] * canvas.height * 0.9);
+          
+          // Calcular punto de control para la curva
+          const cpX = (prevX + x) / 2;
+          const cpY = (prevY + y) / 2;
+          
+          // Usar curvas para suavizar los picos
+          ctx.quadraticCurveTo(cpX, cpY, x, y);
+        } else {
+          // Para puntos no pico, usar línea recta con grosor normal
+          ctx.lineWidth = 3;
+          ctx.lineTo(x, y);
+        }
       }
-    });
+    }
+    ctx.stroke();
+    
+    // Dibujar puntos destacados para los picos
+    for (let i = 0; i < history.length; i++) {
+      if (peakMarkers[i]) {
+        const x = (i / (maxHistoryLength - 1)) * canvas.width;
+        const y = canvas.height - (history[i] * canvas.height * 0.9);
+        
+        // Dibujar círculo para el pico
+        ctx.beginPath();
+        ctx.fillStyle = '#fef08a'; // Amarillo para mejor visibilidad
+        ctx.arc(x, y, 8, 0, Math.PI * 2); // Aumentado tamaño del círculo (antes 5)
+        ctx.fill();
+        
+        // Añadir borde para contraste
+        ctx.beginPath();
+        ctx.strokeStyle = '#e11d48';
+        ctx.lineWidth = 3;
+        ctx.arc(x, y, 8, 0, Math.PI * 2);
+        ctx.stroke();
+        
+        // Mostrar valor del pico
+        const displayValue = (history[i] * 10).toFixed(1);
+        ctx.font = 'bold 14px sans-serif'; // Fuente más grande y en negrita
+        ctx.fillStyle = '#ffffff'; 
+        ctx.textAlign = 'center';
+        ctx.fillText(displayValue, x, y - 15);
+        
+        // Agregar círculo de "halo" pulsante para destacar más el pico
+        ctx.beginPath();
+        ctx.strokeStyle = 'rgba(225, 29, 72, 0.4)';
+        ctx.lineWidth = 2;
+        ctx.arc(x, y, 12, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+    }
   };
 
   return (
-    <canvas
-      ref={canvasRef}
-      width={400}
-      height={120}
-      className={cn("w-full h-full bg-black/30 rounded-md", className)}
-    />
+    <div className={cn("relative w-full h-full overflow-hidden", className)}>
+      <canvas 
+        ref={canvasRef}
+        width={400} 
+        height={200}
+        className="w-full h-full"
+      />
+      {isPeak && (
+        <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-white/80 text-xs font-bold">
+          LATIDO
+        </div>
+      )}
+    </div>
   );
 };
 
