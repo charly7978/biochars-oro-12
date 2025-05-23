@@ -8,6 +8,7 @@ import PPGSignalMeter from "@/components/PPGSignalMeter";
 import MonitorButton from "@/components/MonitorButton";
 import { VitalSignsResult } from "@/modules/vital-signs/VitalSignsProcessor";
 import { toast } from "@/components/ui/use-toast";
+import { CameraStateManager } from "@/modules/signal-processing/CameraStateManager";
 
 const Index = () => {
   const [isMonitoring, setIsMonitoring] = useState(false);
@@ -40,6 +41,7 @@ const Index = () => {
   } | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [rrIntervals, setRRIntervals] = useState<number[]>([]);
+  const [cameraError, setCameraError] = useState<string | null>(null);
   
   const { startProcessing, stopProcessing, lastSignal, processFrame } = useSignalProcessor();
   const { 
@@ -54,6 +56,9 @@ const Index = () => {
     startCalibration,
     forceCalibrationCompletion
   } = useVitalSignsProcessor();
+
+  const cameraManagerRef = useRef<CameraStateManager | null>(null);
+  const arrhythmiaDetectedRef = useRef(false);
 
   const enterFullScreen = async () => {
     try {
@@ -70,7 +75,6 @@ const Index = () => {
           await (docEl as any).mozRequestFullScreen();
         }
         
-        // Bloquear orientación si es dispositivo móvil
         if (screen.orientation && screen.orientation.lock) {
           try {
             await screen.orientation.lock('portrait');
@@ -101,7 +105,6 @@ const Index = () => {
           (document as any).mozCancelFullScreen();
         }
         
-        // Desbloquear orientación si es necesario
         if (screen.orientation && screen.orientation.unlock) {
           screen.orientation.unlock();
           console.log('Orientación desbloqueada');
@@ -114,13 +117,11 @@ const Index = () => {
     }
   };
   
-  // Activar pantalla completa automáticamente al cargar la página
   useEffect(() => {
     setTimeout(() => {
       enterFullScreen();
-    }, 1000); // Pequeño retraso para asegurar que todo está cargado
+    }, 1000);
     
-    // Detectar cambios en el estado de pantalla completa
     const handleFullscreenChange = () => {
       setIsFullscreen(Boolean(
         document.fullscreenElement || 
@@ -140,8 +141,6 @@ const Index = () => {
       document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
       document.removeEventListener('mozfullscreenchange', handleFullscreenChange);
       document.removeEventListener('MSFullscreenChange', handleFullscreenChange);
-      
-      // Asegurarse de salir del modo pantalla completa al desmontar
       exitFullScreen();
     };
   }, []);
@@ -172,22 +171,19 @@ const Index = () => {
       setIsMonitoring(true);
       setIsCameraOn(true);
       setShowResults(false);
+      setCameraError(null);
       
-      // Iniciar procesamiento de señal
       startProcessing();
       
-      // Resetear valores
       setElapsedTime(0);
       setVitalSigns(prev => ({
         ...prev,
         arrhythmiaStatus: "SIN ARRITMIAS|0"
       }));
       
-      // Iniciar calibración automática
       console.log("Iniciando fase de calibración automática");
       startAutoCalibration();
       
-      // Iniciar temporizador para medición
       if (measurementTimerRef.current) {
         clearInterval(measurementTimerRef.current);
       }
@@ -197,7 +193,6 @@ const Index = () => {
           const newTime = prev + 1;
           console.log(`Tiempo transcurrido: ${newTime}s`);
           
-          // Finalizar medición después de 30 segundos
           if (newTime >= 30) {
             finalizeMeasurement();
             return 30;
@@ -212,11 +207,8 @@ const Index = () => {
     console.log("Iniciando auto-calibración real con indicadores visuales");
     setIsCalibrating(true);
     
-    // Iniciar la calibración en el procesador
     startCalibration();
     
-    // Establecer explícitamente valores iniciales de calibración para CADA vital sign
-    // Esto garantiza que el estado comience correctamente
     console.log("Estableciendo valores iniciales de calibración");
     setCalibrationProgress({
       isCalibrating: true,
@@ -231,22 +223,14 @@ const Index = () => {
       }
     });
     
-    // Logear para verificar que el estado se estableció
-    setTimeout(() => {
-      console.log("Estado de calibración establecido:", calibrationProgress);
-    }, 100);
-    
-    // Actualizar el progreso visualmente en intervalos regulares
     let step = 0;
     const calibrationInterval = setInterval(() => {
       step += 1;
       
-      // Actualizar progreso visual (10 pasos en total)
       if (step <= 10) {
-        const progressPercent = step * 10; // 0-100%
+        const progressPercent = step * 10;
         console.log(`Actualizando progreso de calibración: ${progressPercent}%`);
         
-        // Actualizar cada valor individualmente para asegurar que se renderice
         setCalibrationProgress({
           isCalibrating: true,
           progress: {
@@ -260,18 +244,14 @@ const Index = () => {
           }
         });
       } else {
-        // Al finalizar, detener el intervalo
         console.log("Finalizando animación de calibración");
         clearInterval(calibrationInterval);
         
-        // Completar calibración
         if (isCalibrating) {
           console.log("Completando calibración");
           forceCalibrationCompletion();
           setIsCalibrating(false);
           
-          // Importante: Establecer calibrationProgress a undefined o con valores 100
-          // para que la UI refleje que ya no está calibrando
           setCalibrationProgress({
             isCalibrating: false,
             progress: {
@@ -285,15 +265,13 @@ const Index = () => {
             }
           });
           
-          // Opcional: vibración si está disponible
           if (navigator.vibrate) {
             navigator.vibrate([100, 50, 100]);
           }
         }
       }
-    }, 800); // Cada paso dura 800ms (8 segundos en total)
+    }, 800);
     
-    // Temporizador de seguridad
     setTimeout(() => {
       if (isCalibrating) {
         console.log("Forzando finalización de calibración por tiempo límite");
@@ -301,7 +279,6 @@ const Index = () => {
         forceCalibrationCompletion();
         setIsCalibrating(false);
         
-        // Asegurar que se limpie el estado de calibración
         setCalibrationProgress({
           isCalibrating: false,
           progress: {
@@ -315,7 +292,7 @@ const Index = () => {
           }
         });
       }
-    }, 10000); // 10 segundos como máximo
+    }, 10000);
   };
 
   const finalizeMeasurement = () => {
@@ -331,6 +308,12 @@ const Index = () => {
     setIsCalibrating(false);
     stopProcessing();
     
+    // Clean up camera manager
+    if (cameraManagerRef.current) {
+      cameraManagerRef.current.cleanup();
+      cameraManagerRef.current = null;
+    }
+    
     if (measurementTimerRef.current) {
       clearInterval(measurementTimerRef.current);
       measurementTimerRef.current = null;
@@ -345,6 +328,7 @@ const Index = () => {
     setElapsedTime(0);
     setSignalQuality(0);
     setCalibrationProgress(undefined);
+    setCameraError(null);
   };
 
   const handleReset = () => {
@@ -354,6 +338,11 @@ const Index = () => {
     setShowResults(false);
     setIsCalibrating(false);
     stopProcessing();
+    
+    if (cameraManagerRef.current) {
+      cameraManagerRef.current.cleanup();
+      cameraManagerRef.current = null;
+    }
     
     if (measurementTimerRef.current) {
       clearInterval(measurementTimerRef.current);
@@ -380,132 +369,112 @@ const Index = () => {
     setSignalQuality(0);
     setLastArrhythmiaData(null);
     setCalibrationProgress(undefined);
+    setCameraError(null);
+  };
+
+  const handleCameraRestart = () => {
+    console.log("Restarting camera due to track invalidation");
+    setCameraError("Cámara desconectada - Reiniciando...");
+    
+    // Stop current processing
+    if (isMonitoring) {
+      stopProcessing();
+      
+      // Restart after a short delay
+      setTimeout(() => {
+        startProcessing();
+        setCameraError(null);
+      }, 1000);
+    }
   };
 
   const handleStreamReady = (stream: MediaStream) => {
     if (!isMonitoring) return;
     
-    const videoTrack = stream.getVideoTracks()[0];
-    const imageCapture = new ImageCapture(videoTrack);
+    console.log("Index: Camera stream ready, setting up camera manager");
     
-    // Asegurar que la linterna esté encendida para mediciones de PPG
-    if (videoTrack.getCapabilities()?.torch) {
-      console.log("Activando linterna para mejorar la señal PPG");
-      videoTrack.applyConstraints({
-        advanced: [{ torch: true }]
-      }).catch(err => console.error("Error activando linterna:", err));
-    } else {
-      console.warn("Esta cámara no tiene linterna disponible, la medición puede ser menos precisa");
+    // Clean up existing manager
+    if (cameraManagerRef.current) {
+      cameraManagerRef.current.cleanup();
     }
     
-    // Crear un canvas de tamaño óptimo para el procesamiento
-    const tempCanvas = document.createElement('canvas');
-    const tempCtx = tempCanvas.getContext('2d', {willReadFrequently: true});
-    if (!tempCtx) {
-      console.error("No se pudo obtener el contexto 2D");
-      return;
-    }
+    // Create new camera manager
+    cameraManagerRef.current = new CameraStateManager(
+      handleCameraRestart,
+      (stream) => console.log("Camera manager: Stream ready")
+    );
     
-    // Variables para controlar el rendimiento y la tasa de frames
-    let lastProcessTime = 0;
-    const targetFrameInterval = 1000/30; // Apuntar a 30 FPS para precisión
-    let frameCount = 0;
-    let lastFpsUpdateTime = Date.now();
-    let processingFps = 0;
+    cameraManagerRef.current.setStream(stream);
     
-    // Crearemos un contexto dedicado para el procesamiento de imagen
-    const enhanceCanvas = document.createElement('canvas');
-    const enhanceCtx = enhanceCanvas.getContext('2d', {willReadFrequently: true});
-    enhanceCanvas.width = 320;  // Tamaño óptimo para procesamiento PPG
-    enhanceCanvas.height = 240;
-    
-    const processImage = async () => {
+    // Set up frame processing with proper error handling
+    const setupFrameProcessing = () => {
       if (!isMonitoring) return;
       
-      const now = Date.now();
-      const timeSinceLastProcess = now - lastProcessTime;
-      
-      // Control de tasa de frames para no sobrecargar el dispositivo
-      if (timeSinceLastProcess >= targetFrameInterval) {
-        try {
-          // Capturar frame 
-          const frame = await imageCapture.grabFrame();
-          
-          // Configurar tamaño adecuado del canvas para procesamiento
-          const targetWidth = Math.min(320, frame.width);
-          const targetHeight = Math.min(240, frame.height);
-          
-          tempCanvas.width = targetWidth;
-          tempCanvas.height = targetHeight;
-          
-          // Dibujar el frame en el canvas
-          tempCtx.drawImage(
-            frame, 
-            0, 0, frame.width, frame.height, 
-            0, 0, targetWidth, targetHeight
-          );
-          
-          // Mejorar la imagen para detección PPG
-          if (enhanceCtx) {
-            // Resetear canvas
-            enhanceCtx.clearRect(0, 0, enhanceCanvas.width, enhanceCanvas.height);
-            
-            // Dibujar en el canvas de mejora
-            enhanceCtx.drawImage(tempCanvas, 0, 0, targetWidth, targetHeight);
-            
-            // Opcionales: Ajustes para mejorar la señal roja
-            enhanceCtx.globalCompositeOperation = 'source-over';
-            enhanceCtx.fillStyle = 'rgba(255,0,0,0.05)';  // Sutil refuerzo del canal rojo
-            enhanceCtx.fillRect(0, 0, enhanceCanvas.width, enhanceCanvas.height);
-            enhanceCtx.globalCompositeOperation = 'source-over';
-          
-            // Obtener datos de la imagen mejorada
-            const imageData = enhanceCtx.getImageData(0, 0, enhanceCanvas.width, enhanceCanvas.height);
-            
-            // Procesar el frame mejorado
-            processFrame(imageData);
-          } else {
-            // Fallback a procesamiento normal
-            const imageData = tempCtx.getImageData(0, 0, targetWidth, targetHeight);
-            processFrame(imageData);
-          }
-          
-          // Actualizar contadores para monitoreo de rendimiento
-          frameCount++;
-          lastProcessTime = now;
-          
-          // Calcular FPS cada segundo
-          if (now - lastFpsUpdateTime > 1000) {
-            processingFps = frameCount;
-            frameCount = 0;
-            lastFpsUpdateTime = now;
-            console.log(`Rendimiento de procesamiento: ${processingFps} FPS`);
-          }
-        } catch (error) {
-          console.error("Error capturando frame:", error);
-        }
+      const videoTrack = cameraManagerRef.current?.getVideoTrack();
+      if (!videoTrack) {
+        console.error("No valid video track available");
+        setCameraError("No se pudo acceder a la cámara");
+        return;
       }
       
-      // Programar el siguiente frame
-      if (isMonitoring) {
-        requestAnimationFrame(processImage);
+      try {
+        const imageCapture = new ImageCapture(videoTrack);
+        
+        const processImage = async () => {
+          if (!isMonitoring || !cameraManagerRef.current?.isTrackValid()) {
+            return;
+          }
+          
+          try {
+            const frame = await imageCapture.grabFrame();
+            
+            // Create canvas for processing
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d', {willReadFrequently: true});
+            
+            if (!ctx) {
+              console.error("Could not get canvas context");
+              return;
+            }
+            
+            // Optimize canvas size for processing
+            const targetWidth = Math.min(320, frame.width);
+            const targetHeight = Math.min(240, frame.height);
+            
+            canvas.width = targetWidth;
+            canvas.height = targetHeight;
+            
+            ctx.drawImage(frame, 0, 0, targetWidth, targetHeight);
+            const imageData = ctx.getImageData(0, 0, targetWidth, targetHeight);
+            
+            // Process the frame
+            processFrame(imageData);
+            
+          } catch (error: any) {
+            if (error.name === 'InvalidStateError') {
+              console.warn("Camera track invalid, triggering restart");
+              handleCameraRestart();
+              return;
+            } else {
+              console.error("Error processing frame:", error);
+            }
+          }
+          
+          // Continue processing if still monitoring
+          if (isMonitoring && cameraManagerRef.current?.isTrackValid()) {
+            requestAnimationFrame(processImage);
+          }
+        };
+
+        processImage();
+      } catch (error) {
+        console.error("Error setting up frame processing:", error);
+        setCameraError("Error configurando procesamiento de imagen");
       }
     };
 
-    processImage();
+    setupFrameProcessing();
   };
-
-  useEffect(() => {
-    if (lastSignal) {
-      console.log("[DIAG] Index.tsx: lastSignal actualizado", {
-        timestamp: new Date(lastSignal.timestamp).toISOString(),
-        fingerDetected: lastSignal.fingerDetected,
-        quality: lastSignal.quality,
-        rawValue: lastSignal.rawValue,
-        filteredValue: lastSignal.filteredValue
-      });
-    }
-  }, [lastSignal]);
 
   useEffect(() => {
     if (lastSignal && lastSignal.fingerDetected && isMonitoring) {
@@ -513,7 +482,7 @@ const Index = () => {
       setHeartRate(heartBeatResult.bpm);
       setHeartbeatSignal(heartBeatResult.filteredValue);
       setBeatMarker(heartBeatResult.isPeak ? 1 : 0);
-      // Actualizar últimos intervalos RR para debug
+      
       if (heartBeatResult.rrData && heartBeatResult.rrData.intervals) {
         setRRIntervals(heartBeatResult.rrData.intervals.slice(-5));
       }
@@ -527,15 +496,12 @@ const Index = () => {
           const [status, count] = vitals.arrhythmiaStatus.split('|');
           setArrhythmiaCount(count || "0");
           
-          // Aquí detectamos si hay arritmia y enviamos la señal al HeartBeatProcessor
           const isArrhythmiaDetected = status === "ARRITMIA DETECTADA";
           
-          // Solo actualizamos cuando cambia el estado para no sobrecargar
           if (isArrhythmiaDetected !== arrhythmiaDetectedRef.current) {
             arrhythmiaDetectedRef.current = isArrhythmiaDetected;
             setArrhythmiaState(isArrhythmiaDetected);
             
-            // Mostrar un toast cuando se detecta arritmia por primera vez
             if (isArrhythmiaDetected) {
               console.log("Arritmia detectada - Activando sonido distintivo");
               toast({
@@ -553,10 +519,6 @@ const Index = () => {
     }
   }, [lastSignal, isMonitoring, processHeartBeat, processVitalSigns, setArrhythmiaState]);
 
-  // Referencia para activar o desactivar el sonido de arritmia
-  const arrhythmiaDetectedRef = useRef(false);
-  
-  // Nueva función para alternar medición
   const handleToggleMonitoring = () => {
     if (isMonitoring) {
       finalizeMeasurement();
@@ -581,6 +543,14 @@ const Index = () => {
           Últimos intervalos RR: {rrIntervals.map(i => i + ' ms').join(', ')}
         </div>
       )}
+
+      {/* Camera error overlay */}
+      {cameraError && (
+        <div className="absolute top-16 left-4 right-4 text-white z-20 bg-red-500/80 p-3 rounded">
+          {cameraError}
+        </div>
+      )}
+
       {/* Overlay button for re-entering fullscreen if user exits */}
       {!isFullscreen && (
         <button 
@@ -607,7 +577,7 @@ const Index = () => {
         </div>
 
         <div className="relative z-10 h-full flex flex-col">
-          {/* Se agrega header para sensor de calidad y estado de huella digital */}
+          {/* Header con información de calidad y estado */}
           <div className="px-4 py-2 flex justify-around items-center bg-black/20">
             <div className="text-white text-lg">
               Calidad: {signalQuality}
