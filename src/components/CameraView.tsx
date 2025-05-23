@@ -1,4 +1,3 @@
-
 import React, { useRef, useEffect, useState } from 'react';
 import { toast } from "@/components/ui/use-toast";
 
@@ -60,27 +59,18 @@ const CameraView = ({
         return;
       }
 
-      const isAndroid = /android/i.test(navigator.userAgent);
-      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
-
-      // Configuración simple y compatible
-      let videoConstraints: MediaTrackConstraints = {
-        width: { ideal: 1280 },
-        height: { ideal: 720 },
-        frameRate: { ideal: 30 }
-      };
-
-      // Solo especificar facingMode en móviles
-      if (isAndroid || isIOS) {
-        videoConstraints.facingMode = { ideal: 'environment' };
-      }
-
+      // Configuración muy simple para evitar errores
       const constraints: MediaStreamConstraints = {
-        video: videoConstraints,
+        video: {
+          width: { ideal: 640 },
+          height: { ideal: 480 },
+          frameRate: { ideal: 15 }, // Reduced frame rate
+          facingMode: { ideal: 'environment' }
+        },
         audio: false
       };
 
-      console.log("CameraView: Intentando obtener acceso a la cámara con constraints:", constraints);
+      console.log("CameraView: Solicitando acceso a la cámara");
       
       navigator.mediaDevices.getUserMedia(constraints)
         .then(newStream => {
@@ -90,8 +80,7 @@ const CameraView = ({
         .catch(err => {
           console.error("CameraView: Error al acceder a la cámara:", err);
           
-          // Fallback con configuración más simple
-          console.log("CameraView: Intentando con configuración simple");
+          // Fallback más simple
           const simpleConstraints: MediaStreamConstraints = {
             video: true,
             audio: false
@@ -99,7 +88,7 @@ const CameraView = ({
           
           navigator.mediaDevices.getUserMedia(simpleConstraints)
             .then(fallbackStream => {
-              console.log("CameraView: Acceso a la cámara obtenido con configuración simple");
+              console.log("CameraView: Acceso con configuración simple exitoso");
               handleStream(fallbackStream);
             })
             .catch(fallbackErr => {
@@ -126,49 +115,20 @@ const CameraView = ({
     
     if (!onStreamReady) {
       console.error("CameraView: onStreamReady callback no disponible");
-      toast({
-        title: "Error de cámara",
-        description: "No hay callback para procesar el video",
-        variant: "destructive"
-      });
       return;
     }
     
     const videoTrack = newStream.getVideoTracks()[0];
 
     if (videoTrack) {
-      try {
-        const capabilities = videoTrack.getCapabilities();
-        console.log("CameraView: Capacidades de la cámara:", capabilities);
-        
-        // Verificar linterna disponible
-        if (capabilities.torch) {
-          console.log("CameraView: Este dispositivo tiene linterna disponible");
-          setDeviceSupportsTorch(true);
-          
-          // Intentar activar linterna después de un delay
-          setTimeout(() => {
-            videoTrack.applyConstraints({
-              advanced: [{ torch: true }]
-            }).then(() => {
-              setTorchEnabled(true);
-              console.log("CameraView: Linterna activada para medición PPG");
-            }).catch(err => {
-              console.warn("CameraView: No se pudo activar la linterna:", err);
-              setTorchEnabled(false);
-            });
-          }, 1000);
-        } else {
-          console.log("CameraView: Este dispositivo no tiene linterna disponible");
-          setDeviceSupportsTorch(false);
-        }
-
-        // NO aplicar constraints adicionales que pueden causar errores
-        // Mantener la configuración simple para evitar "setPhotoOptions failed"
-        
-      } catch (err) {
-        console.warn("CameraView: Error verificando capacidades de cámara:", err);
-      }
+      console.log("CameraView: Video track disponible:", {
+        readyState: videoTrack.readyState,
+        enabled: videoTrack.enabled,
+        id: videoTrack.id
+      });
+      
+      // NO intentar configurar la linterna aquí para evitar errores
+      // La linterna se manejará en CameraStateManager
     }
 
     if (videoRef.current) {
@@ -187,13 +147,13 @@ const CameraView = ({
         }
       }, { once: true });
       
-      // Respaldo por timeout
+      // Respaldo por timeout más largo
       setTimeout(() => {
         if (onStreamReady && streamRef.current && cameraInitialized.current) {
           console.log("CameraView: Llamando onStreamReady (respaldo por timeout)");
           onStreamReady(streamRef.current);
         }
-      }, 1000);
+      }, 2000); // Increased timeout
     }
   };
 

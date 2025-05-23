@@ -389,13 +389,31 @@ const Index = () => {
   };
 
   const handleStreamReady = (stream: MediaStream) => {
-    if (!isMonitoring) return;
+    if (!isMonitoring) {
+      console.log("Index: Stream ready but not monitoring, ignoring");
+      return;
+    }
     
     console.log("Index: Camera stream ready, setting up camera manager");
     
     // Clean up existing manager
     if (cameraManagerRef.current) {
       cameraManagerRef.current.cleanup();
+    }
+    
+    // Verify stream has video tracks
+    const videoTracks = stream.getVideoTracks();
+    if (videoTracks.length === 0) {
+      console.error("Index: No video tracks in stream");
+      setCameraError("No se encontraron pistas de video en la cámara");
+      return;
+    }
+    
+    const videoTrack = videoTracks[0];
+    if (videoTrack.readyState !== 'live') {
+      console.error("Index: Video track is not live:", videoTrack.readyState);
+      setCameraError("La pista de video no está activa");
+      return;
     }
     
     // Create new camera manager
@@ -406,19 +424,29 @@ const Index = () => {
     
     cameraManagerRef.current.setStream(stream);
     
+    // Clear any previous errors
+    setCameraError(null);
+    
     // Set up frame processing with proper error handling
     const setupFrameProcessing = () => {
       if (!isMonitoring) return;
       
-      const videoTrack = cameraManagerRef.current?.getVideoTrack();
-      if (!videoTrack) {
-        console.error("No valid video track available");
-        setCameraError("No se pudo acceder a la cámara");
+      const currentVideoTrack = cameraManagerRef.current?.getVideoTrack();
+      if (!currentVideoTrack) {
+        console.error("Index: No valid video track available after setup");
+        setCameraError("No se pudo acceder a la cámara después de la configuración");
         return;
       }
       
       try {
-        const imageCapture = new ImageCapture(videoTrack);
+        // Check if ImageCapture is supported
+        if (typeof ImageCapture === 'undefined') {
+          console.error("ImageCapture API not supported");
+          setCameraError("ImageCapture API no soportada en este navegador");
+          return;
+        }
+        
+        const imageCapture = new ImageCapture(currentVideoTrack);
         
         const processImage = async () => {
           if (!isMonitoring || !cameraManagerRef.current?.isTrackValid()) {
@@ -455,6 +483,10 @@ const Index = () => {
               console.warn("Camera track invalid, triggering restart");
               handleCameraRestart();
               return;
+            } else if (error.name === 'OperationError') {
+              console.warn("Camera operation error, restarting:", error.message);
+              handleCameraRestart();
+              return;
             } else {
               console.error("Error processing frame:", error);
             }
@@ -466,14 +498,21 @@ const Index = () => {
           }
         };
 
-        processImage();
+        // Start processing with a delay to ensure everything is ready
+        setTimeout(() => {
+          if (isMonitoring && cameraManagerRef.current?.isTrackValid()) {
+            processImage();
+          }
+        }, 500);
+        
       } catch (error) {
         console.error("Error setting up frame processing:", error);
         setCameraError("Error configurando procesamiento de imagen");
       }
     };
 
-    setupFrameProcessing();
+    // Setup frame processing with delay
+    setTimeout(setupFrameProcessing, 1000);
   };
 
   useEffect(() => {
