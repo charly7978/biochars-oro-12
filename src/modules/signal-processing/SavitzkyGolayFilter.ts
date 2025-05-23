@@ -9,11 +9,11 @@ export class SavitzkyGolayFilter {
   private buffer: number[] = [];
   private readonly windowSize: number;
 
-  constructor(windowSize: number = 3) { // Mantener en 3 para mínimo filtrado
-    // Coeficientes optimizados para preservar picos y reducir suavizado
+  constructor(windowSize: number = 3) { // Mantener ventana mínima para preservar señal original
+    // Coeficientes optimizados para preservar picos mucho mejor
     this.windowSize = windowSize;
-    this.coefficients = [0.2, 0.6, 0.2]; // Más peso al valor central para preservar picos mejor
-    this.normFactor = 0.55; // Reducido significativamente para preservar más la señal original
+    this.coefficients = [0.15, 0.7, 0.15]; // Mucho más peso al valor central para preservar picos mejor
+    this.normFactor = 0.4; // Reducido drásticamente para preservar más la señal original
     this.buffer = new Array(windowSize).fill(0);
   }
 

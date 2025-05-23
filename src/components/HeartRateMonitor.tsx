@@ -22,7 +22,7 @@ const HeartRateMonitor = ({
   const maxHistoryLength = 100; // Puntos a mostrar
   const peakMarkerRef = useRef<boolean[]>([]);
   const lastPeakTimeRef = useRef<number | null>(null);
-  const MIN_PEAK_INTERVAL_MS = 300; // Reducido para captar latidos más rápidos (antes 350)
+  const MIN_PEAK_INTERVAL_MS = 280; // Reducido para captar latidos más rápidos
   
   // Control de animación para efecto látigo mejorado
   const animationRef = useRef<{
@@ -34,15 +34,15 @@ const HeartRateMonitor = ({
   }>({
     isAnimating: false,
     startTime: 0,
-    duration: 120, // Animación más rápida (antes 150)
+    duration: 100, // Animación mucho más rápida
     startValue: 0,
     targetValue: 0
   });
 
   // Añadir nuevo valor al historial con mejor manejo de picos
   useEffect(() => {
-    // Normalizar el valor entre 0-1 para facilitar escalado
-    const normalizedValue = Math.max(0, Math.min(1, Math.abs(value) / 80)); // Normalización ajustada para mejor visualización
+    // Normalizar el valor entre 0-1 con mayor amplificación
+    const normalizedValue = Math.max(0, Math.min(1, Math.abs(value) / 70)); // Amplificación aumentada
     
     // Verificar si este es un pico válido (evitar picos muy cercanos)
     const now = Date.now();
@@ -64,10 +64,10 @@ const HeartRateMonitor = ({
       });
     }
     
-    // Aplicar amplificación para picos - más contraste para mejor visibilidad
+    // Aplicar amplificación para picos - mucho más contraste
     const amplifiedValue = validPeak 
-      ? normalizedValue * 10.0 // Mayor amplificación para picos confirmados (aumentado significativamente)
-      : normalizedValue * 0.3; // Reducir más no-picos para mejor contraste
+      ? normalizedValue * 15.0 // Amplificación extrema para picos confirmados
+      : normalizedValue * 0.25; // Reducir más no-picos para contraste dramático
     
     // Añadir al historial
     historyRef.current.push(amplifiedValue);
@@ -84,9 +84,9 @@ const HeartRateMonitor = ({
       animationRef.current = {
         isAnimating: true,
         startTime: Date.now(),
-        duration: 120, // Más rápido para mejor sincronización
+        duration: 100, // Mucho más rápido para mejor sincronización
         startValue: amplifiedValue,
-        targetValue: amplifiedValue * 0.1 // Caída más dramática (antes 0.15)
+        targetValue: amplifiedValue * 0.05 // Caída mucho más dramática
       };
     }
     
@@ -106,19 +106,19 @@ const HeartRateMonitor = ({
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     
     // Establecer estilos
-    ctx.lineWidth = 6; // Línea más gruesa para mejor visibilidad (antes 5)
+    ctx.lineWidth = 8; // Línea mucho más gruesa
     ctx.lineJoin = 'round';
     
     // Usar calidad para determinar color con mejor contraste
     let signalColor;
-    if (quality >= 70) { // Umbral reducido (antes 80)
-      signalColor = '#ef4444'; // Rojo brillante para buena calidad
-    } else if (quality >= 40) { // Umbral reducido (antes 50)
-      signalColor = '#f97316'; // Naranja para calidad media
-    } else if (quality >= 15) { // Umbral reducido (antes 20)
-      signalColor = '#eab308'; // Amarillo para calidad baja
+    if (quality >= 60) { // Umbral reducido más
+      signalColor = '#dc2626'; // Rojo intenso para buena calidad
+    } else if (quality >= 30) { // Umbral reducido más
+      signalColor = '#ea580c'; // Naranja intenso para calidad media
+    } else if (quality >= 10) { // Umbral reducido más
+      signalColor = '#d97706'; // Amarillo intenso para calidad baja
     } else {
-      signalColor = '#a1a1aa'; // Gris para muy baja calidad
+      signalColor = '#71717a'; // Gris oscuro para muy baja calidad
     }
 
     // Dibujar la línea base para referencia
@@ -141,10 +141,10 @@ const HeartRateMonitor = ({
     
     for (let i = 0; i < history.length; i++) {
       const x = (i / (maxHistoryLength - 1)) * canvas.width;
-      let y = canvas.height - (history[i] * canvas.height * 0.9);
+      let y = canvas.height - (history[i] * canvas.height * 0.95); // Mayor rango vertical
       
-      // Valores de altura limitados entre 5% y 95% del canvas para mayor rango visual
-      y = Math.min(Math.max(y, canvas.height * 0.05), canvas.height * 0.95);
+      // Valores de altura limitados entre 2% y 98% del canvas para mayor rango visual
+      y = Math.min(Math.max(y, canvas.height * 0.02), canvas.height * 0.98);
       
       if (i === 0) {
         ctx.moveTo(x, y);
@@ -154,11 +154,11 @@ const HeartRateMonitor = ({
         
         if (isPeakPoint) {
           // Aumentar grosor en los picos para mejor visibilidad
-          ctx.lineWidth = 8; // Aumentado para mayor visibilidad (antes 6)
+          ctx.lineWidth = 12; // Aumentado mucho más
           
           // Calcular el punto de control para curva más natural
           const prevX = ((i-1) / (maxHistoryLength - 1)) * canvas.width;
-          const prevY = canvas.height - (history[i-1] * canvas.height * 0.9);
+          const prevY = canvas.height - (history[i-1] * canvas.height * 0.95);
           
           // Calcular punto de control para la curva
           const cpX = (prevX + x) / 2;
@@ -179,35 +179,43 @@ const HeartRateMonitor = ({
     for (let i = 0; i < history.length; i++) {
       if (peakMarkers[i]) {
         const x = (i / (maxHistoryLength - 1)) * canvas.width;
-        const y = canvas.height - (history[i] * canvas.height * 0.9);
+        const y = canvas.height - (history[i] * canvas.height * 0.95);
         
         // Dibujar círculo para el pico
         ctx.beginPath();
-        ctx.fillStyle = '#fef08a'; // Amarillo para mejor visibilidad
-        ctx.arc(x, y, 10, 0, Math.PI * 2); // Aumentado tamaño del círculo (antes 8)
+        ctx.fillStyle = '#fcd34d'; // Amarillo más intenso
+        ctx.arc(x, y, 14, 0, Math.PI * 2); // Aumentado tamaño del círculo mucho más
         ctx.fill();
         
         // Añadir borde para contraste
         ctx.beginPath();
-        ctx.strokeStyle = '#e11d48';
-        ctx.lineWidth = 3;
-        ctx.arc(x, y, 10, 0, Math.PI * 2);
+        ctx.strokeStyle = '#be123c';
+        ctx.lineWidth = 4; // Borde más grueso
+        ctx.arc(x, y, 14, 0, Math.PI * 2);
         ctx.stroke();
         
-        // Mostrar valor del pico con más precisión
-        const displayValue = Math.round(history[i] * 12); // Amplificado para mejor lectura (antes *10)
-        ctx.font = 'bold 16px sans-serif'; // Fuente más grande (antes 14px)
+        // Mostrar valor del pico con más precisión y tamaño
+        const displayValue = Math.round(history[i] * 15); // Amplificado más
+        ctx.font = 'bold 18px sans-serif'; // Fuente aún más grande
         ctx.fillStyle = '#ffffff'; 
         ctx.textAlign = 'center';
-        ctx.fillText(displayValue.toString(), x, y - 15);
+        ctx.fillText(displayValue.toString(), x, y - 20); // Mayor distancia
         
         // Agregar círculo de "halo" pulsante para destacar más el pico
         ctx.beginPath();
-        ctx.strokeStyle = 'rgba(225, 29, 72, 0.5)'; // Más opaco para mejor visibilidad (antes 0.4)
-        ctx.lineWidth = 2;
-        ctx.arc(x, y, 15, 0, Math.PI * 2); // Círculo más grande (antes 12)
+        ctx.strokeStyle = 'rgba(225, 29, 72, 0.6)'; // Más opaco
+        ctx.lineWidth = 3; // Más grueso
+        ctx.arc(x, y, 20, 0, Math.PI * 2); // Círculo mucho más grande
         ctx.stroke();
       }
+    }
+
+    // NUEVO: Agregar indicador de latido más visible
+    if (isPeak) {
+      ctx.beginPath();
+      ctx.fillStyle = 'rgba(239, 68, 68, 0.4)'; // Rojo semi-transparente
+      ctx.rect(0, 0, canvas.width, canvas.height);
+      ctx.fill();
     }
   };
 
@@ -220,8 +228,8 @@ const HeartRateMonitor = ({
         className="w-full h-full"
       />
       {isPeak && (
-        <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-white/90 text-sm font-bold animate-pulse bg-red-500/30 px-2 py-1 rounded-md">
-          LATIDO
+        <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-white font-bold animate-pulse bg-red-500/60 px-3 py-1.5 rounded-md text-base">
+          LATIDO DETECTADO
         </div>
       )}
     </div>
