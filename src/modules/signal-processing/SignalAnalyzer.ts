@@ -27,34 +27,49 @@ export class SignalAnalyzer {
   private lastDetectionTime: number = 0;
   private qualityHistory: number[] = [];
   private motionArtifactScore: number = 0;
-  private readonly DETECTION_TIMEOUT = 2000; // Reducido para respuesta más rápida (antes 3000)
-  private readonly MOTION_ARTIFACT_THRESHOLD = 0.85; // Reducido para permitir más movimiento (antes 0.8)
-  private valueHistory: number[] = []; // Track signal history for artifact detection
+  // Reduced DETECTION_TIMEOUT for faster response
+  private readonly DETECTION_TIMEOUT = 1800; 
+  // Increased threshold for better motion tolerance
+  private readonly MOTION_ARTIFACT_THRESHOLD = 0.88; 
+  private valueHistory: number[] = [];
   
-  // Calibración adaptativa mejorada
+  // Optimized calibration parameters
   private calibrationPhase: boolean = true;
   private calibrationSamples: number[] = [];
-  private readonly CALIBRATION_SAMPLE_SIZE = 20; // Reducido para calibración más rápida (antes 25)
-  private adaptiveThreshold: number = 0.09; // Umbral inicial reducido para mayor sensibilidad (antes 0.12)
+  // Reduced sample size for faster calibration
+  private readonly CALIBRATION_SAMPLE_SIZE = 18;
+  // Lower threshold for higher sensitivity
+  private adaptiveThreshold: number = 0.075; 
   
-  // Mejoras para la detección de dedo en cámara trasera
+  // Improved camera detection parameters
   private rearCameraDetection: boolean = false;
   private textureConsistencyHistory: number[] = [];
-  private readonly TEXTURE_HISTORY_SIZE = 12; // Reducido para adaptación más rápida (antes 15)
+  // Optimized for faster adaptation
+  private readonly TEXTURE_HISTORY_SIZE = 10;
   private edgeDetectionScore: number = 0;
   private fingerBorderDetected: boolean = false;
   
-  // Propiedades para visualización de picos mejorada
-  private peakAmplificationFactor: number = 3.0; // Aumentado para mejor visualización (antes 2.5)
-  private peakSharpness: number = 1.0; // Aumentado para más nitidez (antes 0.8)
-  private whipEffect: number = 2.0; // Aumentado para más dramatismo (antes 1.5)
+  // Enhanced peak visualization parameters
+  private peakAmplificationFactor: number = 3.2;
+  private peakSharpness: number = 1.2;
+  private whipEffect: number = 2.2;
   
-  // Nuevas propiedades para mejorar la detección y reducir falsos positivos
+  // Optimized finger detection parameters
   private consistentSignalCounter: number = 0;
-  private readonly CONSISTENT_SIGNAL_THRESHOLD = 3; // Reducido para detección más rápida (antes 5)
-  private fingerMovementScore: number = 0; // Detector de movimiento de dedo
-  private readonly COLOR_RATIO_HISTORY_SIZE = 8; // Reducido para adaptación más rápida (antes 10)
+  // Reduced for faster detection
+  private readonly CONSISTENT_SIGNAL_THRESHOLD = 2;
+  private fingerMovementScore: number = 0;
+  // Reduced for faster adaptation
+  private readonly COLOR_RATIO_HISTORY_SIZE = 6;
   private colorRatioHistory: Array<{rToG: number, rToB: number}> = [];
+  
+  // New parameters for improved detection
+  private lastConfidentDetection: number = 0;
+  private confidenceScore: number = 0;
+  private readonly CONFIDENCE_DECAY_RATE = 0.05;
+  private readonly CONFIDENCE_BOOST_RATE = 0.2;
+  private readonly MIN_CONFIDENCE_THRESHOLD = 0.4;
+  private steadySignalCounter: number = 0;
   
   constructor(config: { 
     QUALITY_LEVELS: number;
@@ -62,12 +77,14 @@ export class SignalAnalyzer {
     MIN_CONSECUTIVE_DETECTIONS: number;
     MAX_CONSECUTIVE_NO_DETECTIONS: number;
   }) {
-    // Configuración de hysteresis ajustada para mejor detección
+    // Optimized hysteresis configuration
     this.CONFIG = {
       QUALITY_LEVELS: config.QUALITY_LEVELS,
       QUALITY_HISTORY_SIZE: config.QUALITY_HISTORY_SIZE,
-      MIN_CONSECUTIVE_DETECTIONS: 3, // Reducido para respuesta más rápida (antes 4)
-      MAX_CONSECUTIVE_NO_DETECTIONS: 3  // Aumentado para mayor tolerancia (antes 2)
+      // Reduced for faster response
+      MIN_CONSECUTIVE_DETECTIONS: 2,
+      // More tolerance for intermittent detection
+      MAX_CONSECUTIVE_NO_DETECTIONS: 4
     };
   }
   
@@ -80,17 +97,17 @@ export class SignalAnalyzer {
     periodicity: number;
     textureScore?: number;
     edgeValue?: number;
-    rToGRatio?: number;  // Nueva: ratio rojo/verde para validación
-    rToBRatio?: number;  // Nueva: ratio rojo/azul para validación
+    rToGRatio?: number;
+    rToBRatio?: number;
   }): void {
-    // Store actual scores with improved enhancement multipliers
-    this.detectorScores.redChannel = Math.max(0, Math.min(1, scores.redChannel * 1.25)); // Incrementado (antes 1.15)
-    this.detectorScores.stability = Math.max(0, Math.min(1, scores.stability * 1.2)); // Incrementado (antes 1.15)
-    this.detectorScores.pulsatility = Math.max(0, Math.min(1, scores.pulsatility * 1.4)); // Incrementado (antes 1.3)
-    this.detectorScores.biophysical = Math.max(0, Math.min(1, scores.biophysical * 1.3)); // Incrementado (antes 1.2)
-    this.detectorScores.periodicity = Math.max(0, Math.min(1, scores.periodicity * 1.25)); // Incrementado (antes 1.15)
+    // Enhanced score calculations with optimized multipliers
+    this.detectorScores.redChannel = Math.max(0, Math.min(1, scores.redChannel * 1.3));
+    this.detectorScores.stability = Math.max(0, Math.min(1, scores.stability * 1.25));
+    this.detectorScores.pulsatility = Math.max(0, Math.min(1, scores.pulsatility * 1.5));
+    this.detectorScores.biophysical = Math.max(0, Math.min(1, scores.biophysical * 1.35));
+    this.detectorScores.periodicity = Math.max(0, Math.min(1, scores.periodicity * 1.3));
     
-    // Guardar historial de ratios de color con rangos más permisivos
+    // More permissive color ratio checks with wider ranges
     if (typeof scores.rToGRatio !== 'undefined' && typeof scores.rToBRatio !== 'undefined') {
       this.colorRatioHistory.push({
         rToG: scores.rToGRatio,
@@ -101,85 +118,103 @@ export class SignalAnalyzer {
         this.colorRatioHistory.shift();
       }
       
-      // Validar si los ratios de color están en rangos fisiológicos (más permisivos)
+      // Wider acceptable ranges for different camera types and lighting conditions
       const avgRtoG = this.colorRatioHistory.reduce((sum, val) => sum + val.rToG, 0) / 
                      this.colorRatioHistory.length;
       const avgRtoB = this.colorRatioHistory.reduce((sum, val) => sum + val.rToB, 0) / 
                      this.colorRatioHistory.length;
       
-      // Rangos más amplios para aceptar más variedad de cámaras y condiciones
-      if (avgRtoG < 0.8 || avgRtoG > 4.0 || avgRtoB < 0.8 || avgRtoB > 4.0) {
-        this.detectorScores.biophysical *= 0.9; // Penalizar menos (antes 0.85)
+      // More permissive ranges with less severe penalty
+      if (avgRtoG < 0.7 || avgRtoG > 4.5 || avgRtoB < 0.7 || avgRtoB > 4.5) {
+        this.detectorScores.biophysical *= 0.95; 
       }
     }
     
-    // Store texture score if available and process consistency
+    // Enhanced texture consistency analysis
     if (typeof scores.textureScore !== 'undefined') {
       this.detectorScores.textureScore = scores.textureScore;
       
-      // Analizar consistencia de textura para mejorar detección de dedo
       this.textureConsistencyHistory.push(scores.textureScore);
       if (this.textureConsistencyHistory.length > this.TEXTURE_HISTORY_SIZE) {
         this.textureConsistencyHistory.shift();
       }
       
-      // Análisis de consistencia temporal con criterios más permisivos
+      // More permissive texture consistency thresholds
       const textureConsistency = this.getTextureConsistency();
-      if (textureConsistency > 0.75) { // Umbral reducido (antes 0.85)
-        this.consistentSignalCounter = Math.min(this.CONSISTENT_SIGNAL_THRESHOLD, this.consistentSignalCounter + 1);
-      } else if (textureConsistency < 0.55) { // Umbral reducido (antes 0.65)
-        this.consistentSignalCounter = Math.max(0, this.consistentSignalCounter - 1);
+      if (textureConsistency > 0.7) {
+        this.consistentSignalCounter = Math.min(this.CONSISTENT_SIGNAL_THRESHOLD + 2, 
+                                               this.consistentSignalCounter + 1);
+        
+        // Track steady signal for improved confidence
+        this.steadySignalCounter = Math.min(10, this.steadySignalCounter + 1);
+      } else if (textureConsistency < 0.5) {
+        this.consistentSignalCounter = Math.max(0, this.consistentSignalCounter - 0.8);
+        this.steadySignalCounter = Math.max(0, this.steadySignalCounter - 1);
       }
       
-      // Premiar alta consistencia temporal en detección
-      if (this.consistentSignalCounter >= this.CONSISTENT_SIGNAL_THRESHOLD) {
-        this.detectorScores.stability = Math.min(1.0, this.detectorScores.stability * 1.15); // Incrementado (antes 1.1)
+      // Reward consistent signals more generously
+      if (this.consistentSignalCounter >= this.CONSISTENT_SIGNAL_THRESHOLD || 
+          this.steadySignalCounter > 4) {
+        this.detectorScores.stability = Math.min(1.0, this.detectorScores.stability * 1.2);
+        
+        // Boost confidence
+        this.confidenceScore = Math.min(1.0, this.confidenceScore + this.CONFIDENCE_BOOST_RATE);
       }
     }
     
-    // Detectar bordes para mejorar la detección con criterios más permisivos
+    // Improved edge detection for better finger boundary recognition
     if (typeof scores.edgeValue !== 'undefined' && scores.edgeValue > 0) {
-      // Actualizar puntuación de detección de bordes con más peso para el valor actual
-      this.edgeDetectionScore = this.edgeDetectionScore * 0.6 + scores.edgeValue * 0.4; // Más peso al valor actual (antes 0.7/0.3)
+      // More responsive edge score with higher weight for current value
+      this.edgeDetectionScore = this.edgeDetectionScore * 0.5 + scores.edgeValue * 0.5;
       
-      // Umbral reducido para detectar más fácilmente bordes del dedo
-      if (this.edgeDetectionScore > 0.35 && scores.redChannel > 0.25) { // Umbrales reducidos (antes 0.4/0.3)
+      // More permissive edge detection threshold
+      if (this.edgeDetectionScore > 0.32 && scores.redChannel > 0.2) {
         this.fingerBorderDetected = true;
         
-        // Mejorar estabilidad cuando se detecta borde de dedo
-        if (this.detectorScores.stability < 0.8) { // Umbral aumentado (antes 0.7)
-          this.detectorScores.stability = Math.min(1.0, this.detectorScores.stability * 1.2); // Mayor mejora (antes 1.15)
+        // Greater improvement when edges detected
+        if (this.detectorScores.stability < 0.85) {
+          this.detectorScores.stability = Math.min(1.0, this.detectorScores.stability * 1.25);
         }
+        
+        // Boost confidence
+        this.confidenceScore = Math.min(1.0, this.confidenceScore + this.CONFIDENCE_BOOST_RATE * 0.5);
       } else {
         this.fingerBorderDetected = false;
       }
     }
     
-    // Detección de movimiento del dedo - más tolerante
+    // Improved motion detection with more tolerance
     this.trackValueForMotionDetection(scores.redValue);
     
-    // Calibración adaptativa - umbrales más permisivos
-    if (this.calibrationPhase && this.detectorScores.redChannel > 0.12) { // Umbral reducido (antes 0.15)
+    // More adaptive calibration thresholds
+    if (this.calibrationPhase && this.detectorScores.redChannel > 0.1) {
       this.calibrationSamples.push(scores.redValue);
       
-      // Cuando tenemos suficientes muestras, calibramos el umbral
       if (this.calibrationSamples.length >= this.CALIBRATION_SAMPLE_SIZE) {
         this.calibrateAdaptiveThreshold();
         this.calibrationPhase = false;
       }
     }
     
-    // Determinar si estamos usando la cámara trasera basado en características de la señal
+    // Enhanced camera detection
     this.detectRearCamera(scores);
 
-    // Asignar weightedSum para detección
-    const weightedSum = this.detectorScores.redChannel * 0.3 +
-                        this.detectorScores.stability * 0.3 +
-                        this.detectorScores.pulsatility * 0.2 +
-                        this.detectorScores.biophysical * 0.2;
+    // Optimized weighting for improved detection
+    const weightedSum = this.detectorScores.redChannel * 0.32 +
+                        this.detectorScores.stability * 0.32 +
+                        this.detectorScores.pulsatility * 0.22 +
+                        this.detectorScores.biophysical * 0.14;
     this.detectorScores.weightedSum = weightedSum;
     this.detectorScores.motionScore = this.motionArtifactScore;
     this.detectorScores.fingerMovement = this.fingerMovementScore;
+    
+    // Apply confidence score decay
+    this.confidenceScore = Math.max(0, this.confidenceScore - this.CONFIDENCE_DECAY_RATE);
+    
+    // Store last confident detection time
+    if (weightedSum > 0.35 && this.confidenceScore > this.MIN_CONFIDENCE_THRESHOLD) {
+      this.lastConfidentDetection = Date.now();
+    }
     
     console.log("SignalAnalyzer: Updated detector scores:", {
       redValue: scores.redValue,
@@ -197,56 +232,61 @@ export class SignalAnalyzer {
       adaptiveThreshold: this.adaptiveThreshold,
       calibrationPhase: this.calibrationPhase,
       consistentSignalCounter: this.consistentSignalCounter,
+      steadySignalCounter: this.steadySignalCounter,
+      confidenceScore: this.confidenceScore,
       weightedSum: weightedSum
     });
   }
   
-  // Track values for motion artifact detection with more permisive thresholds
+  // Improved motion artifact detection
   private trackValueForMotionDetection(value: number): void {
     this.valueHistory.push(value);
-    if (this.valueHistory.length > 15) { // Mantener último
+    if (this.valueHistory.length > 15) {
       this.valueHistory.shift();
     }
     
-    // Detectar artefactos de movimiento con criterios más permisivos
+    // More permissive motion artifact detection
     if (this.valueHistory.length >= 5) {
       const recentValues = this.valueHistory.slice(-5);
       const maxChange = Math.max(...recentValues) - Math.min(...recentValues);
       const meanValue = recentValues.reduce((sum, val) => sum + val, 0) / recentValues.length;
       
-      // Calcular cambio normalizado como porcentaje de media
       const normalizedChange = meanValue > 0 ? maxChange / meanValue : 0;
       
-      // Update motion artifact score with smoothing, umbral más permisivo
-      this.motionArtifactScore = this.motionArtifactScore * 0.7 + (normalizedChange > 0.7 ? 0.3 : 0); // Umbral incrementado (antes 0.6)
+      // More lenient motion artifact scoring
+      this.motionArtifactScore = this.motionArtifactScore * 0.75 + (normalizedChange > 0.75 ? 0.25 : 0);
       
-      // Análisis de movimiento del dedo (diferente al artefacto de movimiento general)
+      // Improved finger movement detection
       if (this.valueHistory.length >= 10) {
         const trend = this.analyzeValueTrend(this.valueHistory.slice(-10));
         
-        // Alta variación seguida de estabilidad indica movimiento del dedo
         if (trend === 'decreasing_then_stable' || trend === 'increasing_then_stable') {
-          this.fingerMovementScore = Math.min(1.0, this.fingerMovementScore + 0.2); // Incremento más suave (antes 0.3)
+          this.fingerMovementScore = Math.min(1.0, this.fingerMovementScore + 0.15);
+          
+          // Boost confidence when we see meaningful patterns
+          if (trend === 'increasing_then_stable') {
+            this.confidenceScore = Math.min(1.0, this.confidenceScore + this.CONFIDENCE_BOOST_RATE * 0.3);
+          }
         } else {
-          this.fingerMovementScore = Math.max(0, this.fingerMovementScore - 0.05); // Decaimiento más lento (antes 0.1)
+          this.fingerMovementScore = Math.max(0, this.fingerMovementScore - 0.04);
         }
         
-        // Aplicar penalización de movimiento del dedo más suave
-        if (this.fingerMovementScore > 0.7) { // Umbral incrementado (antes 0.5)
-          this.detectorScores.stability *= 0.9; // Penalizar menos (antes 0.85)
+        // Less severe penalty for finger movement
+        if (this.fingerMovementScore > 0.75) {
+          this.detectorScores.stability *= 0.92;
         }
       }
       
-      // Aplicar penalización de artefacto más suave
+      // Less severe motion artifact penalty
       if (this.motionArtifactScore > this.MOTION_ARTIFACT_THRESHOLD) {
-        this.detectorScores.stability *= 0.8; // Penalizar menos (antes 0.75)
+        this.detectorScores.stability *= 0.85;
       }
     }
   }
 
-  // Nuevo método para analizar la tendencia de los valores (útil para detectar movimiento de dedo)
+  // Enhanced trend analysis
   private analyzeValueTrend(values: number[]): 'increasing' | 'decreasing' | 'stable' | 'increasing_then_stable' | 'decreasing_then_stable' | 'unstable' {
-    if (values.length < 6) return 'unstable'; // Necesitamos suficientes puntos
+    if (values.length < 6) return 'unstable';
     
     const firstHalf = values.slice(0, Math.floor(values.length / 2));
     const secondHalf = values.slice(Math.floor(values.length / 2));
@@ -254,14 +294,13 @@ export class SignalAnalyzer {
     const firstAvg = firstHalf.reduce((sum, val) => sum + val, 0) / firstHalf.length;
     const secondAvg = secondHalf.reduce((sum, val) => sum + val, 0) / secondHalf.length;
     
-    // Calcular variabilidad en cada mitad
     const firstVar = this.calculateVariance(firstHalf);
     const secondVar = this.calculateVariance(secondHalf);
     
-    const THRESHOLD = 0.15; // Umbral para considerar un cambio significativo
-    const VAR_THRESHOLD = 0.1; // Umbral para considerar estabilidad
+    // More permissive thresholds
+    const THRESHOLD = 0.12;
+    const VAR_THRESHOLD = 0.12;
     
-    // Analizar tendencia y estabilidad
     if (secondAvg > firstAvg * (1 + THRESHOLD)) {
       return secondVar < VAR_THRESHOLD ? 'increasing_then_stable' : 'increasing';
     } else if (firstAvg > secondAvg * (1 + THRESHOLD)) {
@@ -271,33 +310,32 @@ export class SignalAnalyzer {
     }
   }
   
-  // Auxiliar para calcular varianza
+  // Auxiliar for calculating variance
   private calculateVariance(values: number[]): number {
     if (values.length === 0) return 0;
     const avg = values.reduce((sum, val) => sum + val, 0) / values.length;
     return values.reduce((sum, val) => sum + Math.pow(val - avg, 2), 0) / values.length;
   }
   
-  // Método para detectar uso de cámara trasera basado en características de la señal
+  // Enhanced rear camera detection
   private detectRearCamera(scores: any): void {
-    // Criterios más permisivos para detección de cámara trasera
-    if (scores.redChannel > 0.35 && // Umbral reducido (antes 0.45)
-        scores.redValue > 50 && // Umbral reducido (antes 60)
-        this.detectorScores.stability > 0.45 && // Umbral reducido (antes 0.55) 
+    // More permissive camera detection thresholds
+    if (scores.redChannel > 0.3 &&
+        scores.redValue > 45 &&
+        this.detectorScores.stability > 0.4 && 
         (this.textureConsistencyHistory.length >= 5 && 
-         this.getAverageTexture() > 0.55)) { // Umbral reducido (antes 0.65)
+         this.getAverageTexture() > 0.5)) {
       
       this.rearCameraDetection = true;
-    } else if (scores.redChannel < 0.25 || // Umbral reducido (antes 0.3)
-               scores.redValue < 30 || // Umbral reducido (antes 40)
-               this.detectorScores.stability < 0.3) { // Umbral reducido (antes 0.4)
+    } else if (scores.redChannel < 0.22 ||
+               scores.redValue < 25 ||
+               this.detectorScores.stability < 0.25) {
       
       this.rearCameraDetection = false;
     }
-    // En caso contrario, mantener el estado actual
   }
   
-  // Calcular textura promedio para análisis de consistencia
+  // Enhanced textura promedio for analysis of consistency
   private getAverageTexture(): number {
     if (this.textureConsistencyHistory.length === 0) return 0;
     
@@ -305,7 +343,7 @@ export class SignalAnalyzer {
            this.textureConsistencyHistory.length;
   }
   
-  // Calcular consistencia de textura - útil para cámara trasera
+  // Improved texture consistency calculation
   private getTextureConsistency(): number {
     if (this.textureConsistencyHistory.length < 3) return 0;
     
@@ -313,32 +351,29 @@ export class SignalAnalyzer {
     const avg = values.reduce((sum, val) => sum + val, 0) / values.length;
     const variance = values.reduce((sum, val) => sum + Math.pow(val - avg, 2), 0) / values.length;
     
-    // Menor varianza = mayor consistencia (escala invertida)
-    return Math.max(0, Math.min(1, 1 - Math.sqrt(variance) * 3));
+    // More permissive consistency scale
+    return Math.max(0, Math.min(1, 1 - Math.sqrt(variance) * 2.8));
   }
 
-  // Método para calibración adaptativa del umbral con valores más permisivos
+  // Enhanced adaptive threshold calibration
   private calibrateAdaptiveThreshold(): void {
-    // Ordenar muestras y eliminar valores extremos - más permisivo
     const sortedSamples = [...this.calibrationSamples].sort((a, b) => a - b);
-    const trimCount = Math.floor(sortedSamples.length * 0.1); // Eliminar menos valores extremos (antes 0.15)
+    const trimCount = Math.floor(sortedSamples.length * 0.08);
     const trimmedSamples = sortedSamples.slice(trimCount, sortedSamples.length - trimCount);
     
-    // Calcular media y desviación estándar
     const mean = trimmedSamples.reduce((sum, val) => sum + val, 0) / trimmedSamples.length;
     const variance = trimmedSamples.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / trimmedSamples.length;
     const stdDev = Math.sqrt(variance);
     
-    // Calcular coeficiente de variación para ajustar sensibilidad
     const cv = mean > 0 ? stdDev / mean : 1;
     
-    // Ajustar umbral según variabilidad con umbrales más bajos
-    if (cv < 0.05) { // Muy estable
-      this.adaptiveThreshold = 0.035; // Valor reducido (antes 0.042)
-    } else if (cv < 0.1) { // Estable
-      this.adaptiveThreshold = 0.022; // Valor reducido (antes 0.028)
-    } else { // Variable
-      this.adaptiveThreshold = 0.015; // Valor reducido (antes 0.022)
+    // More permissive thresholds
+    if (cv < 0.05) {
+      this.adaptiveThreshold = 0.032;
+    } else if (cv < 0.1) {
+      this.adaptiveThreshold = 0.02;
+    } else {
+      this.adaptiveThreshold = 0.014;
     }
     
     console.log("SignalAnalyzer: Calibración adaptativa completada", {
@@ -349,111 +384,122 @@ export class SignalAnalyzer {
       umbralAdaptativo: this.adaptiveThreshold
     });
     
-    // Limpiar muestras de calibración
     this.calibrationSamples = [];
   }
 
-  // Método para amplificar picos con efecto látigo mejorado
+  // Method for amplifying peaks with whip effect
   enhanceSignalPeaks(value: number, isPeak: boolean): number {
-    // Si es un pico, aplicamos una amplificación mayor con efecto de látigo
     if (isPeak) {
-      // Aplicar amplificación de pico con efecto látigo
       return value * this.peakAmplificationFactor * this.whipEffect;
     } else {
-      // Si no es un pico, mantener el valor pero con ligera nitidez
       const baselineValue = value * (1 + this.peakSharpness * 0.3);
-      // Aplicar una ligera atenuación en valores no pico para aumentar contraste
-      return baselineValue * 0.85; // Menos atenuación (antes 0.9)
+      return baselineValue * 0.85;
     }
   }
 
-  // LÓGICA MEJORADA: Detección adaptativa con criterios más permisivos
+  // Improved detection logic with more permissive thresholds
   analyzeSignalMultiDetector(
     filtered: number,
     trendResult: any
   ): DetectionResult {
-    // Actualizar historial de calidad y calcular calidad media
+    // Update quality history and calculate average quality
     this.qualityHistory.push(this.detectorScores.redChannel);
     if (this.qualityHistory.length > this.CONFIG.QUALITY_HISTORY_SIZE) {
       this.qualityHistory.shift();
     }
     const avgQuality = this.qualityHistory.reduce((sum, q) => sum + q, 0) / this.qualityHistory.length;
     
-    // Ajustar umbrales según tipo de cámara y consistencia de señal
-    let qualityOn = this.adaptiveThreshold * 0.9; // Reducido para mayor sensibilidad
-    let qualityOff = this.adaptiveThreshold * 0.4; // Reducido para mayor histéresis (antes 0.5)
-    let stabilityOn = 0.35; // Reducido (antes 0.42)
-    let pulseOn = 0.28; // Reducido (antes 0.32)
+    // More permissive detection thresholds
+    let qualityOn = this.adaptiveThreshold * 0.85;
+    let qualityOff = this.adaptiveThreshold * 0.35;
+    let stabilityOn = 0.32;
+    let pulseOn = 0.25;
     
-    // Ajustes específicos para cámara trasera (más permisivos)
+    // Camera-specific adjustments
     if (this.rearCameraDetection) {
-      // Criterios más permisivos para cámara trasera
-      qualityOn = Math.max(this.adaptiveThreshold * 0.9, 0.025); // Reducido (antes 0.032)
-      stabilityOn = 0.4; // Reducido (antes 0.48)
-      pulseOn = 0.32; // Reducido (antes 0.38)
+      qualityOn = Math.max(this.adaptiveThreshold * 0.85, 0.022);
+      stabilityOn = 0.38;
+      pulseOn = 0.3;
       
-      // Si detectamos bordes de dedo claros, ajustar criterios
-      if (this.fingerBorderDetected && this.edgeDetectionScore > 0.35) { // Umbral reducido (antes 0.45)
-        qualityOn *= 0.85; // Reducir umbral más agresivamente (antes 0.92)
-        stabilityOn *= 0.9; // Reducir umbral (antes 0.95)
+      if (this.fingerBorderDetected && this.edgeDetectionScore > 0.32) {
+        qualityOn *= 0.8;
+        stabilityOn *= 0.85;
       }
       
-      // Considerar consistencia de textura
       const textureConsistency = this.getTextureConsistency();
-      if (textureConsistency > 0.75) { // Umbral reducido (antes 0.85)
-        // Alta consistencia = señal más confiable
-        stabilityOn *= 0.85; // Reducir más (antes 0.92)
+      if (textureConsistency > 0.7) {
+        stabilityOn *= 0.8;
       }
     } 
     
-    // Ajustar umbrales según contador de consistencia
-    if (this.consistentSignalCounter > this.CONSISTENT_SIGNAL_THRESHOLD - 1) {
-      // Si la señal ha sido consistente, reducir umbrales más agresivamente
-      qualityOn *= 0.9; // Reducir más (antes 0.95)
-      stabilityOn *= 0.9; // Reducir más (antes 0.95)
+    // Additional detection help from consistent signal
+    if (this.consistentSignalCounter > this.CONSISTENT_SIGNAL_THRESHOLD - 1 || 
+        this.steadySignalCounter > 3) {
+      qualityOn *= 0.85;
+      stabilityOn *= 0.85;
     }
     
-    // Requerir umbral mínimo para la suma ponderada de características
+    // Consider recent confident detection
+    const timeSinceLastConfidentDetection = Date.now() - this.lastConfidentDetection;
+    if (timeSinceLastConfidentDetection < 2000) {
+      const recencyFactor = Math.max(0.6, 1 - (timeSinceLastConfidentDetection / 2000));
+      qualityOn *= recencyFactor;
+      stabilityOn *= recencyFactor;
+    }
+    
+    // Calculate weighted sum with refined weights
     const weightedSum = this.detectorScores.weightedSum || 0;
     
-    // Lógica de histeresis mejorada con umbrales más permisivos
+    // Improved hysteresis logic with time-based confidence
     if (!this.isCurrentlyDetected) {
-      // Detección inicial con criterios más permisivos
-      if (avgQuality > qualityOn && 
-          (trendResult !== 'non_physiological' || this.consistentSignalCounter >= this.CONSISTENT_SIGNAL_THRESHOLD) &&
+      // More permissive detection initiation
+      if ((avgQuality > qualityOn && 
+          (trendResult !== 'non_physiological' || 
+           this.consistentSignalCounter >= this.CONSISTENT_SIGNAL_THRESHOLD || 
+           this.steadySignalCounter > 3) &&
           this.detectorScores.stability > stabilityOn &&
           this.detectorScores.pulsatility > pulseOn &&
-          weightedSum > 0.32) { // Umbral reducido (antes 0.38)
+          weightedSum > 0.3) || 
+          this.confidenceScore > this.MIN_CONFIDENCE_THRESHOLD * 1.5) {
+        
         this.consecutiveDetections++;
       } else {
         this.consecutiveDetections = 0;
       }
     } else {
-      // Mantenimiento con tolerancia mayor
-      const stabilityOff = this.rearCameraDetection ? 0.3 : 0.25; // Reducidos (antes 0.36/0.32)
-      const pulseOff = this.rearCameraDetection ? 0.25 : 0.2; // Reducidos (antes 0.32/0.27)
+      // More resilient detection maintenance
+      const stabilityOff = this.rearCameraDetection ? 0.28 : 0.22;
+      const pulseOff = this.rearCameraDetection ? 0.23 : 0.18;
       
-      // Considerar peso bajo de calidad para no perder señales débiles válidas
-      if (avgQuality < qualityOff || 
-          (trendResult === 'non_physiological' && this.consistentSignalCounter < this.CONSISTENT_SIGNAL_THRESHOLD) ||
-          this.detectorScores.stability < stabilityOff ||
-          this.detectorScores.pulsatility < pulseOff || 
-          weightedSum < 0.25) { // Umbral reducido (antes 0.3)
+      if ((avgQuality < qualityOff && 
+          (trendResult === 'non_physiological' && 
+           this.consistentSignalCounter < this.CONSISTENT_SIGNAL_THRESHOLD && 
+           this.steadySignalCounter < 2) &&
+          this.detectorScores.stability < stabilityOff &&
+          this.detectorScores.pulsatility < pulseOff && 
+          weightedSum < 0.22) || 
+          (this.confidenceScore < this.MIN_CONFIDENCE_THRESHOLD * 0.5 && 
+           timeSinceLastConfidentDetection > 3000)) {
+        
         this.consecutiveNoDetections++;
       } else {
         this.consecutiveNoDetections = 0;
       }
     }
     
-    // Cambiar estado tras N cuadros consecutivos según configuración mejorada
-    if (!this.isCurrentlyDetected && this.consecutiveDetections >= this.CONFIG.MIN_CONSECUTIVE_DETECTIONS) {
+    // State transition with hysteresis
+    if (!this.isCurrentlyDetected && 
+        this.consecutiveDetections >= this.CONFIG.MIN_CONSECUTIVE_DETECTIONS) {
       this.isCurrentlyDetected = true;
-      console.log("SignalAnalyzer: Dedo detectado después de", this.CONFIG.MIN_CONSECUTIVE_DETECTIONS, "detecciones consecutivas");
+      console.log("SignalAnalyzer: Dedo detectado después de", 
+                 this.CONFIG.MIN_CONSECUTIVE_DETECTIONS, "detecciones consecutivas");
     }
     
-    if (this.isCurrentlyDetected && this.consecutiveNoDetections >= this.CONFIG.MAX_CONSECUTIVE_NO_DETECTIONS) {
+    if (this.isCurrentlyDetected && 
+        this.consecutiveNoDetections >= this.CONFIG.MAX_CONSECUTIVE_NO_DETECTIONS) {
       this.isCurrentlyDetected = false;
-      console.log("SignalAnalyzer: Dedo perdido después de", this.CONFIG.MAX_CONSECUTIVE_NO_DETECTIONS, "no detecciones consecutivas");
+      console.log("SignalAnalyzer: Dedo perdido después de", 
+                 this.CONFIG.MAX_CONSECUTIVE_NO_DETECTIONS, "no detecciones consecutivas");
     }
     
     return {
@@ -470,7 +516,9 @@ export class SignalAnalyzer {
         textureConsistency: this.getTextureConsistency(),
         weightedSum: weightedSum,
         motionScore: this.motionArtifactScore,
-        fingerMovement: this.fingerMovementScore
+        fingerMovement: this.fingerMovementScore,
+        confidenceScore: this.confidenceScore,
+        steadySignalCounter: this.steadySignalCounter
       }
     };
   }
@@ -495,7 +543,7 @@ export class SignalAnalyzer {
     this.valueHistory = [];
     this.calibrationPhase = true;
     this.calibrationSamples = [];
-    this.adaptiveThreshold = 0.09; // Valor inicial más bajo
+    this.adaptiveThreshold = 0.075;
     
     this.rearCameraDetection = false;
     this.textureConsistencyHistory = [];
@@ -504,6 +552,9 @@ export class SignalAnalyzer {
     this.consistentSignalCounter = 0;
     this.fingerMovementScore = 0;
     this.colorRatioHistory = [];
+    this.confidenceScore = 0;
+    this.lastConfidentDetection = 0;
+    this.steadySignalCounter = 0;
     
     this.detectorScores = {
       redChannel: 0,
