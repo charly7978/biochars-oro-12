@@ -1,9 +1,8 @@
-
 import React, { useEffect, useRef, useCallback, useState } from 'react';
 import { Fingerprint, AlertCircle, BarChart2 } from 'lucide-react';
 import { CircularBuffer, PPGDataPoint } from '../utils/CircularBuffer';
 import { formatPeakValue, getPeakColor, formatRRInterval, rrIntervalToBPM } from '../modules/heart-beat/peak-visualization';
-import { PeakHistoryChart } from './PeakHistoryChart';
+import PeakHistoryChart from './PeakHistoryChart';
 
 interface PPGSignalMeterProps {
   value: number;
