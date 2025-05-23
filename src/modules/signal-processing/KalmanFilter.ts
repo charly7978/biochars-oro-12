@@ -3,8 +3,8 @@
  * Implementación de Filtro Kalman para procesamiento de señal
  */
 export class KalmanFilter {
-  private R: number = 0.09; // Aumentado de 0.07 a 0.09 - Aún mayor varianza de medición (mayor confianza en señal cruda)
-  private Q: number = 0.8;  // Aumentado de 0.6 a 0.8 - Mayor varianza del proceso (permite cambios más bruscos)
+  private R: number = 0.05; // Reducido de 0.09 a 0.05 - Menor varianza de medición (más confianza en señal original)
+  private Q: number = 1.2;  // Aumentado de 0.8 a 1.2 - Mayor varianza del proceso (permite cambios mucho más bruscos)
   private P: number = 1;    // Covarianza del error estimado
   private X: number = 0;    // Estado estimado
   private K: number = 0;    // Ganancia de Kalman

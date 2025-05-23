@@ -22,9 +22,9 @@ const HeartRateMonitor = ({
   const maxHistoryLength = 100; // Puntos a mostrar
   const peakMarkerRef = useRef<boolean[]>([]);
   const lastPeakTimeRef = useRef<number | null>(null);
-  const MIN_PEAK_INTERVAL_MS = 350; // Intervalo mínimo entre picos para evitar duplicados
+  const MIN_PEAK_INTERVAL_MS = 300; // Reducido para captar latidos más rápidos (antes 350)
   
-  // Control de animación para efecto látigo
+  // Control de animación para efecto látigo mejorado
   const animationRef = useRef<{
     isAnimating: boolean;
     startTime: number;
@@ -34,7 +34,7 @@ const HeartRateMonitor = ({
   }>({
     isAnimating: false,
     startTime: 0,
-    duration: 150, // Animación más rápida para mejor sincronización con audio
+    duration: 120, // Animación más rápida (antes 150)
     startValue: 0,
     targetValue: 0
   });
@@ -42,7 +42,7 @@ const HeartRateMonitor = ({
   // Añadir nuevo valor al historial con mejor manejo de picos
   useEffect(() => {
     // Normalizar el valor entre 0-1 para facilitar escalado
-    const normalizedValue = Math.max(0, Math.min(1, Math.abs(value) / 100));
+    const normalizedValue = Math.max(0, Math.min(1, Math.abs(value) / 80)); // Normalización ajustada para mejor visualización
     
     // Verificar si este es un pico válido (evitar picos muy cercanos)
     const now = Date.now();
@@ -66,8 +66,8 @@ const HeartRateMonitor = ({
     
     // Aplicar amplificación para picos - más contraste para mejor visibilidad
     const amplifiedValue = validPeak 
-      ? normalizedValue * 7.5 // Mayor amplificación para picos confirmados (aumentado de 6.5)
-      : normalizedValue * 0.35; // Reducir más no-picos para mejor contraste (reducido de 0.4)
+      ? normalizedValue * 10.0 // Mayor amplificación para picos confirmados (aumentado significativamente)
+      : normalizedValue * 0.3; // Reducir más no-picos para mejor contraste
     
     // Añadir al historial
     historyRef.current.push(amplifiedValue);
@@ -84,9 +84,9 @@ const HeartRateMonitor = ({
       animationRef.current = {
         isAnimating: true,
         startTime: Date.now(),
-        duration: 150, // Más rápido para mejor sincronización
+        duration: 120, // Más rápido para mejor sincronización
         startValue: amplifiedValue,
-        targetValue: amplifiedValue * 0.15 // Caída más dramática
+        targetValue: amplifiedValue * 0.1 // Caída más dramática (antes 0.15)
       };
     }
     
@@ -106,16 +106,16 @@ const HeartRateMonitor = ({
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     
     // Establecer estilos
-    ctx.lineWidth = 5; // Línea más gruesa para mejor visibilidad
+    ctx.lineWidth = 6; // Línea más gruesa para mejor visibilidad (antes 5)
     ctx.lineJoin = 'round';
     
     // Usar calidad para determinar color con mejor contraste
     let signalColor;
-    if (quality >= 80) {
+    if (quality >= 70) { // Umbral reducido (antes 80)
       signalColor = '#ef4444'; // Rojo brillante para buena calidad
-    } else if (quality >= 50) {
+    } else if (quality >= 40) { // Umbral reducido (antes 50)
       signalColor = '#f97316'; // Naranja para calidad media
-    } else if (quality >= 20) {
+    } else if (quality >= 15) { // Umbral reducido (antes 20)
       signalColor = '#eab308'; // Amarillo para calidad baja
     } else {
       signalColor = '#a1a1aa'; // Gris para muy baja calidad
@@ -143,8 +143,8 @@ const HeartRateMonitor = ({
       const x = (i / (maxHistoryLength - 1)) * canvas.width;
       let y = canvas.height - (history[i] * canvas.height * 0.9);
       
-      // Valores de altura limitados entre 10% y 90% del canvas
-      y = Math.min(Math.max(y, canvas.height * 0.1), canvas.height * 0.9);
+      // Valores de altura limitados entre 5% y 95% del canvas para mayor rango visual
+      y = Math.min(Math.max(y, canvas.height * 0.05), canvas.height * 0.95);
       
       if (i === 0) {
         ctx.moveTo(x, y);
@@ -154,7 +154,7 @@ const HeartRateMonitor = ({
         
         if (isPeakPoint) {
           // Aumentar grosor en los picos para mejor visibilidad
-          ctx.lineWidth = 6; // Aumentado (antes 5)
+          ctx.lineWidth = 8; // Aumentado para mayor visibilidad (antes 6)
           
           // Calcular el punto de control para curva más natural
           const prevX = ((i-1) / (maxHistoryLength - 1)) * canvas.width;
@@ -168,7 +168,7 @@ const HeartRateMonitor = ({
           ctx.quadraticCurveTo(cpX, cpY, x, y);
         } else {
           // Para puntos no pico, usar línea recta con grosor normal
-          ctx.lineWidth = 3;
+          ctx.lineWidth = 3; // No cambiar para mantener contraste
           ctx.lineTo(x, y);
         }
       }
@@ -184,28 +184,28 @@ const HeartRateMonitor = ({
         // Dibujar círculo para el pico
         ctx.beginPath();
         ctx.fillStyle = '#fef08a'; // Amarillo para mejor visibilidad
-        ctx.arc(x, y, 8, 0, Math.PI * 2); // Aumentado tamaño del círculo (antes 5)
+        ctx.arc(x, y, 10, 0, Math.PI * 2); // Aumentado tamaño del círculo (antes 8)
         ctx.fill();
         
         // Añadir borde para contraste
         ctx.beginPath();
         ctx.strokeStyle = '#e11d48';
         ctx.lineWidth = 3;
-        ctx.arc(x, y, 8, 0, Math.PI * 2);
+        ctx.arc(x, y, 10, 0, Math.PI * 2);
         ctx.stroke();
         
-        // Mostrar valor del pico
-        const displayValue = (history[i] * 10).toFixed(1);
-        ctx.font = 'bold 14px sans-serif'; // Fuente más grande y en negrita
+        // Mostrar valor del pico con más precisión
+        const displayValue = Math.round(history[i] * 12); // Amplificado para mejor lectura (antes *10)
+        ctx.font = 'bold 16px sans-serif'; // Fuente más grande (antes 14px)
         ctx.fillStyle = '#ffffff'; 
         ctx.textAlign = 'center';
-        ctx.fillText(displayValue, x, y - 15);
+        ctx.fillText(displayValue.toString(), x, y - 15);
         
         // Agregar círculo de "halo" pulsante para destacar más el pico
         ctx.beginPath();
-        ctx.strokeStyle = 'rgba(225, 29, 72, 0.4)';
+        ctx.strokeStyle = 'rgba(225, 29, 72, 0.5)'; // Más opaco para mejor visibilidad (antes 0.4)
         ctx.lineWidth = 2;
-        ctx.arc(x, y, 12, 0, Math.PI * 2);
+        ctx.arc(x, y, 15, 0, Math.PI * 2); // Círculo más grande (antes 12)
         ctx.stroke();
       }
     }
@@ -220,7 +220,7 @@ const HeartRateMonitor = ({
         className="w-full h-full"
       />
       {isPeak && (
-        <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-white/80 text-xs font-bold">
+        <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-white/90 text-sm font-bold animate-pulse bg-red-500/30 px-2 py-1 rounded-md">
           LATIDO
         </div>
       )}
