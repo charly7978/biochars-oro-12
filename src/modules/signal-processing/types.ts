@@ -6,6 +6,9 @@ export interface DetectorScores {
   biophysical: number;
   periodicity: number;
   textureScore?: number;
+  weightedSum?: number; // Added this property
+  motionScore?: number; // Also adding this as it's used in SignalAnalyzer
+  fingerMovement?: number; // Also adding this as it's used in SignalAnalyzer
 }
 
 export interface DetectionResult {

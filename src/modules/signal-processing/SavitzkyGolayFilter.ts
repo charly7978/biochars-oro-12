@@ -12,8 +12,8 @@ export class SavitzkyGolayFilter {
   constructor(windowSize: number = 3) { // Mantener en 3 para filtrado mínimo
     // Coeficientes para ventana de 3 puntos (polinomio de grado 1) - muy sensible
     this.windowSize = windowSize;
-    this.coefficients = [0.3, 0.4, 0.3]; // Coeficientes más centrados para preservar picos
-    this.normFactor = 0.7; // Reducido aún más para preservar más señal (era 0.8)
+    this.coefficients = [0.25, 0.5, 0.25]; // Coeficientes más centrados para preservar picos mejor
+    this.normFactor = 0.65; // Reducido aún más para preservar más señal (era 0.7)
     this.buffer = new Array(windowSize).fill(0);
   }
 
