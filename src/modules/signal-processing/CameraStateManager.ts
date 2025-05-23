@@ -3,7 +3,7 @@
  * Camera state management and error recovery
  */
 export class CameraStateManager {
-  private videoTrack: MediaVideoTrack | null = null;
+  private videoTrack: MediaStreamTrack | null = null;
   private stream: MediaStream | null = null;
   private onTrackInvalid?: () => void;
   private onStreamReady?: (stream: MediaStream) => void;
@@ -51,10 +51,10 @@ export class CameraStateManager {
   }
 
   private enableTorch(): void {
-    if (this.videoTrack && this.videoTrack.getCapabilities()?.torch) {
-      this.videoTrack.applyConstraints({
+    if (this.videoTrack && (this.videoTrack as any).getCapabilities()?.torch) {
+      (this.videoTrack as any).applyConstraints({
         advanced: [{ torch: true }]
-      }).catch(err => console.warn("Could not enable torch:", err));
+      }).catch((err: any) => console.warn("Could not enable torch:", err));
     }
   }
 
@@ -62,7 +62,7 @@ export class CameraStateManager {
     return this.videoTrack?.readyState === 'live';
   }
 
-  getVideoTrack(): MediaVideoTrack | null {
+  getVideoTrack(): MediaStreamTrack | null {
     return this.isTrackValid() ? this.videoTrack : null;
   }
 
