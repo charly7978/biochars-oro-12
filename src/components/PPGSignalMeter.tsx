@@ -1,4 +1,3 @@
-
 import React, { useEffect, useRef, useCallback, useState } from 'react';
 import { Fingerprint, AlertCircle, BarChart2 } from 'lucide-react';
 import { CircularBuffer, PPGDataPoint } from '../utils/CircularBuffer';
@@ -45,23 +44,30 @@ const PPGSignalMeter = ({
   const lastPeakLockRef = useRef<boolean>(false);
   const peakLockTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [showStatsPanel, setShowStatsPanel] = useState(false);
+  const effectiveFingerDetectionRef = useRef<boolean>(isFingerDetected);
+  const qualityStabilityCounterRef = useRef<number>(0);
+  const fingerDetectionCounterRef = useRef<number>(0);
 
+  // Optimized constants for better signal detection and visualization
   const WINDOW_WIDTH_MS = 2900;
   const CANVAS_WIDTH = 1000;
   const CANVAS_HEIGHT = 900;
   const GRID_SIZE_X = 10;
   const GRID_SIZE_Y = 10;
-  const verticalScale = 135.0;
-  const SMOOTHING_FACTOR = 1.7;
+  const verticalScale = 155.0; // Increased for better visualization
+  const SMOOTHING_FACTOR = 1.5; // Reduced to allow more details in the signal
   const TARGET_FPS = 60;
   const FRAME_TIME = 1000 / TARGET_FPS;
   const BUFFER_SIZE = 600;
-  const PEAK_DETECTION_WINDOW = 5; // Reducido para mejor respuesta
-  const PEAK_THRESHOLD = 1.5; // Ajustado para mayor sensibilidad
-  const MIN_PEAK_DISTANCE_MS = 350; // Optimizado para detección más precisa
-  const PEAK_LOCK_TIMEOUT_MS = 250; // Tiempo de bloqueo reducido
+  const PEAK_DETECTION_WINDOW = 4; // Fine-tuned for better response
+  const PEAK_THRESHOLD = 1.2; // More sensitive threshold
+  const MIN_PEAK_DISTANCE_MS = 300; // Optimized for human heart rate
+  const PEAK_LOCK_TIMEOUT_MS = 230; // Adjusted for typical heart rates
   const IMMEDIATE_RENDERING = true;
   const MAX_PEAKS_TO_DISPLAY = 25;
+  const QUALITY_STABILITY_THRESHOLD = 5; // New: count of consistent quality readings
+  const FINGER_DETECTION_THRESHOLD = 3; // New: min counts needed for finger detection
+  const MIN_SIGNAL_FOR_PEAK = 0.8; // New: minimum signal strength for peak
 
   // Nueva ref para estadísticas de picos
   const peakStatsRef = useRef({
@@ -71,6 +77,38 @@ const PPGSignalMeter = ({
     totalPeaks: 0,
     lastRRInterval: null as number | null
   });
+
+  // Enhanced finger detection logic to improve stability
+  useEffect(() => {
+    // Update the effective finger detection status with hysteresis
+    if (isFingerDetected) {
+      fingerDetectionCounterRef.current = Math.min(10, fingerDetectionCounterRef.current + 1);
+      if (fingerDetectionCounterRef.current >= FINGER_DETECTION_THRESHOLD) {
+        effectiveFingerDetectionRef.current = true;
+      }
+    } else {
+      fingerDetectionCounterRef.current = Math.max(0, fingerDetectionCounterRef.current - 0.5);
+      if (fingerDetectionCounterRef.current <= 0) {
+        effectiveFingerDetectionRef.current = false;
+      }
+    }
+
+    // Quality stability tracking
+    if (quality > 40) {
+      qualityStabilityCounterRef.current = Math.min(10, qualityStabilityCounterRef.current + 1);
+    } else {
+      qualityStabilityCounterRef.current = Math.max(0, qualityStabilityCounterRef.current - 0.5);
+    }
+
+    // Log enhanced detection status for debugging
+    console.log("PPGSignalMeter: Enhanced finger detection status", {
+      rawFingerDetected: isFingerDetected,
+      effectiveFingerDetected: effectiveFingerDetectionRef.current,
+      detectionCounter: fingerDetectionCounterRef.current,
+      qualityCounter: qualityStabilityCounterRef.current,
+      quality: quality
+    });
+  }, [isFingerDetected, quality]);
 
   // Get the peak values for history chart
   const getPeakValues = useCallback(() => {
@@ -91,7 +129,7 @@ const PPGSignalMeter = ({
     if (!dataBufferRef.current) {
       dataBufferRef.current = new CircularBuffer(BUFFER_SIZE);
     }
-    if (preserveResults && !isFingerDetected) {
+    if (preserveResults && !effectiveFingerDetectionRef.current) {
       if (dataBufferRef.current) {
         dataBufferRef.current.clear();
       }
@@ -99,27 +137,30 @@ const PPGSignalMeter = ({
       baselineRef.current = null;
       lastValueRef.current = null;
     }
-  }, [preserveResults, isFingerDetected]);
+  }, [preserveResults]);
 
   const getQualityColor = useCallback((q: number) => {
-    if (!isFingerDetected) return 'from-gray-400 to-gray-500';
+    // Use effective finger detection instead of raw isFingerDetected
+    if (!effectiveFingerDetectionRef.current) return 'from-gray-400 to-gray-500';
     if (q > 75) return 'from-green-500 to-emerald-500';
     if (q > 50) return 'from-yellow-500 to-orange-500';
     return 'from-red-500 to-rose-500';
-  }, [isFingerDetected]);
+  }, []);
 
   const getQualityText = useCallback((q: number) => {
-    if (!isFingerDetected) return 'Sin detección';
+    // Use effective finger detection instead of raw isFingerDetected
+    if (!effectiveFingerDetectionRef.current) return 'Sin detección';
     if (q > 75) return 'Señal óptima';
     if (q > 50) return 'Señal aceptable';
     return 'Señal débil';
-  }, [isFingerDetected]);
+  }, []);
 
   const smoothValue = useCallback((currentValue: number, previousValue: number | null): number => {
     if (previousValue === null) return currentValue;
     return previousValue + SMOOTHING_FACTOR * (currentValue - previousValue);
-  }, []);
+  }, [SMOOTHING_FACTOR]);
 
+  // Grid drawing function remains the same
   const drawGrid = useCallback((ctx: CanvasRenderingContext2D) => {
     ctx.fillStyle = '#FDF5E6';
     ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
@@ -202,8 +243,14 @@ const PPGSignalMeter = ({
     }
   }, [arrhythmiaStatus, showArrhythmiaAlert]);
 
+  // Enhanced peak detection with better sensitivity
   const detectPeaks = useCallback((points: PPGDataPoint[], now: number) => {
     if (points.length < PEAK_DETECTION_WINDOW) return;
+    
+    // Skip peak detection if effective finger detection is false
+    if (!effectiveFingerDetectionRef.current || qualityStabilityCounterRef.current < QUALITY_STABILITY_THRESHOLD) {
+      return;
+    }
     
     // Si hay un bloqueo activo, no detectar nuevos picos
     if (lastPeakLockRef.current) {
@@ -230,11 +277,11 @@ const PPGSignalMeter = ({
       
       if (recentlyProcessed) continue;
       
-      // Mejora: comprobar si es un pico global comparando con un rango amplio
+      // Enhanced peak detection: check if it's a peak by comparing with a wider range
       let isPeak = true;
       
       // Verificar que sea un máximo local mirando puntos antes
-      for (let j = i - PEAK_DETECTION_WINDOW; j < i; j++) {
+      for (let j = Math.max(0, i - PEAK_DETECTION_WINDOW); j < i; j++) {
         if (points[j].value >= currentPoint.value) {
           isPeak = false;
           break;
@@ -243,8 +290,8 @@ const PPGSignalMeter = ({
       
       // Verificar que sea un máximo local mirando puntos después
       if (isPeak) {
-        for (let j = i + 1; j <= i + PEAK_DETECTION_WINDOW; j++) {
-          if (j < points.length && points[j].value > currentPoint.value) {
+        for (let j = i + 1; j <= Math.min(points.length - 1, i + PEAK_DETECTION_WINDOW); j++) {
+          if (points[j].value > currentPoint.value) {
             isPeak = false;
             break;
           }
@@ -252,17 +299,25 @@ const PPGSignalMeter = ({
       }
       
       // Si es un pico y supera el umbral, registrarlo como potencial
-      if (isPeak && Math.abs(currentPoint.value) > PEAK_THRESHOLD) {
+      const normalizedPeakValue = Math.abs(currentPoint.value / verticalScale);
+      if (isPeak && Math.abs(currentPoint.value) > PEAK_THRESHOLD && normalizedPeakValue > MIN_SIGNAL_FOR_PEAK) {
         potentialPeaks.push({
           index: i,
           value: currentPoint.value,
           time: currentPoint.time,
           isArrhythmia: currentPoint.isArrhythmia
         });
+        
+        console.log("PPGSignalMeter: Potential peak detected", {
+          time: new Date(currentPoint.time).toISOString().slice(11, 23),
+          normalizedValue: normalizedPeakValue.toFixed(2),
+          rawValue: currentPoint.value.toFixed(2),
+          timeSinceLastPeak: timeSinceLastPeak
+        });
       }
     }
     
-    // Procesar picos potenciales
+    // Procesar picos potenciales con verificación adicional
     for (const peak of potentialPeaks) {
       const tooClose = peaksRef.current.some(
         existingPeak => Math.abs(existingPeak.time - peak.time) < MIN_PEAK_DISTANCE_MS
@@ -302,8 +357,12 @@ const PPGSignalMeter = ({
         // Actualizar último intervalo RR
         peakStatsRef.current.lastRRInterval = getLastRRInterval();
         
-        // Log para debug
-        console.log(`PPGSignalMeter: Pico detectado en tiempo ${peak.time}, valor ${normalizedPeakValue.toFixed(2)}`);
+        console.log("PPGSignalMeter: CONFIRMED PEAK DETECTED", {
+          time: new Date(peak.time).toISOString().slice(11, 23),
+          normalizedValue: normalizedPeakValue.toFixed(2),
+          peakValue: peak.value.toFixed(2),
+          totalPeaks: peakStatsRef.current.totalPeaks
+        });
       }
     }
     
@@ -313,7 +372,7 @@ const PPGSignalMeter = ({
     peaksRef.current = peaksRef.current
       .filter(peak => now - peak.time < WINDOW_WIDTH_MS)
       .slice(-MAX_PEAKS_TO_DISPLAY);
-  }, [getLastRRInterval, verticalScale, PEAK_DETECTION_WINDOW, PEAK_THRESHOLD, MIN_PEAK_DISTANCE_MS, PEAK_LOCK_TIMEOUT_MS]);
+  }, [getLastRRInterval, verticalScale, PEAK_DETECTION_WINDOW, PEAK_THRESHOLD, MIN_PEAK_DISTANCE_MS, PEAK_LOCK_TIMEOUT_MS, MIN_SIGNAL_FOR_PEAK]);
 
   const renderSignal = useCallback(() => {
     if (!canvasRef.current || !dataBufferRef.current) {
@@ -341,7 +400,7 @@ const PPGSignalMeter = ({
     
     drawGrid(ctx);
     
-    if (preserveResults && !isFingerDetected) {
+    if (preserveResults && !effectiveFingerDetectionRef.current) {
       lastRenderTimeRef.current = currentTime;
       animationFrameRef.current = requestAnimationFrame(renderSignal);
       return;
@@ -350,15 +409,16 @@ const PPGSignalMeter = ({
     if (baselineRef.current === null) {
       baselineRef.current = value;
     } else {
-      baselineRef.current = baselineRef.current * 0.95 + value * 0.05;
+      // More responsive baseline adjustment
+      baselineRef.current = baselineRef.current * 0.92 + value * 0.08;
     }
     
     const smoothedValue = smoothValue(value, lastValueRef.current);
     lastValueRef.current = smoothedValue;
     
-    // Amplificación de señal para mejor visualización
+    // Amplificación de señal para mejor visualización - increased for more noticeable peaks
     const normalizedValue = (baselineRef.current || 0) - smoothedValue;
-    const scaledValue = normalizedValue * verticalScale * 1.5; // Mayor amplificación para mejor visualización
+    const scaledValue = normalizedValue * verticalScale * 2.0; // Increased amplification for better peaks
     
     let isArrhythmia = false;
     if (rawArrhythmiaData && 
@@ -380,10 +440,10 @@ const PPGSignalMeter = ({
     detectPeaks(points, now);
     
     if (points.length > 1) {
-      // Dibujar la señal principal
+      // Draw main signal with enhancement
       ctx.beginPath();
-      ctx.strokeStyle = '#0EA5E9';
-      ctx.lineWidth = 2;
+      ctx.strokeStyle = effectiveFingerDetectionRef.current ? '#0EA5E9' : '#9CA3AF';
+      ctx.lineWidth = 2.5; // Thicker line for better visibility
       ctx.lineJoin = 'round';
       ctx.lineCap = 'round';
       
@@ -414,7 +474,7 @@ const PPGSignalMeter = ({
           ctx.lineTo(x2, y2);
           ctx.stroke();
           ctx.beginPath();
-          ctx.strokeStyle = '#0EA5E9';
+          ctx.strokeStyle = effectiveFingerDetectionRef.current ? '#0EA5E9' : '#9CA3AF';
           ctx.moveTo(x2, y2);
           firstPoint = true;
         }
@@ -422,32 +482,38 @@ const PPGSignalMeter = ({
       
       ctx.stroke();
       
-      // Mostrar picos con etiquetas de valor
+      // Enhanced peak visualization with glow effect
       peaksRef.current.forEach(peak => {
         const x = canvas.width - ((now - peak.time) * canvas.width / WINDOW_WIDTH_MS);
         const y = canvas.height / 2 - peak.value;
         const normalizedValue = Math.abs(peak.value / verticalScale);
         
         if (x >= 0 && x <= canvas.width) {
-          // Círculo del pico más grande para mejor visualización
+          // Background glow for better visibility
           ctx.beginPath();
-          ctx.arc(x, y, 8, 0, Math.PI * 2); // Incrementado tamaño
+          ctx.arc(x, y, 16, 0, Math.PI * 2);
+          ctx.fillStyle = 'rgba(255,255,255,0.2)';
+          ctx.fill();
+          
+          // Main peak circle
+          ctx.beginPath();
+          ctx.arc(x, y, 10, 0, Math.PI * 2); // Increased size
           ctx.fillStyle = peak.isArrhythmia ? '#DC2626' : '#0EA5E9';
           ctx.fill();
           
-          // Añadir efecto de brillo para mejor visualización
+          // Inner highlight
           ctx.beginPath();
-          ctx.arc(x, y, 4, 0, Math.PI * 2);
+          ctx.arc(x, y, 5, 0, Math.PI * 2);
           ctx.fillStyle = 'white';
           ctx.fill();
           
-          // Efecto de "pulso" para picos recientes
+          // Animated pulse effect for better visibility
           if (now - peak.time < 800) {
-            const pulseSize = 8 + 6 * Math.sin((now - peak.time) / 160); // Efecto pulsante más visible
+            const pulseSize = 10 + 8 * Math.sin((now - peak.time) / 120); // More visible pulse
             ctx.beginPath();
             ctx.arc(x, y, pulseSize, 0, Math.PI * 2);
             ctx.strokeStyle = peak.isArrhythmia ? '#F87171' : '#38BDF8';
-            ctx.lineWidth = 3;
+            ctx.lineWidth = 4; // Thicker line
             ctx.stroke();
           }
           
@@ -464,40 +530,42 @@ const PPGSignalMeter = ({
             ctx.fillText('ARRITMIA', x, y - 25);
           }
           
-          // Mejora: Fondo para los valores de pico para mayor legibilidad
+          // Enhanced value display with background
           const valueText = formatPeakValue(normalizedValue);
           const textWidth = ctx.measureText(valueText).width;
-          ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
-          ctx.fillRect(x - textWidth/2 - 5, y - 28, textWidth + 10, 20);
           
-          // Mostrar valor normalizado con mejor formato y tamaño
+          // Better background for enhanced readability
+          ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+          ctx.fillRect(x - textWidth/2 - 6, y - 30, textWidth + 12, 22);
+          
+          // Bold value text
           ctx.font = 'bold 16px Inter';
-          ctx.fillStyle = getPeakColor(normalizedValue, 3.5);
+          ctx.fillStyle = getPeakColor(normalizedValue, 3.0);
           ctx.textAlign = 'center';
           ctx.fillText(valueText, x, y - 15);
         }
       });
       
-      // Mostrar el último intervalo RR si hay suficientes picos
+      // Enhanced RR interval display
       const lastRRInterval = getLastRRInterval();
       if (lastRRInterval && peaksRef.current.length >= 2) {
         const lastPeaks = [...peaksRef.current].sort((a, b) => b.time - a.time).slice(0, 2);
         if (lastPeaks.length === 2) {
           const x1 = canvas.width - ((now - lastPeaks[0].time) * canvas.width / WINDOW_WIDTH_MS);
           const x2 = canvas.width - ((now - lastPeaks[1].time) * canvas.width / WINDOW_WIDTH_MS);
-          const y = canvas.height / 2 - 100; // Posición por encima de la señal
+          const y = canvas.height / 2 - 100; // Position above signal
           
-          // Línea de intervalo
+          // Connection line with better visibility
           ctx.beginPath();
-          ctx.strokeStyle = 'rgba(20, 184, 166, 0.8)'; // Color turquesa más visible
-          ctx.lineWidth = 2;
-          ctx.setLineDash([3, 3]); // Línea punteada
+          ctx.strokeStyle = 'rgba(20, 184, 166, 0.9)'; // More visible line
+          ctx.lineWidth = 3; // Thicker for better visibility
+          ctx.setLineDash([5, 3]); // More visible pattern
           ctx.moveTo(x1, y);
           ctx.lineTo(x2, y);
           ctx.stroke();
-          ctx.setLineDash([]); // Restaurar línea sólida
+          ctx.setLineDash([]); // Reset
           
-          // Mejora: Fondo para el texto de intervalo
+          // Enhanced interval display
           const intervalText = formatRRInterval(lastRRInterval);
           const bpm = rrIntervalToBPM(lastRRInterval);
           const bpmText = bpm ? `~${bpm} BPM` : '';
@@ -507,20 +575,23 @@ const PPGSignalMeter = ({
           const textWidthBPM = bpm ? ctx.measureText(bpmText).width : 0;
           const maxWidth = Math.max(textWidthRR, textWidthBPM);
           
-          ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
-          ctx.fillRect(midX - maxWidth/2 - 5, y - 45, maxWidth + 10, 40);
+          // Better looking background
+          ctx.fillStyle = 'rgba(255, 255, 255, 0.9)'; // More opaque for readability
+          ctx.fillRect(midX - maxWidth/2 - 8, y - 48, maxWidth + 16, 46);
+          ctx.strokeStyle = 'rgba(20, 184, 166, 0.6)';
+          ctx.strokeRect(midX - maxWidth/2 - 8, y - 48, maxWidth + 16, 46);
           
-          // Texto del intervalo
+          // Interval display
           ctx.font = '15px Inter';
           ctx.fillStyle = 'rgba(20, 184, 166, 1.0)';
           ctx.textAlign = 'center';
           ctx.fillText(intervalText, midX, y - 10);
           
-          // Valor de BPM aproximado
+          // BPM value with better emphasis
           if (bpm) {
-            ctx.font = 'bold 17px Inter';
+            ctx.font = 'bold 18px Inter'; // Larger font
             ctx.fillStyle = 'rgba(20, 184, 166, 1.0)';
-            ctx.fillText(bpmText, midX, y - 28);
+            ctx.fillText(bpmText, midX, y - 30);
           }
         }
       }
@@ -566,6 +637,11 @@ const PPGSignalMeter = ({
       totalPeaks: 0,
       lastRRInterval: null
     };
+    // Reset finger detection and quality counters
+    fingerDetectionCounterRef.current = 0;
+    qualityStabilityCounterRef.current = 0;
+    effectiveFingerDetectionRef.current = false;
+    
     if (peakLockTimeoutRef.current) {
       clearTimeout(peakLockTimeoutRef.current);
     }
@@ -592,7 +668,7 @@ const PPGSignalMeter = ({
             <div className={`h-1 w-full rounded-full bg-gradient-to-r ${getQualityColor(quality)} transition-all duration-1000 ease-in-out`}>
               <div
                 className="h-full rounded-full bg-white/20 animate-pulse transition-all duration-1000"
-                style={{ width: `${isFingerDetected ? quality : 0}%` }}
+                style={{ width: `${effectiveFingerDetectionRef.current ? quality : 0}%` }}
               />
             </div>
             <span className="text-[8px] text-center mt-0.5 font-medium transition-colors duration-700 block" 
@@ -605,7 +681,7 @@ const PPGSignalMeter = ({
         <div className="flex flex-col items-center">
           <Fingerprint
             className={`h-8 w-8 transition-colors duration-300 ${
-              !isFingerDetected ? 'text-gray-400' :
+              !effectiveFingerDetectionRef.current ? 'text-gray-400' :
               quality > 75 ? 'text-green-500' :
               quality > 50 ? 'text-yellow-500' :
               'text-red-500'
@@ -613,7 +689,7 @@ const PPGSignalMeter = ({
             strokeWidth={1.5}
           />
           <span className="text-[8px] text-center font-medium text-black/80">
-            {isFingerDetected ? "Dedo detectado" : "Ubique su dedo"}
+            {effectiveFingerDetectionRef.current ? "Dedo detectado" : "Ubique su dedo"}
           </span>
         </div>
       </div>
@@ -665,6 +741,22 @@ const PPGSignalMeter = ({
                 {peakStatsRef.current.lastRRInterval ? 
                   `~${rrIntervalToBPM(peakStatsRef.current.lastRRInterval)}` : '--'}
               </span>
+            </div>
+            
+            {/* Debug information for finger detection */}
+            <div className="mt-3 pt-2 border-t border-gray-200">
+              <div className="flex justify-between">
+                <span className="text-xs text-gray-600">Detección dedo:</span>
+                <span className="text-xs font-semibold">
+                  {effectiveFingerDetectionRef.current ? 'Activo' : 'Inactivo'}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-xs text-gray-600">Contador estabilidad:</span>
+                <span className="text-xs font-semibold">
+                  {qualityStabilityCounterRef.current.toFixed(1)}
+                </span>
+              </div>
             </div>
           </div>
           
