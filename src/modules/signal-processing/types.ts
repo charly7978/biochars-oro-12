@@ -22,6 +22,11 @@ export interface DetectionResult {
     fingerBorderDetected?: boolean;
     edgeScore?: number;
     textureConsistency?: number;
+    weightedSum?: number;
+    motionScore?: number;
+    fingerMovement?: number;
+    confidenceScore?: number;
+    steadySignalCounter?: number;
   };
 }
 
