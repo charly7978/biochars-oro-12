@@ -13,6 +13,10 @@ export class BPMCalculator {
   private readonly BPM_ALPHA = 0.25;
   private readonly DEFAULT_MIN_BPM = 30;
   private readonly DEFAULT_MAX_BPM = 220;
+  
+  // New properties for extended visualization
+  private peakValues: number[] = [];
+  private readonly MAX_PEAK_VALUES = 15;
 
   constructor() {}
 
@@ -22,9 +26,10 @@ export class BPMCalculator {
     this.lastPeakTime = null;
     this.previousPeakTime = null;
     this.rrIntervals = [];
+    this.peakValues = [];
   }
 
-  public updatePeakTimes(now: number): void {
+  public updatePeakTimes(now: number, peakValue?: number): void {
     this.previousPeakTime = this.lastPeakTime;
     this.lastPeakTime = now;
     
@@ -36,6 +41,14 @@ export class BPMCalculator {
         if (this.rrIntervals.length > this.MAX_RR_HISTORY) {
           this.rrIntervals.shift();
         }
+      }
+    }
+    
+    // Store peak value if provided
+    if (peakValue !== undefined) {
+      this.peakValues.push(peakValue);
+      if (this.peakValues.length > this.MAX_PEAK_VALUES) {
+        this.peakValues.shift();
       }
     }
     
@@ -107,7 +120,17 @@ export class BPMCalculator {
     };
   }
 
+  public getPeakValues(): number[] {
+    return [...this.peakValues];
+  }
+
   public getLastPeakTime(): number | null {
     return this.lastPeakTime;
+  }
+
+  // Get last RR interval in milliseconds
+  public getLastRRInterval(): number | null {
+    if (this.rrIntervals.length === 0) return null;
+    return this.rrIntervals[this.rrIntervals.length - 1];
   }
 }

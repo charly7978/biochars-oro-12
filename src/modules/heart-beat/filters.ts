@@ -50,30 +50,37 @@ export class HeartBeatFilters {
     
     if (signalBuffer.length < 10) return value * SIGNAL_BOOST_FACTOR * 1.8; // Extra boost initially
     
-    // Calcular estadísticas de señal reciente
+    // Calculate recent signal statistics
     const recentSignals = signalBuffer.slice(-10);
     const avgSignal = recentSignals.reduce((sum, val) => sum + val, 0) / recentSignals.length;
     const maxSignal = Math.max(...recentSignals);
     const minSignal = Math.min(...recentSignals);
     const range = maxSignal - minSignal;
     
-    // Calcular factor de amplificación proporcional a la fuerza de la señal
+    // Calculate amplification factor proportional to signal strength
     let boostFactor = SIGNAL_BOOST_FACTOR;
     
     if (range < 0.4) { // Lower threshold to boost more signals
-      // Señal muy débil - amplificar más agresivamente
+      // Very weak signal - amplify more aggressively
       boostFactor = SIGNAL_BOOST_FACTOR * 4.0; // Much stronger boost
     } else if (range < 1.5) {
-      // Señal débil-moderada - amplificar moderadamente
+      // Weak-moderate signal - amplify moderately
       boostFactor = SIGNAL_BOOST_FACTOR * 3.0; // Stronger boost
     } else if (range > 6.0) {
-      // Señal fuerte - amplificación mínima
+      // Strong signal - minimal amplification
       boostFactor = 1.5; // Small amplification instead of none
     }
     
-    // Aplicar amplificación lineal centrada en el promedio
+    // Apply linear amplification centered on average
     const centered = value - avgSignal;
     const boosted = avgSignal + (centered * boostFactor);
+    
+    // Enhanced peak visualization: preserve peaks better
+    const isPotentialPeak = value > avgSignal + range * 0.3;
+    if (isPotentialPeak) {
+        // Apply extra boost to potential peaks for better visualization
+        return boosted * 1.2;
+    }
     
     return boosted;
   }
