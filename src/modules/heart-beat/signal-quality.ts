@@ -1,123 +1,99 @@
 
 /**
- * Signal quality assessment for heart beat monitoring
+ * Signal quality assessment and management
  */
+import { MIN_QUALITY_THRESHOLD, INITIAL_SENSITIVITY_LEVEL } from './constants';
 
-import { 
-  MAX_SIGNAL_HISTORY,
-  SIGNAL_WINDOW_SIZE,
-  INITIAL_SENSITIVITY_LEVEL
-} from './constants';
-import { updateSlidingWindow } from './utils/signal-utils';
-
-interface SignalQualityState {
-  recentSignalValues: number[];
-  signalWindow: number[];
-  peakThreshold: number;
-  peakAmplitude: number;
+export interface SignalQualityState {
   sensitivityLevel: number;
   consistentSignalCounter: number;
+  noFingerFrameCount: number;
+  signalHistory: number[];
+  lastFrameProcessedTime: number;
 }
 
-interface SignalQualityResult {
-  state: SignalQualityState;
-  effectiveFingerDetected: boolean;
-}
+export const createInitialSignalQualityState = (): SignalQualityState => ({
+  sensitivityLevel: INITIAL_SENSITIVITY_LEVEL,
+  consistentSignalCounter: 0,
+  noFingerFrameCount: 0,
+  signalHistory: [],
+  lastFrameProcessedTime: Date.now()
+});
 
 /**
- * Assess signal quality and adjust sensitivity parameters
+ * Assess signal quality and adjust sensitivity
  * @param value Current signal value
- * @param currentQuality Current quality assessment
- * @param result Processor result with confidence data
- * @param state Signal quality tracking state
- * @param fingerDetected Whether finger is detected
- * @returns Updated state and effective finger detection status
+ * @param signalQuality Current signal quality
+ * @param context Context data including confidence
+ * @param state Signal quality state
+ * @param fingerDetected Whether a finger is detected
+ * @param detectionAttempts Number of detection attempts
+ * @returns Assessment result with updated state
  */
 export const assessSignalQuality = (
   value: number,
-  currentQuality: number,
-  result: { confidence: number },
+  signalQuality: number,
+  context: { confidence: number },
   state: SignalQualityState,
-  fingerDetected: boolean = true,
-  detectionAttempts: number = 0
-): SignalQualityResult => {
+  fingerDetected: boolean,
+  detectionAttempts: number
+): {
+  effectiveFingerDetected: boolean;
+  state: SignalQualityState;
+} => {
+  const now = Date.now();
   const newState = { ...state };
   
-  // Update signal history
-  newState.recentSignalValues = updateSlidingWindow(
-    state.recentSignalValues,
-    value,
-    MAX_SIGNAL_HISTORY
-  );
-  
-  // Update signal window
-  newState.signalWindow = updateSlidingWindow(
-    state.signalWindow,
-    value,
-    SIGNAL_WINDOW_SIZE
-  );
-  
-  // Dynamic sensitivity adjustment
-  if (fingerDetected && newState.recentSignalValues.length > 5) {
-    const recentMax = Math.max(...newState.recentSignalValues);
-    const recentMin = Math.min(...newState.recentSignalValues);
-    const range = recentMax - recentMin;
+  // Track signal history for trend analysis
+  newState.signalHistory.push(value);
+  if (newState.signalHistory.length > 10) {
+    newState.signalHistory.shift();
+  }
+
+  // Adaptive sensitivity adjustment based on signal history
+  if (newState.signalHistory.length >= 5) {
+    const recent = newState.signalHistory.slice(-5);
+    const avg = recent.reduce((sum, v) => sum + v, 0) / recent.length;
+    const variance = recent.reduce((sum, v) => sum + Math.pow(v - avg, 2), 0) / recent.length;
     
-    // Ultra aggressive sensitivity adjustments
-    if (range > 0.005) {
-      newState.sensitivityLevel = Math.min(4.0, state.sensitivityLevel * 1.25);
-      newState.consistentSignalCounter++;
-    } else if (range < 0.004) {
-      newState.sensitivityLevel = Math.max(1.8, state.sensitivityLevel * 0.98);
-      newState.consistentSignalCounter = Math.max(0, state.consistentSignalCounter - 1);
+    // Adjust sensitivity based on signal variance
+    if (variance < 0.01) {
+      // Very stable signal - reduce sensitivity slightly
+      newState.sensitivityLevel = Math.min(4.0, newState.sensitivityLevel * 1.02);
+    } else if (variance > 0.1) {
+      // Volatile signal - increase sensitivity
+      newState.sensitivityLevel = Math.max(1.5, newState.sensitivityLevel * 0.95);
+    }
+  }
+
+  // Progressive quality assessment
+  let effectiveFingerDetected = fingerDetected;
+  
+  // If finger is detected and signal quality is above threshold, increase consistent signal counter
+  if (fingerDetected && signalQuality > MIN_QUALITY_THRESHOLD) {
+    newState.consistentSignalCounter = Math.min(10, newState.consistentSignalCounter + 1);
+    newState.noFingerFrameCount = 0;
+  } 
+  // If finger is not detected, increase no-finger frame count
+  else if (!fingerDetected) {
+    newState.noFingerFrameCount++;
+    
+    // Gradual reduction of consistent signal counter when no finger detected
+    if (newState.noFingerFrameCount > 3) {
+      newState.consistentSignalCounter = Math.max(0, newState.consistentSignalCounter - 0.5);
     }
     
-    // Adaptive threshold adjustment
-    if (range > 0.02) {
-      newState.peakThreshold = Math.max(0.08, Math.min(0.35, range * (2.0 * newState.sensitivityLevel)));
-    } else {
-      // For weak signals, be much more sensitive
-      newState.peakThreshold = Math.max(0.05, Math.min(0.2, 0.15 * newState.sensitivityLevel));
-    }
-    
-    // More frequent logging for better monitoring
-    if (detectionAttempts % 15 === 0) {
-      console.log('signal-quality: Ajuste ultra adaptativo', {
-        sensibilidad: newState.sensitivityLevel.toFixed(2),
-        umbralPico: newState.peakThreshold.toFixed(2),
-        rangoSeñal: range.toFixed(3),
-        señalesConsistentes: newState.consistentSignalCounter
-      });
+    // Override finger detection based on history for stability
+    if (newState.consistentSignalCounter > 5) {
+      effectiveFingerDetected = true;
     }
   }
   
-  // Update peak amplitude with greater weight to strong signals
-  if (value > state.peakAmplitude) {
-    newState.peakAmplitude = value * 0.6 + state.peakAmplitude * 0.4;
-  } else {
-    newState.peakAmplitude = value * 0.15 + state.peakAmplitude * 0.85;
-  }
-  
-  // Determine effective finger detection
-  const effectiveFingerDetected = fingerDetected || 
-                                  (currentQuality > MIN_QUALITY_THRESHOLD * 0.7 && 
-                                  result.confidence > 0.1 && 
-                                  state.consistentSignalCounter > 1);
-  
+  // Update last frame processed time
+  newState.lastFrameProcessedTime = now;
+
   return {
-    state: newState,
-    effectiveFingerDetected
+    effectiveFingerDetected,
+    state: newState
   };
 };
-
-/**
- * Create initial state for signal quality assessment
- */
-export const createInitialSignalQualityState = (): SignalQualityState => ({
-  recentSignalValues: [],
-  signalWindow: [],
-  peakThreshold: 0.15,
-  peakAmplitude: 0,
-  sensitivityLevel: INITIAL_SENSITIVITY_LEVEL,
-  consistentSignalCounter: 0
-});
