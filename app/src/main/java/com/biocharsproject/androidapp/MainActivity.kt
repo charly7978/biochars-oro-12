@@ -33,6 +33,10 @@ import kotlinx.coroutines.launch
 import java.nio.ByteBuffer
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.rememberNavController
+import com.biocharsproject.androidapp.ui.theme.BioCharsTheme
 
 class MainActivity : ComponentActivity() {
     private lateinit var cameraExecutor: ExecutorService
@@ -40,18 +44,62 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         cameraExecutor = Executors.newSingleThreadExecutor()
+        
+        // Mantener la pantalla encendida durante las mediciones
+        window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        
         setContent {
-            MyApplicationTheme {
-                Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-                    CameraMeasurementScreen()
+            BioCharsTheme {
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    color = MaterialTheme.colorScheme.background
+                ) {
+                    val navController = rememberNavController()
+                    
+                    NavHost(navController = navController, startDestination = "home") {
+                        composable("home") {
+                            HomeScreen(
+                                onNavigateToMonitor = { navController.navigate("monitor") },
+                                onNavigateToHistory = { navController.navigate("history") }
+                            )
+                        }
+                        composable("monitor") {
+                            HeartMonitorScreen(
+                                onBackPressed = { navController.popBackStack() },
+                                onMeasurementComplete = { measurement ->
+                                    // Guardar medición (implementar función de guardado)
+                                    // saveVitalSignsMeasurement(measurement)
+                                    navController.navigate("results/${measurement.timestamp}")
+                                }
+                            )
+                        }
+                        composable("history") {
+                            MeasurementHistoryScreen(
+                                onBackPressed = { navController.popBackStack() },
+                                onMeasurementSelected = { measurementId ->
+                                    navController.navigate("results/$measurementId")
+                                }
+                            )
+                        }
+                        composable("results/{measurementId}") { backStackEntry ->
+                            val measurementId = backStackEntry.arguments?.getString("measurementId")
+                            MeasurementResultScreen(
+                                measurementId = measurementId?.toLongOrNull(),
+                                onBackPressed = { navController.popBackStack() }
+                            )
+                        }
+                    }
                 }
             }
         }
     }
-
+    
     override fun onDestroy() {
         super.onDestroy()
         cameraExecutor.shutdown()
+        
+        // Eliminar flag de mantener pantalla encendida
+        window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
     }
 }
 

@@ -79,4 +79,91 @@ declare global {
         var heartBeatProcessor: HeartBeatProcessor
     }
 }
-*/ 
+*/
+
+/**
+ * Datos de una imagen procesada para compatibilidad entre plataformas
+ */
+data class CommonImageDataWrapper(
+    val pixelData: ByteArray,
+    val width: Int,
+    val height: Int,
+    val format: String = "RGBA_8888" // Formato predeterminado, puede ser "YUV_420_888", "RGBA_8888", etc.
+) {
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (other == null || this::class != other::class) return false
+
+        other as CommonImageDataWrapper
+
+        if (!pixelData.contentEquals(other.pixelData)) return false
+        if (width != other.width) return false
+        if (height != other.height) return false
+        if (format != other.format) return false
+
+        return true
+    }
+
+    override fun hashCode(): Int {
+        var result = pixelData.contentHashCode()
+        result = 31 * result + width
+        result = 31 * result + height
+        result = 31 * result + format.hashCode()
+        return result
+    }
+}
+
+/**
+ * Señal PPG procesada con todos los valores calculados
+ */
+data class ProcessedSignal(
+    val timestamp: Long, // Tiempo en milisegundos
+    val rawValue: Double, // Valor bruto de la señal
+    val filteredValue: Double, // Valor filtrado
+    val quality: Double, // Calidad de la señal (0.0 - 1.0)
+    val fingerDetected: Boolean, // Si se detecta un dedo
+    val roi: ROI, // Región de interés en la imagen
+    val perfusionIndex: Double? = null // Índice de perfusión
+)
+
+/**
+ * Región de interés en la imagen
+ */
+data class ROI(
+    val x: Int,
+    val y: Int,
+    val width: Int,
+    val height: Int
+)
+
+/**
+ * Error en el procesamiento de la señal
+ */
+data class ProcessingError(
+    val code: String,
+    val message: String,
+    val timestamp: Long
+)
+
+/**
+ * Medición vital completa para guardar o mostrar
+ */
+data class VitalSignsMeasurement(
+    val timestamp: Long,
+    val heartRate: Int,
+    val spo2: Int,
+    val systolic: Int? = null,
+    val diastolic: Int? = null,
+    val perfusionIndex: Double? = null,
+    val signalQuality: Double,
+    val arrhythmiaCount: Int = 0
+)
+
+/**
+ * Datos de arritmia detectada
+ */
+data class ArrhythmiaData(
+    val rmssd: Double, // Raíz cuadrada media de las diferencias sucesivas de intervalos RR
+    val rrVariation: Double, // Variación de intervalos RR
+    val irregularBeats: Int // Conteo de latidos irregulares
+)

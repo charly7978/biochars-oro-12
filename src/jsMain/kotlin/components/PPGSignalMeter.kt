@@ -1,96 +1,223 @@
 package components
 
-import androidx.compose.runtime.Composable
-import org.jetbrains.compose.web.css.*
-import org.jetbrains.compose.web.dom.*
-// import pages.ArrhythmiaData // Remove old import
-import types.ArrhythmiaData // Add new import
+import androidx.compose.animation.core.*
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.*
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.biocharsproject.shared.types.ProcessedSignal
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlin.math.min
 
+/**
+ * Componente para visualizar la señal PPG y métricas asociadas
+ * Este componente replica el comportamiento del medidor de señal PPG de la versión web
+ */
 @Composable
 fun PPGSignalMeter(
-    quality: Int,
-    ppgValue: Float,
-    isFingerDetected: Boolean,
-    arrhythmiaStatus: String,
-    rawArrhythmiaData: ArrhythmiaData?,
-    preserveResults: Boolean, // Not directly used in this placeholder, but available
-    // Callbacks - these would typically trigger actions in the parent (IndexPage)
-    // For this placeholder, we'll just log or show simple text
-    onStartMeasurement: () -> Unit, 
-    onReset: () -> Unit
+    signalBuffer: List<Float>,
+    heartRate: Int? = null,
+    spo2: Int? = null,
+    perfusionIndex: Double? = null,
+    signalQuality: Double = 0.0,
+    isCalibrating: Boolean = false,
+    isDetecting: Boolean = false,
+    modifier: Modifier = Modifier
 ) {
-    Div(attrs = {
-        classes("p-4", "bg-gray-800", "rounded-lg", "shadow-xl", "flex", "flex-col", "items-center", "justify-center", "h-full", "text-white")
-        style { minHeight(200.px) } // Give it some default size
-    }) {
-        // Quality Bar
-        Div(attrs = { classes("w-full", "mb-3") }) {
-            Span(attrs={classes("text-sm", "text-gray-400")}) { Text("Calidad PPG: $quality%") }
-            Div(attrs = { 
-                classes("h-3", "bg-gray-600", "rounded-full", "overflow-hidden", "mt-1")
-                style { width(100.percent) }
-            }) {
-                Div(attrs = { 
-                    style {
-                        width(quality.percent) 
-                        height(100.percent)
-                        backgroundColor(when {
-                            quality > 70 -> Color.green
-                            quality > 40 -> Color.orange
-                            else -> Color.red
-                        })
-                        transition("width", 300.ms)
-                    }
-                })
-            }
-        }
-
-        // Raw PPG Value (example display)
-        Span(attrs={classes("text-2xl", "font-mono", "my-2")}) {
-            Text(ppgValue.toString().take(7)) // Display formatted PPG value
-        }
-        
-        // Finger status
-        Span(attrs = {
-            classes("text-xs", "px-2", "py-1", "rounded-full", "mb-2")
-            if (isFingerDetected) classes("bg-green-500/30", "text-green-300")
-            else classes("bg-red-500/30", "text-red-300")
-        }) {
-            Text(if (isFingerDetected) "Dedo Detectado" else "Sin Dedo")
-        }
-
-        // Arrhythmia Status
-        val arrhythmiaParts = arrhythmiaStatus.split('|')
-        val arrhythmiaText = arrhythmiaParts.getOrNull(0) ?: "--"
-        val arrhythmiaNum = arrhythmiaParts.getOrNull(1) ?: "0"
-
-        Div(attrs = { classes("text-center", "mb-2") }) {
-            Span(attrs = { classes("text-sm", "text-gray-400") }) { Text("Arritmia: ") }
-            Span(attrs = { classes("text-sm", if (arrhythmiaText == "ARRITMIA DETECTADA") "text-red-400" else "text-green-400") }) {
-                 Text("$arrhythmiaText ($arrhythmiaNum)")
-            }
-        }
-        
-        // Raw Arrhythmia Data (example)
-        rawArrhythmiaData?.let {
-            Div(attrs = { classes("text-xs", "text-gray-500", "mb-3") }) {
-                Text("RMSSD: ${it.rmssd.toString().take(4)}, VarRR: ${it.rrVariation.toString().take(4)}")
-            }
-        }
-
-        // Placeholder for graph or more complex visualization if needed later
-        Div(attrs = { classes("w-full", "h-16", "bg-gray-700/50", "rounded", "flex", "items-center", "justify-center", "italic", "text-gray-500") }) {
-            Text("Visualización PPG (próximamente)")
-        }
-
-        // Example: If finger is not detected and not preserving results, show a message to start measurement.
-        // The actual start/reset buttons are in IndexPage, this is just to show prop usage.
-        if (!isFingerDetected && !preserveResults) {
-            Div(attrs = {classes("mt-4")}) {
-                 P(attrs={classes("text-center", "text-sm", "text-gray-400")}) {
-                    Text("Coloque el dedo en la cámara y presione INICIAR.")
+    val primaryColor = Color(0xFF00FFB0) // Color verde-azulado característico
+    val backgroundColor = Color(0xFF101820) // Fondo oscuro
+    val textColor = Color(0xFFF8F9FA) // Texto claro
+    
+    // Animación de pulso para simular latido cardíaco
+    val infiniteTransition = rememberInfiniteTransition()
+    val pulseState = infiniteTransition.animateFloat(
+        initialValue = 1f,
+        targetValue = if (heartRate != null && heartRate > 40 && !isCalibrating) 1.2f else 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(
+                durationMillis = if (heartRate != null) (60000 / heartRate.coerceAtLeast(40)).coerceAtMost(1500) else 1000,
+                easing = EaseInOutQuad
+            ),
+            repeatMode = RepeatMode.Reverse
+        )
+    )
+    
+    Box(
+        modifier = modifier
+            .background(backgroundColor)
+            .padding(16.dp)
+    ) {
+        // Señal PPG (gráfico)
+        if (signalBuffer.isNotEmpty()) {
+            Canvas(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(bottom = 64.dp) // Espacio para métricas
+            ) {
+                val path = Path()
+                val stepX = size.width / (signalBuffer.size - 1).coerceAtLeast(1)
+                
+                // Normalizar valores para que ocupen el 80% de la altura
+                val minY = signalBuffer.minOrNull() ?: 0f
+                val maxY = signalBuffer.maxOrNull() ?: 1f
+                val rangeY = (maxY - minY).takeIf { it > 0 } ?: 1f
+                val scaleY = (size.height * 0.8f) / rangeY
+                val centerY = size.height / 2
+                
+                signalBuffer.forEachIndexed { i, value ->
+                    val x = i * stepX
+                    val normalizedValue = (value - minY) / rangeY
+                    // Centrar y aplicar escala al valor con efecto de pulso
+                    val y = centerY - (normalizedValue - 0.5f) * scaleY * pulseState.value
+                    
+                    if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
+                }
+                
+                // Gradiente para la línea principal
+                val gradient = Brush.verticalGradient(
+                    colors = listOf(
+                        primaryColor.copy(alpha = 0.7f),
+                        primaryColor
+                    )
+                )
+                
+                // Dibujar línea principal
+                drawPath(
+                    path = path,
+                    brush = gradient,
+                    style = Stroke(
+                        width = 3.dp.toPx(),
+                        cap = StrokeCap.Round,
+                        join = StrokeJoin.Round
+                    )
+                )
+                
+                // Dibujar resplandor (glow effect) cuando hay ritmo cardíaco
+                if (heartRate != null && heartRate > 40 && !isCalibrating) {
+                    drawPath(
+                        path = path,
+                        color = primaryColor.copy(alpha = 0.3f),
+                        style = Stroke(
+                            width = 8.dp.toPx(),
+                            cap = StrokeCap.Round,
+                            join = StrokeJoin.Round
+                        )
+                    )
+                }
+                
+                // Si está calibrando, mostrar un indicador
+                if (isCalibrating) {
+                    val text = "Calibrando..."
+                    val textSize = 24.sp.toPx()
+                    drawContext.canvas.nativeCanvas.drawText(
+                        text,
+                        size.width / 2 - text.length * textSize / 4,
+                        size.height / 2,
+                        android.graphics.Paint().apply {
+                            color = primaryColor.copy(alpha = 0.8f).toArgb()
+                            textSize = 24.sp.toPx()
+                            isAntiAlias = true
+                        }
+                    )
+                }
+                
+                // Si no está detectando, mostrar indicación
+                if (!isDetecting && !isCalibrating) {
+                    val text = "Coloque su dedo en la cámara"
+                    val textSize = 18.sp.toPx()
+                    drawContext.canvas.nativeCanvas.drawText(
+                        text,
+                        size.width / 2 - text.length * textSize / 4,
+                        size.height / 2,
+                        android.graphics.Paint().apply {
+                            color = Color.White.toArgb()
+                            this.textSize = textSize
+                            isAntiAlias = true
+                        }
+                    )
                 }
             }
         }
+        
+        // Métricas en la parte inferior
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 8.dp),
+            horizontalArrangement = Arrangement.SpaceEvenly
+        ) {
+            // BPM
+            MetricDisplay(
+                value = heartRate?.toString() ?: "--",
+                label = "BPM",
+                primaryColor = primaryColor,
+                modifier = Modifier.weight(1f)
+            )
+            
+            // SpO2
+            MetricDisplay(
+                value = spo2?.let { "$it%" } ?: "--",
+                label = "SpO2",
+                primaryColor = primaryColor,
+                modifier = Modifier.weight(1f)
+            )
+            
+            // Perfusión
+            MetricDisplay(
+                value = perfusionIndex?.let { String.format("%.2f", it) } ?: "--",
+                label = "PI",
+                primaryColor = primaryColor,
+                modifier = Modifier.weight(1f)
+            )
+            
+            // Calidad
+            MetricDisplay(
+                value = String.format("%.0f%%", signalQuality * 100),
+                label = "Calidad",
+                primaryColor = primaryColor,
+                modifier = Modifier.weight(1f)
+            )
+        }
+    }
+}
+
+@Composable
+private fun MetricDisplay(
+    value: String,
+    label: String,
+    primaryColor: Color,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = modifier.padding(horizontal = 4.dp)
+    ) {
+        Text(
+            text = value,
+            color = primaryColor,
+            fontSize = 18.sp,
+            style = MaterialTheme.typography.titleMedium
+        )
+        Text(
+            text = label,
+            color = Color.White.copy(alpha = 0.7f),
+            fontSize = 12.sp,
+            style = MaterialTheme.typography.bodySmall
+        )
     }
 } 

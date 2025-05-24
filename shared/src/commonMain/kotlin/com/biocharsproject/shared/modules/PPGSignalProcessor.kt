@@ -1,278 +1,379 @@
 package com.biocharsproject.shared.modules
 
-import com.biocharsproject.shared.types.*
 import com.biocharsproject.shared.modules.signal_processing.*
-import kotlinx.coroutines.*
-import kotlin.time.TimeSource // For MonotonicTimeSource if available and needed, else System.currentTimeMillis()
+import com.biocharsproject.shared.types.CommonImageDataWrapper
+import com.biocharsproject.shared.types.ProcessedSignal
+import com.biocharsproject.shared.types.ProcessingError
+import kotlinx.coroutines.delay
+import kotlin.math.abs
+import kotlin.math.roundToInt
 
-// Data class ImageDataWrapper needs to be defined or imported.
-// Assuming it's a simple data holder for image data properties relevant to FrameProcessor.
-// If it was defined in FrameProcessor.kt, that file also needs to be moved and its content made available.
-// For now, let's define a placeholder here or assume it will be available from a moved FrameProcessor.kt
-// Actual definition for ImageDataWrapper:
-// data class ImageDataWrapper(val data: ByteArray, val width: Int, val height: Int, val format: String)
-
-
-// Placeholder or ensure FrameProcessorConfig, CalibrationHandlerConfig, SignalAnalyzerConfig are moved/available
-// For now, these will cause errors if not defined/imported from their respective files after moving.
-// data class FrameProcessorConfig(val textureGridSize: Int, val roiSizeFactor: Double)
-// data class CalibrationHandlerConfig(val calibrationSamples: Int, val minRedThreshold: Double, val maxRedThreshold: Double)
-// data class SignalAnalyzerConfig(val qualityLevels: Int, val qualityHistorySize: Int, val minConsecutiveDetections: Int, val maxConsecutiveNoDetections: Int)
-
-
-open class PPGSignalProcessor(
-    actual override var onSignalReady: ((signal: ProcessedSignal) -> Unit)? = null,
-    actual override var onError: ((error: ProcessingError) -> Unit)? = null
-) : SignalProcessor, CoroutineScope {
-
-    private val job = Job()
-    actual override val coroutineContext = Dispatchers.Default + job
-
+/**
+ * Procesador avanzado de señales PPG (Fotopletismografía)
+ * Optimizado para mediciones de alta precisión en dispositivos móviles
+ */
+class PPGSignalProcessor(
+    val onSignalReady: ((ProcessedSignal) -> Unit)? = null,
+    val onError: ((ProcessingError) -> Unit)? = null
+) {
+    // Filtros y analizadores de señal
+    private val kalmanFilter = KalmanFilter()
+    private val sgFilter = SavitzkyGolayFilter(windowSize = 15)
+    private val trendAnalyzer = SignalTrendAnalyzer(historyLength = 45)
+    private val biophysicalValidator = BiophysicalValidator()
+    private val signalAnalyzer = SignalAnalyzer(CONFIG)
+    private val calibrationHandler = CalibrationHandler(CONFIG)
+    private val frameProcessor = FrameProcessor(CONFIG)
+    
+    // Estado del procesador
     var isProcessing: Boolean = false
-        private set
-    
-    lateinit var kalmanFilter: KalmanFilter
-        private set
-    lateinit var sgFilter: SavitzkyGolayFilter
-        private set
-    lateinit var trendAnalyzer: SignalTrendAnalyzer
-        private set
-    
-    // Estas dependencias ahora se inicializarán correctamente
-    lateinit var biophysicalValidator: BiophysicalValidator 
-        private set
-    lateinit var frameProcessor: FrameProcessor
-        private set
-    lateinit var calibrationHandler: CalibrationHandler
-        private set
-    lateinit var signalAnalyzer: SignalAnalyzer
-        private set
-
-    var lastValues: MutableList<Double> = mutableListOf()
         private set
     var isCalibrating: Boolean = false
         private set
-    var frameProcessedCount = 0
-        private set
-
-    // TODO: Ensure these Config data classes are properly defined/imported in commonMain
-    // For now, defining them as inner data classes or top-level in this file if they are simple enough
-    // Or they should be moved from their original locations (e.g., signal_processing.Types.kt for SignalProcessorConfig)
-    // SignalProcessorConfig is already in shared/modules/signal_processing/Types.kt
-    // We need to ensure FrameProcessorConfig etc. are also moved or defined.
-    // For now, let's assume SignalProcessorConfig is correctly imported.
-    // The others might need to be defined temporarily if not yet moved.
-    // data class FrameProcessorConfigPlaceholder(val textureGridSize: Int, val roiSizeFactor: Double) // No longer needed
-    // data class CalibrationHandlerConfigPlaceholder(val calibrationSamples: Int, val minRedThreshold: Double, val maxRedThreshold: Double) // No longer needed
-    // data class SignalAnalyzerConfigPlaceholder(val qualityLevels: Int, val qualityHistorySize: Int, val minConsecutiveDetections: Int, val maxConsecutiveNoDetections: Int) // No longer needed
-
-
-    val CONFIG: SignalProcessorConfig = SignalProcessorConfig(
-        BUFFER_SIZE = 100,
-        MIN_RED_THRESHOLD = 50.0,
-        MAX_RED_THRESHOLD = 220.0,
-        STABILITY_WINDOW = 15,
+    private val signalBuffer = mutableListOf<Double>()
+    private val timestampBuffer = mutableListOf<Long>()
+    private var frameCount: Int = 0
+    private var lastRawValue: Int = 0
+    private var perfusionIndex: Double = 0.0
+    private var qualityScoreAvg: Double = 0.0
+    private val qualityHistory = mutableListOf<Double>()
+    
+    // Umbral dinámico para detección del dedo
+    private var dynamicThreshold: Double = 30.0
+    private var baselineValue: Double = 0.0
+    private var lastNonZeroTimestamp: Long = 0
+    
+    // Detección de arritmias
+    private val rrIntervals = mutableListOf<Long>()
+    private val peakTimes = mutableListOf<Long>()
+    private var arrhythmiaCount: Int = 0
+    
+    // Configuración
+    private val CONFIG = SignalProcessorConfig(
+        BUFFER_SIZE = 300,
+        MIN_RED_THRESHOLD = 15.0,
+        MAX_RED_THRESHOLD = 245.0,
+        STABILITY_WINDOW = 10,
         MIN_STABILITY_COUNT = 5,
-        HYSTERESIS = 0.1,
-        MIN_CONSECUTIVE_DETECTIONS = 3,
-        MAX_CONSECUTIVE_NO_DETECTIONS = 5,
+        HYSTERESIS = 0.2,
+        MIN_CONSECUTIVE_DETECTIONS = 15,
+        MAX_CONSECUTIVE_NO_DETECTIONS = 30,
         QUALITY_LEVELS = 10,
         QUALITY_HISTORY_SIZE = 10,
-        CALIBRATION_SAMPLES = 50,
+        CALIBRATION_SAMPLES = 60,
         TEXTURE_GRID_SIZE = 8,
-        ROI_SIZE_FACTOR = 0.6
+        ROI_SIZE_FACTOR = 0.35
     )
     
-    // Placeholder for actual ImageDataWrapper - this needs to be defined in commonMain
-    // or expect/actual if it involves platform-specific image data.
-    // For common processing logic, it should be a common data class.
-    // data class CommonImageDataWrapper(val pixelData: ByteArray, val width: Int, val height: Int, val format: String = "RGBA")
-    // MOVED to shared/src/commonMain/kotlin/com/biocharsproject/shared/types/Signal.kt
-
-
-    init {
-        // Initialization in initialize()
-    }
-
-    actual override suspend fun initialize() { // Removed Promise return type
-        kalmanFilter = KalmanFilter()
-        sgFilter = SavitzkyGolayFilter(windowSize = 9)
-        trendAnalyzer = SignalTrendAnalyzer(historyLength = CONFIG.STABILITY_WINDOW)
-        
-        // Inicializar con las clases reales y la configuración global
-        biophysicalValidator = BiophysicalValidator()
-        frameProcessor = FrameProcessor(CONFIG)
-        calibrationHandler = CalibrationHandler(CONFIG)
-        signalAnalyzer = SignalAnalyzer(CONFIG)
+    /**
+     * Inicializa el procesador con parámetros optimizados
+     */
+    suspend fun initialize(): Boolean {
+        try {
+            // Reiniciar todos los componentes
+            resetAll()
             
-        resetState()
-        println("PPGSignalProcessor initialized")
-    }
-
-    actual override fun start() {
-        if (isProcessing) {
-            println("PPGSignalProcessor is already running.")
-            return
+            // Esperar un momento para estabilizar
+            delay(100)
+            
+            return true
+        } catch (e: Exception) {
+            handleError("INIT_ERROR", "Error al inicializar: ${e.message}")
+            return false
         }
+    }
+    
+    /**
+     * Inicia el procesamiento de señal
+     */
+    fun start() {
         isProcessing = true
+        isCalibrating = true
+    }
+    
+    /**
+     * Detiene el procesamiento de señal
+     */
+    fun stop() {
+        isProcessing = false
         isCalibrating = false
-        frameProcessedCount = 0
+    }
+    
+    /**
+     * Realiza una calibración del procesador para el hardware específico
+     */
+    suspend fun calibrate(): Boolean {
+        try {
+            isCalibrating = true
+            resetAll()
+            
+            // La calibración se realizará automáticamente durante el procesamiento
+            // de los primeros frames después de activar isCalibrating
+            
+            return true
+        } catch (e: Exception) {
+            handleError("CALIBRATION_ERROR", "Error en calibración: ${e.message}")
+            return false
+        }
+    }
+    
+    /**
+     * Procesa un frame de imagen y extrae señal PPG
+     */
+    fun processFrame(imageData: CommonImageDataWrapper) {
+        if (!isProcessing) return
+        
+        try {
+            // Contador de frames procesados
+            frameCount++
+            
+            // Extraer datos del frame y región de interés (ROI)
+            val frameData = frameProcessor.extractFrameData(imageData)
+            val redValue = frameData.redValue.toDouble()
+            lastRawValue = redValue.roundToInt()
+            
+            // Aplicar filtros de pre-procesamiento
+            val timestamp = System.currentTimeMillis()
+            val kalmanValue = kalmanFilter.filter(redValue)
+            val sgValue = sgFilter.filter(kalmanValue)
+            
+            // Analizar tendencia y estabilidad
+            trendAnalyzer.addValue(sgValue)
+            val trendScores = trendAnalyzer.getScores()
+            val trendResult = trendAnalyzer.analyzeTrend(sgValue)
+            
+            // Validación biofísica de la señal
+            val pulsatility = biophysicalValidator.calculatePulsatilityIndex(sgValue)
+            val biophysicalScore = biophysicalValidator.validateBiophysicalRange(
+                frameData.redValue.toDouble(),
+                frameData.rToGRatio,
+                frameData.rToBRatio
+            )
+            
+            // Calibración (si es necesario)
+            if (isCalibrating && frameCount > 15) {
+                val isCalibrated = calibrationHandler.handleCalibration(redValue)
+                if (isCalibrated) {
+                    isCalibrating = false
+                    
+                    // Aplicar resultados de calibración
+                    val calibrationValues = calibrationHandler.getCalibrationValues()
+                    baselineValue = calibrationValues.baselineRed
+                    dynamicThreshold = calibrationValues.baselineVariance * 2.5
+                }
+            }
+            
+            // Actualizar buffers para análisis temporal
+            signalBuffer.add(sgValue)
+            timestampBuffer.add(timestamp)
+            if (signalBuffer.size > CONFIG.BUFFER_SIZE) {
+                signalBuffer.removeAt(0)
+                timestampBuffer.removeAt(0)
+            }
+            
+            // Detección avanzada del dedo y análisis de calidad
+            val detectionResult = signalAnalyzer.analyzeSignalMultiDetector(
+                sgValue,
+                trendResult
+            )
+            
+            // Calcular perfusión (ratio de componente AC/DC)
+            if (signalBuffer.size > 10 && detectionResult.isFingerDetected) {
+                val min = signalBuffer.takeLast(20).minOrNull() ?: sgValue
+                val max = signalBuffer.takeLast(20).maxOrNull() ?: sgValue
+                val avg = signalBuffer.takeLast(20).average()
+                
+                // Índice de perfusión: (max-min)/avg * 100%
+                if (avg > 0) {
+                    perfusionIndex = (max - min) / avg * 100
+                }
+                
+                // Detección de picos para análisis de ritmo cardíaco
+                detectPeaks(sgValue, timestamp)
+            }
+            
+            // Actualizar promedio de calidad
+            qualityHistory.add(detectionResult.quality)
+            if (qualityHistory.size > CONFIG.QUALITY_HISTORY_SIZE) {
+                qualityHistory.removeAt(0)
+            }
+            qualityScoreAvg = qualityHistory.average()
+            
+            // Obtener región de interés actual
+            val roi = frameProcessor.detectROI(redValue.toInt(), imageData)
+            
+            // Enviar señal procesada
+            val processedSignal = ProcessedSignal(
+                timestamp = timestamp,
+                rawValue = redValue,
+                filteredValue = sgValue,
+                quality = qualityScoreAvg,
+                fingerDetected = detectionResult.isFingerDetected,
+                roi = roi,
+                perfusionIndex = perfusionIndex
+            )
+            
+            onSignalReady?.invoke(processedSignal)
+            
+            // Si detectamos que el dedo no está presente por un tiempo
+            if (!detectionResult.isFingerDetected && 
+                lastNonZeroTimestamp > 0 && 
+                timestamp - lastNonZeroTimestamp > 5000) {
+                // Reiniciar filtros pero no la calibración
+                resetFilters()
+            }
+            
+            // Actualizar timestamp del último valor no-cero
+            if (redValue > 5) {
+                lastNonZeroTimestamp = timestamp
+            }
+            
+        } catch (e: Exception) {
+            handleError("PROCESSING_ERROR", "Error procesando frame: ${e.message}")
+        }
+    }
+    
+    /**
+     * Detecta picos en la señal para análisis de ritmo cardíaco y arritmias
+     */
+    private fun detectPeaks(value: Double, timestamp: Long) {
+        // Solo procesar si tenemos suficiente historia
+        if (signalBuffer.size < 10) return
+        
+        val recentValues = signalBuffer.takeLast(10)
+        val avg = recentValues.average()
+        val threshold = (recentValues.maxOrNull() ?: avg) * 0.65
+        
+        // Verificar si el valor anterior es un pico (miramos 2 muestras hacia atrás)
+        val checkIndex = signalBuffer.size - 3
+        
+        if (checkIndex >= 0 && checkIndex < signalBuffer.size - 1) {
+            val peakCandidate = signalBuffer[checkIndex]
+            val peakTime = timestampBuffer[checkIndex]
+            
+            // Verificar si es un pico local
+            val isPeak = peakCandidate > threshold &&
+                         peakCandidate > signalBuffer[checkIndex - 1] &&
+                         peakCandidate > signalBuffer[checkIndex + 1]
+            
+            // Si es un pico y ha pasado suficiente tiempo desde el último
+            if (isPeak && (peakTimes.isEmpty() || peakTime - peakTimes.lastOrNull()!! > 300)) {
+                peakTimes.add(peakTime)
+                
+                // Calcular intervalo RR (tiempo entre picos)
+                if (peakTimes.size > 1) {
+                    val rrInterval = peakTime - peakTimes[peakTimes.size - 2]
+                    rrIntervals.add(rrInterval)
+                    
+                    // Detectar arritmias analizando variabilidad RR
+                    if (rrIntervals.size > 3) {
+                        detectArrhythmia()
+                    }
+                }
+                
+                // Mantener historia limitada
+                if (peakTimes.size > 20) {
+                    peakTimes.removeAt(0)
+                }
+                if (rrIntervals.size > 20) {
+                    rrIntervals.removeAt(0)
+                }
+            }
+        }
+    }
+    
+    /**
+     * Detecta arritmias basadas en la variabilidad de intervalos RR
+     */
+    private fun detectArrhythmia() {
+        if (rrIntervals.size < 4) return
+        
+        // Calcular promedio y variabilidad de los últimos intervalos
+        val recentIntervals = rrIntervals.takeLast(4)
+        val avgRR = recentIntervals.average()
+        
+        // Verificar si algún intervalo se desvía significativamente
+        for (interval in recentIntervals) {
+            val percentChange = abs(interval - avgRR) / avgRR
+            
+            // Si la variación es mayor al 20%, podría ser una arritmia
+            if (percentChange > 0.20) {
+                arrhythmiaCount++
+                break
+            }
+        }
+    }
+    
+    /**
+     * Reinicia todos los componentes de procesamiento
+     */
+    private fun resetAll() {
         kalmanFilter.reset()
         sgFilter.reset()
         trendAnalyzer.reset()
-        biophysicalValidator.reset() 
-        signalAnalyzer.reset() 
+        biophysicalValidator.reset()
+        signalAnalyzer.reset()
+        calibrationHandler.resetCalibration()
         
-        println("PPGSignalProcessor started.")
-    }
-
-    actual override fun stop() {
-        if (!isProcessing) {
-            println("PPGSignalProcessor is not running.")
-            return
-        }
-        isProcessing = false
-        println("PPGSignalProcessor stopped. Total frames processed: $frameProcessedCount")
-    }
-
-    actual override suspend fun calibrate(): Boolean { // Changed Promise<Boolean> to Boolean
-        if (isProcessing) {
-            // stop()
-        }
-        println("Starting calibration...")
+        signalBuffer.clear()
+        timestampBuffer.clear()
+        qualityHistory.clear()
+        rrIntervals.clear()
+        peakTimes.clear()
+        
+        frameCount = 0
+        arrhythmiaCount = 0
+        perfusionIndex = 0.0
+        qualityScoreAvg = 0.0
+        lastRawValue = 0
+        
+        // No reiniciar calibración para mantener adaptación al dispositivo
         isCalibrating = true
-        calibrationHandler.resetCalibration() 
-        signalAnalyzer.reset() 
-        frameProcessedCount = 0
-        
-        // Actual calibration logic will depend on processFrame calls.
-        // This suspend function now simply flags calibration to start.
-        // The caller should await its completion if it needs to know when it's done,
-        // or listen to onSignalReady for calibration progress.
-        return true // Indicates calibration mode has been entered.
     }
     
-    private fun resetState() {
-        lastValues.clear()
-        frameProcessedCount = 0
-        // isCalibrated = false; // Managed by calibrationHandler
-        // Otros estados que necesiten reseteo
+    /**
+     * Reinicia solo los filtros pero mantiene calibración
+     */
+    private fun resetFilters() {
+        kalmanFilter.reset()
+        sgFilter.reset()
+        trendAnalyzer.reset()
+        signalAnalyzer.reset()
+        
+        signalBuffer.clear()
+        timestampBuffer.clear()
+        rrIntervals.clear()
+        peakTimes.clear()
     }
-
-    // This method will require CommonImageDataWrapper and actual implementations of FrameProcessor, etc.
-    open fun processFrame(imageData: CommonImageDataWrapper) {
-        if (!isProcessing && !isCalibrating) {
-            return
-        }
-
-        try {
-            // val startTime = TimeSource.Monotonic.markNow() // For performance measurement
-
-            val frameData = frameProcessor.extractFrameData(imageData) 
-
-            if (frameData.redValue < CONFIG.MIN_RED_THRESHOLD || frameData.redValue > CONFIG.MAX_RED_THRESHOLD) {
-                handleError("low_signal", "Red value out of basic threshold: ${frameData.redValue}")
-                // Considerar si se debe retornar aquí o permitir que el flujo continúe con baja calidad
-                // return 
-            }
-
-            var processedValue = frameData.redValue
-
-            if (isCalibrating) {
-                val calibrationComplete = calibrationHandler.handleCalibration(processedValue)
-                val calValues = calibrationHandler.getCalibrationValues()
-
-                onSignalReady?.invoke(
-                    ProcessedSignal(
-                        timestamp = System.currentTimeMillis(),
-                        rawValue = processedValue,
-                        filteredValue = processedValue, 
-                        quality = if (calibrationComplete && calValues.baselineVariance > 0) (calValues.baselineRed / calValues.baselineVariance).coerceIn(0.0,1.0) else 0.1,
-                        fingerDetected = false, // Finger detection might not be reliable during calibration
-                        roi = frameProcessor.detectROI(processedValue, imageData), // Usar ROI real
-                        perfusionIndex = null
-                    )
-                )
-                if (calibrationComplete) {
-                    isCalibrating = false
-                    println("Calibration completed. Baseline: ${calValues.baselineRed}, Variance: ${calValues.baselineVariance}, MinT: ${calValues.minRedThreshold}, MaxT: ${calValues.maxRedThreshold}")
-                    signalAnalyzer.reset() // Reset analyzer after calibration
-                    trendAnalyzer.reset()
-                    kalmanFilter.reset()
-                    sgFilter.reset()
-                }
-                frameProcessedCount++
-                return 
-            }
-
-            if (!calibrationHandler.isCalibrationComplete()) {
-                 handleError("calibration_incomplete", "Calibration is not complete. Please run calibrate().")
-                 onSignalReady?.invoke( ProcessedSignal(
-                        timestamp = System.currentTimeMillis(),
-                        rawValue = processedValue,
-                        filteredValue = processedValue, // o un valor filtrado básico
-                        quality = 0.0,
-                        fingerDetected = false,
-                        roi = frameProcessor.detectROI(processedValue, imageData), // Usar ROI real
-                        perfusionIndex = null
-                    )
-                )
-                return
-            }
-
-            val sgFiltered = sgFilter.filter(processedValue)
-            val kalmanFiltered = kalmanFilter.filter(sgFiltered)
-
-            trendAnalyzer.analyzeTrend(kalmanFiltered)
-            val trendScores = trendAnalyzer.getScores() // Obtener scores para usarlos
-
-            val pulsatilityIndex = biophysicalValidator.calculatePulsatilityIndex(kalmanFiltered)
-            val biophysicalScore = biophysicalValidator.validateBiophysicalRange(frameData.avgRed ?: frameData.redValue, frameData.rToGRatio ?: 0.0, frameData.rToBRatio ?: 0.0)
-
-
-            val currentDetectorScores = DetectorScores(
-                redChannel = frameData.avgRed ?: frameData.redValue, // Usar avgRed si está disponible
-                stability = trendScores.stability,
-                pulsatility = pulsatilityIndex,
-                biophysical = biophysicalScore,
-                periodicity = trendScores.periodicity,
-                textureScore = frameData.textureScore
-            )
-            signalAnalyzer.updateDetectorScores(currentDetectorScores)
-            val analysisResult = signalAnalyzer.analyzeSignalMultiDetector(kalmanFiltered)
-            val fingerDetected = analysisResult.isFingerDetected
-            val quality = analysisResult.quality
-
-            
-            val roi = frameProcessor.detectROI(processedValue, imageData) // Usar ROI real
-
-
-            val finalSignal = ProcessedSignal(
-                timestamp = System.currentTimeMillis(),
-                rawValue = processedValue,
-                filteredValue = kalmanFiltered,
-                quality = quality,
-                fingerDetected = fingerDetected,
-                roi = roi,
-                perfusionIndex = pulsatilityIndex // Assuming pulsatilityIndex is the perfusion index
-            )
-            onSignalReady?.invoke(finalSignal)
-            
-            lastValues.add(kalmanFiltered)
-            if(lastValues.size > CONFIG.BUFFER_SIZE) {
-                lastValues.removeAt(0)
-            }
-            frameProcessedCount++
-            // println("Frame processed in ${startTime.elapsedNow()}")
-
-        } catch (e: Exception) {
-            handleError("processing_error", "Error during frame processing: ${e.message}")
-        }
-    }
-
-    protected fun handleError(code: String, message: String) {
-        val error = ProcessingError(code, message, System.currentTimeMillis())
+    
+    /**
+     * Maneja errores del procesador
+     */
+    private fun handleError(code: String, message: String) {
+        val error = ProcessingError(
+            code = code,
+            message = message,
+            timestamp = System.currentTimeMillis()
+        )
         onError?.invoke(error)
-        println("PPGSignalProcessor Error: [$code] $message") // También loguear a consola
     }
-} 
+    
+    /**
+     * Clase interna de configuración
+     */
+    private data class SignalProcessorConfig(
+        val BUFFER_SIZE: Int,
+        val MIN_RED_THRESHOLD: Double,
+        val MAX_RED_THRESHOLD: Double,
+        val STABILITY_WINDOW: Int,
+        val MIN_STABILITY_COUNT: Int,
+        val HYSTERESIS: Double,
+        val MIN_CONSECUTIVE_DETECTIONS: Int,
+        val MAX_CONSECUTIVE_NO_DETECTIONS: Int,
+        val QUALITY_LEVELS: Int,
+        val QUALITY_HISTORY_SIZE: Int,
+        val CALIBRATION_SAMPLES: Int,
+        val TEXTURE_GRID_SIZE: Int,
+        val ROI_SIZE_FACTOR: Double
+    )
+}
