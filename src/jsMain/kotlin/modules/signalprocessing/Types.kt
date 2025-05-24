@@ -50,7 +50,7 @@ interface SignalProcessor {
     fun start()
     fun stop()
     suspend fun calibrate(): Boolean
-    fun processFrame(imageData: org.w3c.dom.ImageData) // Assuming ImageData is available
+    fun processFrame(imageData: ImageData) // Changed to local ImageData
     var onSignalReady: ((signal: ProcessedSignal) -> Unit)?
     var onError: ((error: ProcessingError) -> Unit)?
 }
@@ -78,23 +78,26 @@ data class DetectorScores(
 
 @Serializable
 data class FrameData(
-  val redValue: Double,
-  val avgRed: Double? = null,
-  val avgGreen: Double? = null,
-  val avgBlue: Double? = null,
-  val textureScore: Double,
-  val rToGRatio: Double,
-  val rToBRatio: Double
+    val redValue: Double,
+    val textureScore: Double,
+    val rToGRatio: Double,
+    val rToBRatio: Double
 )
 
 @Serializable
 data class DetectionResult(
-  val isFingerDetected: Boolean,
-  val quality: Int,
-  val detectorDetails: Map<String, Any> // Using Map for flexibility
+    val isFingerDetected: Boolean,
+    val quality: Int
+    // roi: ROIData? = null // Removed, ROI comes from FrameProcessor in PPGSignalProcessor
 )
+
+external interface ImageData {
+    val width: Int
+    val height: Int
+    val data: ByteArray // Should be Uint8ClampedArray, but ByteArray is a close Kotlin equivalent for now
+}
 
 // TrendResult for SignalTrendAnalyzer
 enum class TrendResult {
     STABLE, UNSTABLE, NON_PHYSIOLOGICAL
-} 
+}

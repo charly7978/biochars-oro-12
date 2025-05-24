@@ -1,6 +1,6 @@
 package modules.signalprocessing
 
-import org.w3c.dom.ImageData
+// import org.w3c.dom.ImageData // Using local ImageData
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
@@ -15,25 +15,23 @@ class FrameProcessor(private val config: Config) {
 
     private val RED_GAIN = 1.4 
     private val GREEN_SUPPRESSION = 0.8 
-    private val SIGNAL_GAIN = 1.3 
-    // private val EDGE_ENHANCEMENT = 0.15 // Not directly used in ported extractFrameData
-
-    // private var lastFrames: MutableList<Map<String, Double>> = mutableListOf() // Not directly used
-    // private val HISTORY_SIZE = 15 // Not directly used
-    // private var lastLightLevel: Double = -1.0 // Not directly used
+    private val SIGNAL_GAIN = 1.3
 
     private var roiHistory: MutableList<ROIData> = mutableListOf()
     private val ROI_HISTORY_SIZE = 5
 
-    fun extractFrameData(imageData: ImageData): FrameData {
+    // Return type changed to modules.signalprocessing.FrameData
+    fun extractFrameData(imageData: ImageData): modules.signalprocessing.FrameData {
         val width = imageData.width
         val height = imageData.height
-        val data = imageData.data
+        // In Kotlin/JS, Uint8ClampedArray is typically represented as ByteArray or IntArray.
+        // Assuming imageData.data is compatible (e.g., ByteArray from a canvas context)
+        val data = imageData.data 
 
         var totalRed = 0.0
         var totalGreen = 0.0
         var totalBlue = 0.0
-        var textureComplexity = 0.0
+        // var textureComplexity = 0.0 // Not directly used for final FrameData, calculated for textureScore
         val gridSize = config.TEXTURE_GRID_SIZE
 
         for (yGrid in 0 until gridSize) {
@@ -51,10 +49,11 @@ class FrameProcessor(private val config: Config) {
                 for (y in cellYStart until cellYEnd) {
                     for (x in cellXStart until cellXEnd) {
                         val i = (y * width + x) * 4
-                        if (i + 3 < data.length) { // Check bounds
-                            val r = data[i].toDouble()
-                            val g = data[i + 1].toDouble()
-                            val b = data[i + 2].toDouble()
+                        // Ensure we are accessing valid indices for data array (RGBA)
+                        if (i + 3 < data.size) { 
+                            val r = data[i].toInt() and 0xFF // Convert signed Byte to unsigned Int
+                            val g = data[i + 1].toInt() and 0xFF
+                            val b = data[i + 2].toInt() and 0xFF
                             localRed += r
                             localGreen += g
                             localBlue += b
@@ -66,9 +65,6 @@ class FrameProcessor(private val config: Config) {
                     totalRed += localRed / pixelCountInCell
                     totalGreen += localGreen / pixelCountInCell
                     totalBlue += localBlue / pixelCountInCell
-
-                    // Simplified texture: variance of local averages (if we stored them)
-                    // For now, sum of abs differences from overall average (after loop)
                 }
             }
         }
@@ -78,28 +74,21 @@ class FrameProcessor(private val config: Config) {
         val avgGreen = if (numCells > 0) totalGreen / numCells else 0.0
         val avgBlue = if (numCells > 0) totalBlue / numCells else 0.0
         
-        // Simplified texture calculation: sum of absolute differences of cell averages from overall average
-        // This requires storing cell averages. A simpler placeholder for now:
-        textureComplexity = abs(avgRed - avgGreen) + abs(avgGreen - avgBlue) + abs(avgRed - avgBlue)
-        val textureScore = min(1.0, textureComplexity / 255.0) // Normalize crude texture score
+        val textureComplexity = abs(avgRed - avgGreen) + abs(avgGreen - avgBlue) + abs(avgRed - avgBlue)
+        val textureScore = min(1.0, textureComplexity / 255.0) 
 
-        // Signal enhancement based on original logic ideas
         val enhancedRed = avgRed * RED_GAIN
-        val suppressedGreen = avgGreen * GREEN_SUPPRESSION
-        // val ppgSignal = (enhancedRed - suppressedGreen) * SIGNAL_GAIN // This was used in older versions, now redValue is more direct
-        val redValue = enhancedRed // Use enhanced red as the primary signal value from frame
+        // val suppressedGreen = avgGreen * GREEN_SUPPRESSION // Not used for final FrameData output
+        val redValueOutput = enhancedRed 
 
         val rToGRatio = if (avgGreen > 0) avgRed / avgGreen else 0.0
         val rToBRatio = if (avgBlue > 0) avgRed / avgBlue else 0.0
         
-        // Light level quality factor (simplified, could be expanded based on avgRed or overall brightness)
         val lightLevelQuality = getLightLevelQualityFactor(avgRed) 
 
-        return FrameData(
-            redValue = redValue * lightLevelQuality, // Modulate by light quality
-            avgRed = avgRed,
-            avgGreen = avgGreen,
-            avgBlue = avgBlue,
+        // Constructing the FrameData type from modules.signalprocessing
+        return modules.signalprocessing.FrameData(
+            redValue = redValueOutput * lightLevelQuality,
             textureScore = textureScore, 
             rToGRatio = rToGRatio,
             rToBRatio = rToBRatio

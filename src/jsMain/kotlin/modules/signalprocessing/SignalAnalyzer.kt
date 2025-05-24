@@ -69,8 +69,6 @@ class SignalAnalyzer(private val config: Config) {
         }
         val smoothedQuality = if (qualityHistory.isNotEmpty()) qualityHistory.average().toInt() else 0
 
-        // Detection logic based on quality and consecutive frames
-        // This is a simplified version of the TS logic
         val potentialDetection = smoothedQuality > 40 && trend != TrendResult.NON_PHYSIOLOGICAL
 
         if (potentialDetection) {
@@ -87,21 +85,12 @@ class SignalAnalyzer(private val config: Config) {
             }
         }
         
-        // Hysteresis for stability (not explicitly in TS version's analyzeSignalMultiDetector but good practice)
-        // If it was detected, it needs to drop significantly to be un-detected.
-        // If it was not detected, it needs to rise significantly to be detected.
-        // This is implicitly handled by MIN_CONSECUTIVE_DETECTIONS and MAX_CONSECUTIVE_NO_DETECTIONS.
-
+        // Return type changed to the one from Types.kt (no detectorDetails or roi)
         return DetectionResult(
             isFingerDetected = isCurrentlyDetected,
-            quality = smoothedQuality,
-            detectorDetails = mapOf(
-                "rawQuality" to currentQuality,
-                "weightedScore" to weightedScore,
-                "trend" to trend.name,
-                "consecutiveDetections" to consecutiveDetections,
-                "consecutiveNoDetections" to consecutiveNoDetections
-            ) + detectorScoresToMap() // Add individual scores to details
+            quality = smoothedQuality
+            // detectorDetails removed
+            // roi removed
         )
     }
     
