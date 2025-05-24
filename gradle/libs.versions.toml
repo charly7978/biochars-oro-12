@@ -1,5 +1,5 @@
 [versions]
-androidGradlePlugin = "8.2.0"
+androidGradlePlugin = "8.1.0"
 jetbrainsKotlinAndroid = "1.9.22"
 jetbrainsKotlinMultiplatform = "1.9.22"
 jetbrainsCompose = "1.6.1"

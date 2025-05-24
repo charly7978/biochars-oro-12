@@ -1,6 +1,6 @@
 plugins {
     alias(libs.plugins.jetbrains.kotlin.multiplatform)
-    id("com.android.application") version "8.1.0" apply false
+    alias(libs.plugins.android.application) apply false
     alias(libs.plugins.jetbrains.kotlin.android) apply false
     alias(libs.plugins.jetbrains.compose) apply false
 }

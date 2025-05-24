@@ -1,5 +1,5 @@
 plugins {
-    id("com.android.application") version "8.1.0"
+    alias(libs.plugins.android.application)
     alias(libs.plugins.jetbrains.kotlin.android)
     alias(libs.plugins.jetbrains.compose) // Para Jetpack Compose UI
 }
