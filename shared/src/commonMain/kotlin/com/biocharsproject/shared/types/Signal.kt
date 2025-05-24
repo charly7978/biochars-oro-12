@@ -1,4 +1,4 @@
-package types
+package com.biocharsproject.shared.types
 
 import kotlinx.serialization.Serializable
 

@@ -1,4 +1,4 @@
-package utils
+package com.biocharsproject.shared.utils
 
 import kotlinx.serialization.Serializable
 
