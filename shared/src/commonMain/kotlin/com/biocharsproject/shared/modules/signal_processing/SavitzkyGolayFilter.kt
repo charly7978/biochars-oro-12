@@ -1,4 +1,4 @@
-package modules.signal_processing
+package com.biocharsproject.shared.modules.signal_processing
 
 import kotlin.math.floor
 
