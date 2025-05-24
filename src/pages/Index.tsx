@@ -8,6 +8,7 @@ import { useVitalSignsProcessor } from "@/hooks/useVitalSignsProcessor";
 import PPGSignalMeter from "@/components/PPGSignalMeter";
 import MonitorButton from "@/components/MonitorButton";
 import { VitalSignsResult } from "@/modules/vital-signs/VitalSignsProcessor";
+import { debugFrame, debugSignal } from "@/utils/debug";
 
 const Index = () => {
   const [isMonitoring, setIsMonitoring] = useState(false);
@@ -62,7 +63,7 @@ const Index = () => {
   }, []);
 
   const startMonitoring = () => {
-    console.log("Index: Starting real monitoring");
+    console.log("Index: Starting monitoring");
     
     setIsMonitoring(true);
     setShowResults(false);
@@ -88,7 +89,7 @@ const Index = () => {
   };
 
   const finalizeMeasurement = () => {
-    console.log("Index: Finalizing real measurement");
+    console.log("Index: Finalizing measurement");
     
     setIsMonitoring(false);
     processingRef.current = false;
@@ -151,11 +152,11 @@ const Index = () => {
   const handleStreamReady = (stream: MediaStream) => {
     if (!processingRef.current) return;
     
-    console.log("Index: Stream ready - starting real frame capture");
+    debugFrame("Stream ready - starting frame capture");
     
     const videoElement = document.querySelector('video');
     if (!videoElement) {
-      console.error("Index: No video element found");
+      debugFrame("ERROR: No video element found");
       return;
     }
 
@@ -163,11 +164,18 @@ const Index = () => {
       if (!processingRef.current || !videoElement) return;
       
       try {
+        // Verificar que el video esté reproduciendo
+        if (videoElement.videoWidth === 0 || videoElement.videoHeight === 0) {
+          debugFrame("Video not ready - dimensions zero");
+          frameProcessingRef.current = requestAnimationFrame(processFrames);
+          return;
+        }
+        
         // FASE 2: Usar canvas directamente desde video element
         const canvas = document.createElement('canvas');
         const ctx = canvas.getContext('2d', { willReadFrequently: true });
         
-        if (ctx && videoElement.videoWidth > 0 && videoElement.videoHeight > 0) {
+        if (ctx) {
           canvas.width = Math.min(320, videoElement.videoWidth);
           canvas.height = Math.min(240, videoElement.videoHeight);
           
@@ -176,6 +184,11 @@ const Index = () => {
           
           // FASE 2: Verificar que tenemos datos válidos
           if (imageData.data.length > 0) {
+            debugFrame("Processing frame", {
+              width: canvas.width,
+              height: canvas.height,
+              dataLength: imageData.data.length
+            });
             processFrame(imageData);
           }
         }
@@ -184,7 +197,7 @@ const Index = () => {
           frameProcessingRef.current = requestAnimationFrame(processFrames);
         }
       } catch (error) {
-        console.error("Frame processing error:", error);
+        debugFrame("Frame processing error", error);
         if (processingRef.current) {
           setTimeout(() => {
             frameProcessingRef.current = requestAnimationFrame(processFrames);
@@ -196,8 +209,13 @@ const Index = () => {
     // Esperar a que el video esté listo
     const startFrameProcessing = () => {
       if (videoElement.videoWidth > 0 && videoElement.videoHeight > 0) {
+        debugFrame("Starting frame processing", {
+          width: videoElement.videoWidth,
+          height: videoElement.videoHeight
+        });
         frameProcessingRef.current = requestAnimationFrame(processFrames);
       } else {
+        debugFrame("Waiting for video to be ready...");
         setTimeout(startFrameProcessing, 100);
       }
     };
@@ -208,6 +226,12 @@ const Index = () => {
   // Procesar señales cuando se reciben
   useEffect(() => {
     if (lastSignal && processingRef.current) {
+      debugSignal("Signal received", {
+        fingerDetected: lastSignal.fingerDetected,
+        quality: lastSignal.quality,
+        rawValue: lastSignal.rawValue
+      });
+      
       setSignalQuality(lastSignal.quality);
       
       if (lastSignal.fingerDetected) {
@@ -246,7 +270,7 @@ const Index = () => {
         />
 
         <div className="relative z-10 h-full flex flex-col">
-          {/* FASE 6: Estados reales en UI */}
+          {/* Estados reales en UI */}
           <div className="px-4 py-2 flex justify-around items-center bg-black/20">
             <div className="text-white text-lg">
               Calidad: {signalQuality.toFixed(0)}%
@@ -273,7 +297,7 @@ const Index = () => {
             />
           </div>
 
-          {/* FASE 6: Resultados honestos */}
+          {/* Resultados honestos */}
           <div className="absolute inset-x-0 top-[55%] bottom-[60px] bg-black/10 px-4 py-6">
             <div className="grid grid-cols-3 gap-4 place-items-center">
               <VitalSign 

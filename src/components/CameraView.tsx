@@ -2,6 +2,7 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { SimpleCameraManager } from '../modules/camera/SimpleCameraManager';
 import { toast } from "@/components/ui/use-toast";
+import { debugCamera } from '../utils/debug';
 
 interface CameraViewProps {
   onStreamReady?: (stream: MediaStream) => void;
@@ -23,27 +24,32 @@ const CameraView = ({
 
   useEffect(() => {
     if (isMonitoring && !cameraManagerRef.current) {
-      console.log("CameraView: Starting camera");
+      debugCamera("Starting camera for monitoring");
       
       // Create simple camera manager
       cameraManagerRef.current = new SimpleCameraManager(
         (stream) => {
-          console.log("CameraView: Stream ready");
+          debugCamera("Stream ready callback received", {
+            videoTracks: stream.getVideoTracks().length,
+            audioTracks: stream.getAudioTracks().length
+          });
           
           if (videoRef.current) {
             videoRef.current.srcObject = stream;
             cameraManagerRef.current?.setVideoElement(videoRef.current);
+            debugCamera("Video element updated with stream");
           }
           
           setIsReady(true);
           setError(null);
           
           if (onStreamReady) {
+            debugCamera("Calling onStreamReady callback");
             onStreamReady(stream);
           }
         },
         (errorMsg) => {
-          console.error("CameraView: Camera error", errorMsg);
+          debugCamera("Camera error received", errorMsg);
           setError(errorMsg);
           setIsReady(false);
           
@@ -59,7 +65,7 @@ const CameraView = ({
       cameraManagerRef.current.startCamera();
     } 
     else if (!isMonitoring && cameraManagerRef.current) {
-      console.log("CameraView: Stopping camera");
+      debugCamera("Stopping camera - monitoring disabled");
       
       cameraManagerRef.current.stopCamera();
       cameraManagerRef.current = null;
@@ -73,6 +79,7 @@ const CameraView = ({
 
     return () => {
       if (cameraManagerRef.current) {
+        debugCamera("Cleanup - stopping camera");
         cameraManagerRef.current.stopCamera();
         cameraManagerRef.current = null;
       }
@@ -85,21 +92,31 @@ const CameraView = ({
     if (!video) return;
 
     const handleLoadedData = () => {
-      console.log("CameraView: Video loaded and ready");
+      debugCamera("Video element loaded and ready", {
+        videoWidth: video.videoWidth,
+        videoHeight: video.videoHeight,
+        readyState: video.readyState
+      });
       setIsReady(true);
     };
 
     const handleError = (e: Event) => {
-      console.error("CameraView: Video element error", e);
+      debugCamera("Video element error", e);
       setError("Error del elemento de video");
+    };
+
+    const handlePlay = () => {
+      debugCamera("Video started playing");
     };
 
     video.addEventListener('loadeddata', handleLoadedData);
     video.addEventListener('error', handleError);
+    video.addEventListener('play', handlePlay);
 
     return () => {
       video.removeEventListener('loadeddata', handleLoadedData);
       video.removeEventListener('error', handleError);
+      video.removeEventListener('play', handlePlay);
     };
   }, []);
 
@@ -125,6 +142,15 @@ const CameraView = ({
           Iniciando cámara...
         </div>
       )}
+
+      {/* Debug info */}
+      <div className="absolute bottom-4 left-4 bg-black/50 text-white p-2 rounded text-xs">
+        <div>Monitor: {isMonitoring ? 'ON' : 'OFF'}</div>
+        <div>Ready: {isReady ? 'YES' : 'NO'}</div>
+        <div>Error: {error || 'NONE'}</div>
+        <div>Finger: {isFingerDetected ? 'DETECTED' : 'NOT DETECTED'}</div>
+        <div>Quality: {signalQuality.toFixed(1)}%</div>
+      </div>
     </div>
   );
 };

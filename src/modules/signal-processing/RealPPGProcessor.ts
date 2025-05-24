@@ -5,7 +5,7 @@ import { ProcessedSignal, ProcessingError } from '../../types/signal';
  * FASES 3-6: Procesador PPG real sin artificios - detección honesta de dedo y latidos
  */
 export class RealPPGProcessor {
-  private isProcessing = false;
+  private processingState = false;
   private frameCount = 0;
   private redChannelHistory: number[] = [];
   private signalHistory: number[] = [];
@@ -45,13 +45,13 @@ export class RealPPGProcessor {
   }
 
   start(): void {
-    this.isProcessing = true;
+    this.processingState = true;
     this.frameCount = 0;
     console.log("RealPPGProcessor: Started with honest processing");
   }
 
   stop(): void {
-    this.isProcessing = false;
+    this.processingState = false;
     this.reset();
     console.log("RealPPGProcessor: Stopped");
   }
@@ -67,7 +67,7 @@ export class RealPPGProcessor {
   }
 
   processFrame(imageData: ImageData): void {
-    if (!this.isProcessing) return;
+    if (!this.processingState) return;
 
     this.frameCount++;
     
@@ -294,6 +294,6 @@ export class RealPPGProcessor {
   }
 
   get isProcessing(): boolean {
-    return this.isProcessing;
+    return this.processingState;
   }
 }
