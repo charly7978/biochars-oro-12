@@ -38,26 +38,15 @@ open class PPGSignalProcessor(
     lateinit var trendAnalyzer: SignalTrendAnalyzer
         private set
     
-    // These will be problematic if their classes are not yet moved to shared/commonMain
-    // For now, they will be commented out or use placeholder initializers if their classes are not found.
-    // This indicates that BiophysicalValidator.kt, FrameProcessor.kt, CalibrationHandler.kt, SignalAnalyzer.kt
-    // also need to be moved to shared/commonMain and their packages updated.
-    
-    // lateinit var biophysicalValidator: BiophysicalValidator 
-    //     private set
-    // lateinit var frameProcessor: FrameProcessor
-    //     private set
-    // lateinit var calibrationHandler: CalibrationHandler
-    //     private set
-    // lateinit var signalAnalyzer: SignalAnalyzer
-    //     private set
-
-    // Placeholder initializers until the classes are properly moved and available:
-    private val biophysicalValidator: Any = Any() 
-    private val frameProcessor: Any = Any() // This will need to be cast or properly typed later
-    private val calibrationHandler: Any = Any() // This will need to be cast or properly typed later
-    private val signalAnalyzer: Any = Any() // This will need to be cast or properly typed later
-
+    // Estas dependencias ahora se inicializarán correctamente
+    lateinit var biophysicalValidator: BiophysicalValidator 
+        private set
+    lateinit var frameProcessor: FrameProcessor
+        private set
+    lateinit var calibrationHandler: CalibrationHandler
+        private set
+    lateinit var signalAnalyzer: SignalAnalyzer
+        private set
 
     var lastValues: MutableList<Double> = mutableListOf()
         private set
@@ -73,9 +62,9 @@ open class PPGSignalProcessor(
     // We need to ensure FrameProcessorConfig etc. are also moved or defined.
     // For now, let's assume SignalProcessorConfig is correctly imported.
     // The others might need to be defined temporarily if not yet moved.
-    data class FrameProcessorConfigPlaceholder(val textureGridSize: Int, val roiSizeFactor: Double)
-    data class CalibrationHandlerConfigPlaceholder(val calibrationSamples: Int, val minRedThreshold: Double, val maxRedThreshold: Double)
-    data class SignalAnalyzerConfigPlaceholder(val qualityLevels: Int, val qualityHistorySize: Int, val minConsecutiveDetections: Int, val maxConsecutiveNoDetections: Int)
+    // data class FrameProcessorConfigPlaceholder(val textureGridSize: Int, val roiSizeFactor: Double) // No longer needed
+    // data class CalibrationHandlerConfigPlaceholder(val calibrationSamples: Int, val minRedThreshold: Double, val maxRedThreshold: Double) // No longer needed
+    // data class SignalAnalyzerConfigPlaceholder(val qualityLevels: Int, val qualityHistorySize: Int, val minConsecutiveDetections: Int, val maxConsecutiveNoDetections: Int) // No longer needed
 
 
     val CONFIG: SignalProcessorConfig = SignalProcessorConfig(
@@ -97,7 +86,8 @@ open class PPGSignalProcessor(
     // Placeholder for actual ImageDataWrapper - this needs to be defined in commonMain
     // or expect/actual if it involves platform-specific image data.
     // For common processing logic, it should be a common data class.
-    data class CommonImageDataWrapper(val pixelData: ByteArray, val width: Int, val height: Int, val format: String = "RGBA")
+    // data class CommonImageDataWrapper(val pixelData: ByteArray, val width: Int, val height: Int, val format: String = "RGBA")
+    // MOVED to shared/src/commonMain/kotlin/com/biocharsproject/shared/types/Signal.kt
 
 
     init {
@@ -109,15 +99,14 @@ open class PPGSignalProcessor(
         sgFilter = SavitzkyGolayFilter(windowSize = 9)
         trendAnalyzer = SignalTrendAnalyzer(historyLength = CONFIG.STABILITY_WINDOW)
         
-        // Placeholder initializations - these need their actual classes
-        // biophysicalValidator = BiophysicalValidator()
-        // frameProcessor = FrameProcessor(FrameProcessorConfigPlaceholder(CONFIG.TEXTURE_GRID_SIZE, CONFIG.ROI_SIZE_FACTOR))
-        // calibrationHandler = CalibrationHandler(CalibrationHandlerConfigPlaceholder(CONFIG.CALIBRATION_SAMPLES, CONFIG.MIN_RED_THRESHOLD, CONFIG.MAX_RED_THRESHOLD))
-        // signalAnalyzer = SignalAnalyzer(SignalAnalyzerConfigPlaceholder(CONFIG.QUALITY_LEVELS, CONFIG.QUALITY_HISTORY_SIZE, CONFIG.MIN_CONSECUTIVE_DETECTIONS, CONFIG.MAX_CONSECUTIVE_NO_DETECTIONS))
+        // Inicializar con las clases reales y la configuración global
+        biophysicalValidator = BiophysicalValidator()
+        frameProcessor = FrameProcessor(CONFIG)
+        calibrationHandler = CalibrationHandler(CONFIG)
+        signalAnalyzer = SignalAnalyzer(CONFIG)
             
         resetState()
         println("PPGSignalProcessor initialized")
-        // No Promise returned in common suspend function
     }
 
     actual override fun start() {
@@ -131,8 +120,8 @@ open class PPGSignalProcessor(
         kalmanFilter.reset()
         sgFilter.reset()
         trendAnalyzer.reset()
-        // biophysicalValidator.reset() // Assuming reset method exists
-        // signalAnalyzer.reset() // Assuming reset method exists
+        biophysicalValidator.reset() 
+        signalAnalyzer.reset() 
         
         println("PPGSignalProcessor started.")
     }
@@ -152,8 +141,8 @@ open class PPGSignalProcessor(
         }
         println("Starting calibration...")
         isCalibrating = true
-        // calibrationHandler.resetCalibration() // Assuming method exists
-        // signalAnalyzer.reset() 
+        calibrationHandler.resetCalibration() 
+        signalAnalyzer.reset() 
         frameProcessedCount = 0
         
         // Actual calibration logic will depend on processFrame calls.
@@ -179,49 +168,35 @@ open class PPGSignalProcessor(
         try {
             // val startTime = TimeSource.Monotonic.markNow() // For performance measurement
 
-            // --- Placeholder for FrameProcessor logic ---
-            // val frameData = frameProcessor.extractFrameData(imageData) 
-            // For now, using a dummy FrameData or assuming redValue comes directly
-            val dummyRedValue = imageData.pixelData.firstOrNull()?.toDouble() ?: 0.0 // Extremely simplified
-            val frameData = FrameData( // FrameData is from signal_processing.Types.kt
-                redValue = dummyRedValue, 
-                textureScore = 0.0, 
-                rToGRatio = 0.0, 
-                rToBRatio = 0.0
-            )
-            // --- End Placeholder ---
+            val frameData = frameProcessor.extractFrameData(imageData) 
 
             if (frameData.redValue < CONFIG.MIN_RED_THRESHOLD || frameData.redValue > CONFIG.MAX_RED_THRESHOLD) {
-                // handleError("low_signal", "Red value out of basic threshold: ${frameData.redValue}")
+                handleError("low_signal", "Red value out of basic threshold: ${frameData.redValue}")
+                // Considerar si se debe retornar aquí o permitir que el flujo continúe con baja calidad
                 // return 
             }
 
             var processedValue = frameData.redValue
 
             if (isCalibrating) {
-                // --- Placeholder for CalibrationHandler logic ---
-                // val calibrationComplete = calibrationHandler.handleCalibration(processedValue)
-                // val calValues = calibrationHandler.getCalibrationValues()
-                val calibrationComplete = false // Dummy
-                // --- End Placeholder ---
+                val calibrationComplete = calibrationHandler.handleCalibration(processedValue)
+                val calValues = calibrationHandler.getCalibrationValues()
 
-                // Assuming ROIData is available from shared.types
-                val dummyRoi = ROIData(0,0,0,0) 
                 onSignalReady?.invoke(
                     ProcessedSignal(
                         timestamp = System.currentTimeMillis(),
                         rawValue = processedValue,
                         filteredValue = processedValue, 
-                        quality = if (calibrationComplete) 1.0 else 0.1, // Dummy quality
-                        fingerDetected = false, 
-                        roi = dummyRoi,
+                        quality = if (calibrationComplete && calValues.baselineVariance > 0) (calValues.baselineRed / calValues.baselineVariance).coerceIn(0.0,1.0) else 0.1,
+                        fingerDetected = false, // Finger detection might not be reliable during calibration
+                        roi = frameProcessor.detectROI(processedValue, imageData), // Usar ROI real
                         perfusionIndex = null
                     )
                 )
                 if (calibrationComplete) {
                     isCalibrating = false
-                    println("Calibration completed.") // Placeholder: actual values needed
-                    // signalAnalyzer.reset()
+                    println("Calibration completed. Baseline: ${calValues.baselineRed}, Variance: ${calValues.baselineVariance}, MinT: ${calValues.minRedThreshold}, MaxT: ${calValues.maxRedThreshold}")
+                    signalAnalyzer.reset() // Reset analyzer after calibration
                     trendAnalyzer.reset()
                     kalmanFilter.reset()
                     sgFilter.reset()
@@ -230,41 +205,46 @@ open class PPGSignalProcessor(
                 return 
             }
 
-            // --- Placeholder for ensuring calibration is complete ---
-            // if (!calibrationHandler.isCalibrationComplete()) {
-            //     onSignalReady?.invoke(...) // Signal low quality
-            //     println("Calibration is not complete. Please run calibrate().")
-            //     return
-            // }
-            // --- End Placeholder ---
+            if (!calibrationHandler.isCalibrationComplete()) {
+                 handleError("calibration_incomplete", "Calibration is not complete. Please run calibrate().")
+                 onSignalReady?.invoke( ProcessedSignal(
+                        timestamp = System.currentTimeMillis(),
+                        rawValue = processedValue,
+                        filteredValue = processedValue, // o un valor filtrado básico
+                        quality = 0.0,
+                        fingerDetected = false,
+                        roi = frameProcessor.detectROI(processedValue, imageData), // Usar ROI real
+                        perfusionIndex = null
+                    )
+                )
+                return
+            }
 
             val sgFiltered = sgFilter.filter(processedValue)
             val kalmanFiltered = kalmanFilter.filter(sgFiltered)
 
-            val trendResultString = trendAnalyzer.analyzeTrend(kalmanFiltered)
-            val trendScores = trendAnalyzer.getScores()
+            trendAnalyzer.analyzeTrend(kalmanFiltered)
+            val trendScores = trendAnalyzer.getScores() // Obtener scores para usarlos
 
-            // --- Placeholder for BiophysicalValidator logic ---
-            // val pulsatilityIndex = biophysicalValidator.calculatePulsatilityIndex(kalmanFiltered)
-            // val biophysicalScore = biophysicalValidator.validateBiophysicalRange(frameData.redValue, frameData.rToGRatio, frameData.rToBRatio)
-            val pulsatilityIndex = 0.0 // Dummy
-            val biophysicalScore = 0.0 // Dummy
-             // --- End Placeholder ---
+            val pulsatilityIndex = biophysicalValidator.calculatePulsatilityIndex(kalmanFiltered)
+            val biophysicalScore = biophysicalValidator.validateBiophysicalRange(frameData.avgRed ?: frameData.redValue, frameData.rToGRatio ?: 0.0, frameData.rToBRatio ?: 0.0)
 
 
-            // --- Placeholder for SignalAnalyzer logic ---
-            // val currentDetectorScores = DetectorScores(...)
-            // val analysisResult = signalAnalyzer.analyzeSignal(kalmanFiltered, currentDetectorScores)
-            // val fingerDetected = analysisResult.isFingerDetected
-            // val quality = analysisResult.qualityScore
-            val fingerDetected = true // Dummy
-            val quality = 0.8 // Dummy
-            // --- End Placeholder ---
+            val currentDetectorScores = DetectorScores(
+                redChannel = frameData.avgRed ?: frameData.redValue, // Usar avgRed si está disponible
+                stability = trendScores.stability,
+                pulsatility = pulsatilityIndex,
+                biophysical = biophysicalScore,
+                periodicity = trendScores.periodicity,
+                textureScore = frameData.textureScore
+            )
+            signalAnalyzer.updateDetectorScores(currentDetectorScores)
+            val analysisResult = signalAnalyzer.analyzeSignalMultiDetector(kalmanFiltered)
+            val fingerDetected = analysisResult.isFingerDetected
+            val quality = analysisResult.quality
+
             
-            // --- Placeholder for ROI detection ---
-            // val roi = frameProcessor.detectROI(processedValue, imageData)
-            val roi = ROIData(0,0,imageData.width, imageData.height) // Dummy ROI
-            // --- End Placeholder ---
+            val roi = frameProcessor.detectROI(processedValue, imageData) // Usar ROI real
 
 
             val finalSignal = ProcessedSignal(

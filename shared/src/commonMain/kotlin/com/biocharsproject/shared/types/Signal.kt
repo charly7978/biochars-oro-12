@@ -42,6 +42,33 @@ interface SignalProcessor {
     var onError: ((error: ProcessingError) -> Unit)?
 }
 
+@kotlinx.serialization.Serializable
+data class CommonImageDataWrapper(
+    val pixelData: ByteArray, // Changed from data to pixelData for clarity
+    val width: Int,
+    val height: Int,
+    val format: String = "RGBA" // Added format, consistent with PPGSignalProcessor placeholder
+) {
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (other == null || this::class != other::class) return false
+        other as CommonImageDataWrapper
+        if (!pixelData.contentEquals(other.pixelData)) return false
+        if (width != other.width) return false
+        if (height != other.height) return false
+        if (format != other.format) return false
+        return true
+    }
+
+    override fun hashCode(): Int {
+        var result = pixelData.contentHashCode()
+        result = 31 * result + width
+        result = 31 * result + height
+        result = 31 * result + format.hashCode()
+        return result
+    }
+}
+
 // La extensión global de Window no se traduce directamente a Kotlin/JS de la misma manera.
 // Si se necesita acceso global a heartBeatProcessor, se manejaría de forma diferente
 // dependiendo de la estructura de la aplicación Kotlin/JS.

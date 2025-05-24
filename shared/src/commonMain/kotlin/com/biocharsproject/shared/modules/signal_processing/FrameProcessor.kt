@@ -1,6 +1,7 @@
 package com.biocharsproject.shared.modules.signal_processing
 
-import com.biocharsproject.shared.types.ROIData // Moved from types.Signal.kt
+import com.biocharsproject.shared.types.ROIData
+import com.biocharsproject.shared.types.CommonImageDataWrapper
 import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.cos
@@ -11,34 +12,6 @@ import kotlin.math.pow
 import kotlin.math.roundToInt
 import kotlin.math.sin
 import kotlin.math.sqrt
-
-// Renamed from ImageDataWrapper to CommonImageDataWrapper for consistency
-@kotlinx.serialization.Serializable
-data class CommonImageDataWrapper(
-    val pixelData: ByteArray, // Changed from data to pixelData for clarity
-    val width: Int,
-    val height: Int,
-    val format: String = "RGBA" // Added format, consistent with PPGSignalProcessor placeholder
-) {
-    override fun equals(other: Any?): Boolean {
-        if (this === other) return true
-        if (other == null || this::class != other::class) return false
-        other as CommonImageDataWrapper
-        if (!pixelData.contentEquals(other.pixelData)) return false
-        if (width != other.width) return false
-        if (height != other.height) return false
-        if (format != other.format) return false
-        return true
-    }
-
-    override fun hashCode(): Int {
-        var result = pixelData.contentHashCode()
-        result = 31 * result + width
-        result = 31 * result + height
-        result = 31 * result + format.hashCode()
-        return result
-    }
-}
 
 // FrameProcessorConfig is already defined in com.biocharsproject.shared.modules.signal_processing.Types.kt
 // No need to redefine it here if it's the same structure.
