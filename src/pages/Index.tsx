@@ -1,3 +1,4 @@
+
 import React, { useState, useRef, useEffect } from "react";
 import VitalSign from "@/components/VitalSign";
 import CameraView from "@/components/CameraView";
@@ -7,7 +8,6 @@ import { useVitalSignsProcessor } from "@/hooks/useVitalSignsProcessor";
 import PPGSignalMeter from "@/components/PPGSignalMeter";
 import MonitorButton from "@/components/MonitorButton";
 import { VitalSignsResult } from "@/modules/vital-signs/VitalSignsProcessor";
-import { toast } from "@/components/ui/use-toast";
 
 const Index = () => {
   const [isMonitoring, setIsMonitoring] = useState(false);
@@ -30,6 +30,7 @@ const Index = () => {
   const [showResults, setShowResults] = useState(false);
   const measurementTimerRef = useRef<number | null>(null);
   const processingRef = useRef<boolean>(false);
+  const frameProcessingRef = useRef<number | null>(null);
 
   const { startProcessing, stopProcessing, lastSignal, processFrame } = useSignalProcessor();
   const { processSignal: processHeartBeat } = useHeartBeatProcessor();
@@ -61,7 +62,7 @@ const Index = () => {
   }, []);
 
   const startMonitoring = () => {
-    console.log("Index: Starting monitoring");
+    console.log("Index: Starting real monitoring");
     
     setIsMonitoring(true);
     setShowResults(false);
@@ -87,7 +88,7 @@ const Index = () => {
   };
 
   const finalizeMeasurement = () => {
-    console.log("Index: Finalizing measurement");
+    console.log("Index: Finalizing real measurement");
     
     setIsMonitoring(false);
     processingRef.current = false;
@@ -96,6 +97,11 @@ const Index = () => {
     if (measurementTimerRef.current) {
       clearInterval(measurementTimerRef.current);
       measurementTimerRef.current = null;
+    }
+    
+    if (frameProcessingRef.current) {
+      cancelAnimationFrame(frameProcessingRef.current);
+      frameProcessingRef.current = null;
     }
     
     const savedResults = resetVitalSigns();
@@ -119,6 +125,11 @@ const Index = () => {
       measurementTimerRef.current = null;
     }
     
+    if (frameProcessingRef.current) {
+      cancelAnimationFrame(frameProcessingRef.current);
+      frameProcessingRef.current = null;
+    }
+    
     fullResetVitalSigns();
     setShowResults(false);
     setElapsedTime(0);
@@ -136,58 +147,65 @@ const Index = () => {
     });
   };
 
+  // FASE 2: Captura real de frames usando canvas directamente desde video
   const handleStreamReady = (stream: MediaStream) => {
     if (!processingRef.current) return;
     
-    console.log("Index: Stream ready with torch support");
+    console.log("Index: Stream ready - starting real frame capture");
     
-    try {
-      const videoTrack = stream.getVideoTracks()[0];
-      if (!videoTrack || videoTrack.readyState !== 'live') {
-        console.error("Index: Invalid video track");
-        return;
-      }
+    const videoElement = document.querySelector('video');
+    if (!videoElement) {
+      console.error("Index: No video element found");
+      return;
+    }
 
-      const imageCapture = new ImageCapture(videoTrack);
+    const processFrames = () => {
+      if (!processingRef.current || !videoElement) return;
       
-      const processFrames = async () => {
-        if (!processingRef.current) return;
+      try {
+        // FASE 2: Usar canvas directamente desde video element
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
         
-        try {
-          const frame = await imageCapture.grabFrame();
+        if (ctx && videoElement.videoWidth > 0 && videoElement.videoHeight > 0) {
+          canvas.width = Math.min(320, videoElement.videoWidth);
+          canvas.height = Math.min(240, videoElement.videoHeight);
           
-          const canvas = document.createElement('canvas');
-          const ctx = canvas.getContext('2d', { willReadFrequently: true });
+          ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
+          const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
           
-          if (ctx) {
-            canvas.width = Math.min(320, frame.width);
-            canvas.height = Math.min(240, frame.height);
-            
-            ctx.drawImage(frame, 0, 0, canvas.width, canvas.height);
-            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-            
+          // FASE 2: Verificar que tenemos datos válidos
+          if (imageData.data.length > 0) {
             processFrame(imageData);
           }
-          
-          if (processingRef.current) {
-            requestAnimationFrame(processFrames);
-          }
-        } catch (error) {
-          console.error("Frame processing error:", error);
-          if (processingRef.current) {
-            setTimeout(processFrames, 100);
-          }
         }
-      };
+        
+        if (processingRef.current) {
+          frameProcessingRef.current = requestAnimationFrame(processFrames);
+        }
+      } catch (error) {
+        console.error("Frame processing error:", error);
+        if (processingRef.current) {
+          setTimeout(() => {
+            frameProcessingRef.current = requestAnimationFrame(processFrames);
+          }, 100);
+        }
+      }
+    };
 
-      setTimeout(processFrames, 500);
-      
-    } catch (error) {
-      console.error("Error setting up frame processing:", error);
-    }
+    // Esperar a que el video esté listo
+    const startFrameProcessing = () => {
+      if (videoElement.videoWidth > 0 && videoElement.videoHeight > 0) {
+        frameProcessingRef.current = requestAnimationFrame(processFrames);
+      } else {
+        setTimeout(startFrameProcessing, 100);
+      }
+    };
+
+    startFrameProcessing();
   };
 
-  // Process signals when received
+  // Procesar señales cuando se reciben
   useEffect(() => {
     if (lastSignal && processingRef.current) {
       setSignalQuality(lastSignal.quality);
@@ -228,13 +246,19 @@ const Index = () => {
         />
 
         <div className="relative z-10 h-full flex flex-col">
+          {/* FASE 6: Estados reales en UI */}
           <div className="px-4 py-2 flex justify-around items-center bg-black/20">
             <div className="text-white text-lg">
-              Calidad: {signalQuality}
+              Calidad: {signalQuality.toFixed(0)}%
             </div>
             <div className="text-white text-lg">
-              {lastSignal?.fingerDetected ? "Dedo Detectado" : "Sin Dedo"}
+              {lastSignal?.fingerDetected ? "Dedo Detectado" : "Coloque su dedo"}
             </div>
+            {isMonitoring && (
+              <div className="text-white text-lg">
+                Tiempo: {elapsedTime}s
+              </div>
+            )}
           </div>
 
           <div className="flex-1">
@@ -249,6 +273,7 @@ const Index = () => {
             />
           </div>
 
+          {/* FASE 6: Resultados honestos */}
           <div className="absolute inset-x-0 top-[55%] bottom-[60px] bg-black/10 px-4 py-6">
             <div className="grid grid-cols-3 gap-4 place-items-center">
               <VitalSign 
