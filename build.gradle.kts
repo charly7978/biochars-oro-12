@@ -1,5 +1,9 @@
 plugins {
     kotlin("js") version "1.9.22" // Asegúrate de que esta es la versión de Kotlin que quieres usar
+    alias(libs.plugins.android.application) apply false
+    alias(libs.plugins.jetbrains.kotlin.android) apply false
+    alias(libs.plugins.jetbrains.kotlin.multiplatform) apply false
+    alias(libs.plugins.jetbrains.compose) apply false
 }
 
 group = "com.biocharsproject"

@@ -1,14 +1,13 @@
 package com.biocharsproject.shared.integrations.supabase
 
-import kotlinx.serialization.Serializable // Necesitaremos kotlinx.serialization para JSON
+import kotlinx.serialization.Serializable
 
-// Equivalente al tipo Json de TypeScript
 @Serializable
 sealed interface JsonElement {
     @Serializable
     data class JsonString(val value: String) : JsonElement
     @Serializable
-    data class JsonNumber(val value: Double) : JsonElement // Usar Double para números en JSON
+    data class JsonNumber(val value: Double) : JsonElement
     @Serializable
     data class JsonBoolean(val value: Boolean) : JsonElement
     @Serializable
@@ -19,7 +18,6 @@ sealed interface JsonElement {
     data class JsonArray(val elements: List<JsonElement?>) : JsonElement
 }
 
-// Enum para calibration_status
 @Serializable
 enum class CalibrationStatus {
     pending,
@@ -28,7 +26,6 @@ enum class CalibrationStatus {
     failed
 }
 
-// Definición de la estructura de la base deatos
 object Database {
     object Public {
         object Tables {
@@ -85,14 +82,10 @@ object Database {
                 val updated_at: String? = null,
                 val user_id: String? = null
             )
-            // Relationships podrían modelarse si se usa un ORM específico o para referencia
-            // val relationships: List<Relationship> = listOf(
-            //     Relationship("calibration_settings_user_id_fkey", listOf("user_id"), false, "profiles", listOf("id"))
-            // )
 
             @Serializable
             data class MeasurementsRow(
-                val arrhythmia_count: Int, // Asumiendo Int para conteo
+                val arrhythmia_count: Int,
                 val created_at: String,
                 val diastolic: Double,
                 val heart_rate: Double,
@@ -157,30 +150,11 @@ object Database {
             )
         }
 
-        object Views {
-            // No hay vistas definidas en el esquema proporcionado
-        }
-
-        object Functions {
-            // No hay funciones definidas en el esquema proporcionado
-        }
-
+        object Views { /* ... */ }
+        object Functions { /* ... */ }
         object Enums {
-            val calibration_status: CalibrationStatus? = null // Referencia al enum class
+            val calibration_status: CalibrationStatus? = null
         }
-
-        object CompositeTypes {
-            // No hay tipos compuestos definidos
-        }
+        object CompositeTypes { /* ... */ }
     }
-}
-
-/*
-  Nota sobre los tipos genéricos (Tables, TablesInsert, TablesUpdate, Enums, CompositeTypes):
-  Estos son tipos de utilidad en TypeScript que ayudan con la inferencia de tipos para el cliente de Supabase JS.
-  En Kotlin, la forma de interactuar con Supabase (ya sea a través de un cliente Kotlin específico para Supabase
-  o interoperando con el cliente JS) dictará cómo se manejan estos tipos.
-  Podrían no ser necesarios o podrían ser reemplazados por funcionalidades del cliente Kotlin.
-  Por ahora, los omito ya que su traducción directa es compleja y podría no ser útil
-  sin un contexto de cliente Supabase en Kotlin.
-*/ 
+} 
