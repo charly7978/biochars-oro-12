@@ -42,48 +42,10 @@ interface SignalProcessor {
     var onError: ((error: ProcessingError) -> Unit)?
 }
 
-@kotlinx.serialization.Serializable
-data class CommonImageDataWrapper(
-    val pixelData: ByteArray, // Changed from data to pixelData for clarity
-    val width: Int,
-    val height: Int,
-    val format: String = "RGBA" // Added format, consistent with PPGSignalProcessor placeholder
-) {
-    override fun equals(other: Any?): Boolean {
-        if (this === other) return true
-        if (other == null || this::class != other::class) return false
-        other as CommonImageDataWrapper
-        if (!pixelData.contentEquals(other.pixelData)) return false
-        if (width != other.width) return false
-        if (height != other.height) return false
-        if (format != other.format) return false
-        return true
-    }
-
-    override fun hashCode(): Int {
-        var result = pixelData.contentHashCode()
-        result = 31 * result + width
-        result = 31 * result + height
-        result = 31 * result + format.hashCode()
-        return result
-    }
-}
-
-// La extensión global de Window no se traduce directamente a Kotlin/JS de la misma manera.
-// Si se necesita acceso global a heartBeatProcessor, se manejaría de forma diferente
-// dependiendo de la estructura de la aplicación Kotlin/JS.
-// Por ahora, lo omito y se abordará si es necesario durante la migración de la lógica que lo usa.
-/*
-declare global {
-    interface Window {
-        var heartBeatProcessor: HeartBeatProcessor
-    }
-}
-*/
-
 /**
  * Datos de una imagen procesada para compatibilidad entre plataformas
  */
+@Serializable
 data class CommonImageDataWrapper(
     val pixelData: ByteArray,
     val width: Int,
@@ -116,6 +78,7 @@ data class CommonImageDataWrapper(
 /**
  * Señal PPG procesada con todos los valores calculados
  */
+@Serializable
 data class ProcessedSignal(
     val timestamp: Long, // Tiempo en milisegundos
     val rawValue: Double, // Valor bruto de la señal
@@ -129,6 +92,7 @@ data class ProcessedSignal(
 /**
  * Región de interés en la imagen
  */
+@Serializable
 data class ROI(
     val x: Int,
     val y: Int,
@@ -139,6 +103,7 @@ data class ROI(
 /**
  * Error en el procesamiento de la señal
  */
+@Serializable
 data class ProcessingError(
     val code: String,
     val message: String,
@@ -148,6 +113,7 @@ data class ProcessingError(
 /**
  * Medición vital completa para guardar o mostrar
  */
+@Serializable
 data class VitalSignsMeasurement(
     val timestamp: Long,
     val heartRate: Int,
@@ -162,8 +128,21 @@ data class VitalSignsMeasurement(
 /**
  * Datos de arritmia detectada
  */
+@Serializable
 data class ArrhythmiaData(
     val rmssd: Double, // Raíz cuadrada media de las diferencias sucesivas de intervalos RR
     val rrVariation: Double, // Variación de intervalos RR
     val irregularBeats: Int // Conteo de latidos irregulares
 )
+
+// La extensión global de Window no se traduce directamente a Kotlin/JS de la misma manera.
+// Si se necesita acceso global a heartBeatProcessor, se manejaría de forma diferente
+// dependiendo de la estructura de la aplicación Kotlin/JS.
+// Por ahora, lo omito y se abordará si es necesario durante la migración de la lógica que lo usa.
+/*
+declare global {
+    interface Window {
+        var heartBeatProcessor: HeartBeatProcessor
+    }
+}
+*/
