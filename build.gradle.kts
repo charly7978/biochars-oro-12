@@ -9,12 +9,6 @@ plugins {
 group = "com.biocharsproject"
 version = "1.0-SNAPSHOT"
 
-repositories {
-    mavenCentral()
-    google()
-    // Puedes añadir google() si es necesario para alguna dependencia Android específica, aunque para Kotlin/JS puro no suele serlo.
-}
-
 @OptIn(org.jetbrains.kotlin.gradle.targets.js.dsl.ExperimentalDistributionDsl::class)
 kotlin {
     js(IR) {
