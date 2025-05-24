@@ -1,6 +1,6 @@
 plugins {
     alias(libs.plugins.jetbrains.kotlin.multiplatform)
-    alias(libs.plugins.android.library) // Shared module es una librería Android en este contexto
+    // alias(libs.plugins.android.library) // Shared module es una librería Android en este contexto
     kotlin("plugin.serialization") version "1.9.22"
 }
 
