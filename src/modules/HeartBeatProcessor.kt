@@ -2,6 +2,8 @@ package modules
 
 import kotlin.math.*
 import kotlinx.coroutines.*
+import kotlinx.browser.window
+import org.w3c.dom.Navigator
 
 // NOTA: La reproducción de audio y la vibración son APIs específicas del navegador/plataforma.
 // En Kotlin/JS, se interactuaría con ellas a través de `kotlin.browser.window` o interfaces `external`.
@@ -17,6 +19,7 @@ external class ExternalAudioContext {
     val currentTime: Double
     val destination: Any // Debería ser AudioDestinationNode
     fun close(): Promise<Unit>
+    fun resume(): Promise<Unit>
     // Añadir más métodos según sea necesario (decodeAudioData, etc.)
 }
 
@@ -42,10 +45,11 @@ external class ExternalAudioParam {
     var value: Double
     fun setValueAtTime(value: Double, startTime: Double)
     fun linearRampToValueAtTime(value: Double, endTime: Double)
+    fun exponentialRampToValueAtTime(value: Double, endTime: Double)
 }
 
 // Placeholder para API de Vibración
-external object navigator {
+external interface NavigatorWithVibrate : Navigator {
     fun vibrate(pattern: Array<Int>): Boolean
     fun vibrate(duration: Int): Boolean
 }
@@ -152,7 +156,7 @@ class HeartBeatProcessor : CoroutineScope {
         adaptiveSignalThreshold = DEFAULT_SIGNAL_THRESHOLD
         adaptiveMinConfidence = DEFAULT_MIN_CONFIDENCE
         adaptiveDerivativeThreshold = DEFAULT_DERIVATIVE_THRESHOLD
-        startTime = System.currentTimeMillis()
+        startTime = getCurrentTimeMillis()
         initAudio() // Llamar a la función suspendida desde el constructor es posible pero con cuidado
                    // Se puede lanzar en un scope GlobalScope.launch si no debe bloquear.
                    // O hacer `initialize` una función suspendida separada.
@@ -160,230 +164,271 @@ class HeartBeatProcessor : CoroutineScope {
     }
 
     // `initAudio` era async, ahora suspend. Debe llamarse desde una corutina.
-    private fun initAudio() { // No puede ser suspend si se llama desde constructor no suspendido
-        // Esta inicialización puede fallar o ser bloqueante, idealmente fuera del constructor directo.
-        // O envolver la creación del AudioContext en un try-catch.
+    private fun initAudio() = launch {
         try {
-            // En Kotlin/JS, `new AudioContext()` se haría `js("new (window.AudioContext || window.webkitAudioContext)<y_bin_473>")`
-            // o usando la interfaz externa directamente si está disponible globalmente.
             val context = js("new (window.AudioContext || window.webkitAudioContext)()")
-            if (context != null && context is ExternalAudioContext) {
-                audioContext = context
-                gainNode = audioContext?.createGain()
-                gainNode?.connect(audioContext!!.destination)
-                println("AudioContext initialized.")
-                // playTestSound() // Test sound, el original lo hacía async
+            if (context != null && context.constructor.name == "AudioContext") {
+                audioContext = context.unsafeCast<ExternalAudioContext>()
+                audioContext?.resume() // Importante para navegadores que auto-pausan
+                println("HeartBeatProcessor: Audio Context Initialized and resumed")
+                playTestSound(0.3)
             } else {
-                println("AudioContext not supported or failed to initialize.")
+                 println("HeartBeatProcessor: AudioContext not supported or failed to initialize.")
             }
-        } catch (e: dynamic) { // `dynamic` para atrapar errores de JS
-            println("Error initializing AudioContext: ${e.message}")
+        } catch (e: dynamic) {
+            println("HeartBeatProcessor: Error initializing audio: ${e.message}")
             audioContext = null
         }
     }
     
     // `playTestSound` era async.
     private fun playTestSound(volume: Double = 0.2) = launch {
-        if (audioContext == null || gainNode == null) return@launch
+        val ac = audioContext ?: return@launch
         try {
-            val oscillator = audioContext!!.createOscillator()
+            // println("HeartBeatProcessor: Reproduciendo sonido de prueba")
+            val oscillator = ac.createOscillator()
+            val gain = ac.createGain()
+
             oscillator.type = "sine"
-            oscillator.frequency.setValueAtTime(440.0, audioContext!!.currentTime) // A4 note
-            gainNode!!.gain.setValueAtTime(volume, audioContext!!.currentTime)
-            oscillator.connect(gainNode!!)
-            oscillator.start(audioContext!!.currentTime)
-            oscillator.stop(audioContext!!.currentTime + 0.1) // 100ms duration
-            println("Test sound played.")
+            oscillator.frequency.setValueAtTime(440.0, ac.currentTime) // A4
+            
+            gain.gain.setValueAtTime(0.0, ac.currentTime)
+            gain.gain.linearRampToValueAtTime(volume, ac.currentTime + 0.1)
+            gain.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.5)
+            
+            oscillator.connect(gain)
+            gain.connect(ac.destination)
+            
+            oscillator.start()
+            oscillator.stop(ac.currentTime + 0.6)
+            // println("HeartBeatProcessor: Sonido de prueba reproducido")
         } catch (e: dynamic) {
-            println("Error playing test sound: ${e.message}")
+            println("HeartBeatProcessor: Error playing test sound: ${e.message}")
         }
     }
 
     // `playHeartSound` era async.
     private fun playHeartSound(volume: Double = BEEP_VOLUME, playArrhythmiaTone: Boolean) = launch {
-        if (audioContext == null || gainNode == null) return@launch
-        val currentTime = System.currentTimeMillis()
-        if (currentTime - lastBeepTime < MIN_BEEP_INTERVAL_MS) {
-            return@launch // Evitar beeps demasiado frecuentes
-        }
-        lastBeepTime = currentTime
+        val ac = audioContext ?: return@launch
+        if (isInWarmup()) return@launch
 
-        try {
-            heartSoundOscillator?.disconnect(gainNode!!)
-        } catch (e: dynamic) {}
-
-        heartSoundOscillator = audioContext!!.createOscillator()
-        val osc = heartSoundOscillator!!
-        val audioCtxTime = audioContext!!.currentTime
-
-        if (playArrhythmiaTone) {
-            osc.type = "sawtooth" // Tono diferente para arritmia
-            osc.frequency.setValueAtTime(150.0, audioCtxTime) // Tono más bajo y áspero
-            gainNode!!.gain.setValueAtTime(volume * 0.7, audioCtxTime) // Un poco más bajo
-        } else {
-            osc.type = "sine"
-            osc.frequency.setValueAtTime(300.0, audioCtxTime) // Tono normal del beep
-            gainNode!!.gain.setValueAtTime(volume, audioCtxTime)
+        val now = getCurrentTimeMillis()
+        if (now - lastBeepTime < MIN_BEEP_INTERVAL_MS) {
+            println("HeartBeatProcessor: Ignorando beep - demasiado cerca del anterior: ${now - lastBeepTime}")
+            return@launch
         }
 
-        osc.connect(gainNode!!)
-        osc.start(audioCtxTime)
-        // BEEP_DURATION es en ms, stop() toma segundos
-        osc.stop(audioCtxTime + (BEEP_DURATION / 1000.0))
-
-        // Vibración (requiere permisos y es API de navegador)
         try {
-            if (kotlin.js.js("typeof navigator.vibrate === 'function'") as Boolean) {
-                 if (playArrhythmiaTone) {
-                    navigator.vibrate(arrayOf(100, 50, 100, 50, 200)) // Patrón diferente para arritmia
-                 } else {
-                    navigator.vibrate(VIBRATION_PATTERN) 
-                 }
+            val navigator = window.navigator.unsafeCast<NavigatorWithVibrate?>()
+            navigator?.vibrate(VIBRATION_PATTERN)
+
+            val currentTime = ac.currentTime
+
+            // LUB
+            val oscillator1 = ac.createOscillator()
+            val gainNode1 = ac.createGain()
+            oscillator1.type = "sine"
+            oscillator1.frequency.value = 150.0
+            gainNode1.gain.setValueAtTime(0.0, currentTime)
+            gainNode1.gain.linearRampToValueAtTime(volume * 1.5, currentTime + 0.03)
+            gainNode1.gain.exponentialRampToValueAtTime(0.001, currentTime + 0.15)
+            oscillator1.connect(gainNode1)
+            gainNode1.connect(ac.destination)
+            oscillator1.start(currentTime)
+            oscillator1.stop(currentTime + 0.2)
+
+            // DUB
+            val oscillator2 = ac.createOscillator()
+            val gainNode2 = ac.createGain()
+            val dubStartTime = currentTime + 0.08
+            oscillator2.type = "sine"
+            oscillator2.frequency.value = 120.0
+            gainNode2.gain.setValueAtTime(0.0, dubStartTime)
+            gainNode2.gain.linearRampToValueAtTime(volume * 1.5, dubStartTime + 0.03)
+            gainNode2.gain.exponentialRampToValueAtTime(0.001, dubStartTime + 0.15)
+            oscillator2.connect(gainNode2)
+            gainNode2.connect(ac.destination)
+            oscillator2.start(dubStartTime)
+            oscillator2.stop(dubStartTime + 0.20)
+            
+            if (playArrhythmiaTone) {
+                val oscillator3 = ac.createOscillator()
+                val gainNode3 = ac.createGain()
+                oscillator3.type = "sine"
+                oscillator3.frequency.value = 440.0
+
+                val arrhythmiaSoundStartTime = dubStartTime + 0.05
+                val arrhythmiaAttackDuration = 0.02
+                val arrhythmiaSustainDuration = 0.10
+                val arrhythmiaReleaseDuration = 0.05
+                val arrhythmiaAttackEndTime = arrhythmiaSoundStartTime + arrhythmiaAttackDuration
+                val arrhythmiaSustainEndTime = arrhythmiaAttackEndTime + arrhythmiaSustainDuration
+                val arrhythmiaReleaseEndTime = arrhythmiaSustainEndTime + arrhythmiaReleaseDuration
+
+                gainNode3.gain.setValueAtTime(0.0, arrhythmiaSoundStartTime)
+                gainNode3.gain.linearRampToValueAtTime(volume * 0.65, arrhythmiaAttackEndTime)
+                gainNode3.gain.setValueAtTime(volume * 0.65, arrhythmiaSustainEndTime) // Changed to setValueAtTime for sustain
+                gainNode3.gain.exponentialRampToValueAtTime(0.001, arrhythmiaReleaseEndTime)
+                oscillator3.connect(gainNode3)
+                gainNode3.connect(ac.destination)
+                oscillator3.start(arrhythmiaSoundStartTime)
+                oscillator3.stop(arrhythmiaReleaseEndTime + 0.01)
+                
+                this.isArrhythmiaDetected = false // Reset flag
             }
+            val interval = now - lastBeepTime
+            this.lastBeepTime = now
+            println("HeartBeatProcessor: Latido reproducido. Intervalo: $interval ms, BPM estimado: ${getSmoothBPM().roundToInt()}")
         } catch (e: dynamic) {
-            // println("Vibration not supported or failed: ${e.message}")
+            println("HeartBeatProcessor: Error playing heart sound: ${e.message}")
         }
     }
 
-    fun processSignal(value: Double): HeartBeatResult {
-        val originalValue = value
-        if (isInWarmup()) {
-            values.add(originalValue)
-            if (values.size > DEFAULT_WINDOW_SIZE) values.removeAt(0)
-            return HeartBeatResult(0.0, 0.0, false, originalValue, arrhythmiaCountInternal, 0.0)
+    fun processSignal(valueIn: Double): HeartBeatResult {
+        var value = boostSignal(valueIn)
+        
+        val medVal = medianFilter(value)
+        val movAvgVal = calculateMovingAverage(medVal)
+        val smoothed = calculateEMA(movAvgVal)
+        
+        val filteredValue = smoothed
+
+        signalBuffer.add(smoothed)
+        if (signalBuffer.size > DEFAULT_WINDOW_SIZE) { 
+            signalBuffer.removeAt(0)
         }
 
-        // 1. Pre-procesamiento: Normalización y filtrado básico
-        val boostedSignal = boostSignal(originalValue)
-        val medianFiltered = medianFilter(boostedSignal)
-        val movingAverageFiltered = calculateMovingAverage(medianFiltered)
-        val filteredValue = calculateEMA(movingAverageFiltered)
+        if (signalBuffer.size < 20) {
+            return HeartBeatResult(
+                bpm = 0.0,
+                confidence = 0.0,
+                isPeak = false,
+                filteredValue = filteredValue,
+                arrhythmiaCount = 0,
+                signalQuality = 0.0
+            )
+        }
 
-        values.add(filteredValue)
-        if (values.size > DEFAULT_WINDOW_SIZE) {
+        baseline = baseline * BASELINE_FACTOR + smoothed * (1 - BASELINE_FACTOR)
+        val normalizedValue = smoothed - baseline
+        
+        trackSignalStrength(abs(normalizedValue))
+        autoResetIfSignalIsLow(abs(normalizedValue))
+
+        values.add(smoothed)
+        if (values.size > 3) {
             values.removeAt(0)
         }
-        if (values.size < DEFAULT_WINDOW_SIZE / 2) { // No procesar si no hay suficientes datos
-             return HeartBeatResult(0.0, 0.0, false, filteredValue, arrhythmiaCountInternal, currentSignalQuality)
-        }
 
-        // 2. Actualizar línea base
-        baseline = (values.minOrNull() ?: 0.0) * BASELINE_FACTOR + (values.maxOrNull() ?: 0.0) * (1.0 - BASELINE_FACTOR)
-        val normalizedValue = filteredValue - baseline
+        var smoothDerivative = smoothed - lastValue
+        if (values.size == 3) {
+            smoothDerivative = (values[2] - values[0]) / 2.0
+        }
+        lastValue = smoothed
         
-        // 3. Detección de picos mejorada
-        val derivative = normalizedValue - (signalBuffer.lastOrNull() ?: normalizedValue)
-        signalBuffer.add(normalizedValue)
-        if (signalBuffer.size > 10) signalBuffer.removeAt(0) // Mantener buffer de derivadas corto
+        val peakDetectionResult = enhancedPeakDetection(normalizedValue, smoothDerivative)
+        var isPeak = peakDetectionResult.isPeak
+        val confidence = peakDetectionResult.confidence
+        val rawDerivative = peakDetectionResult.rawDerivative
+        
+        val isConfirmedPeak = confirmPeak(isPeak, normalizedValue, confidence) // Uses this.lastConfirmedPeak
 
-        val peakDetection = enhancedPeakDetection(normalizedValue, derivative)
-        var isPeak = peakDetection.isPeak
-        var confidence = peakDetection.confidence
-
-        // 4. Confirmación y validación de picos
-        isPeak = confirmPeak(isPeak, normalizedValue, confidence)
-        if (isPeak) {
-            isPeak = validatePeak(normalizedValue, confidence)
-        }
-
-        // 5. Ajuste de confianza basado en la fuerza de la señal
-        trackSignalStrength(abs(normalizedValue)) // Usar amplitud normalizada
-        confidence = adjustConfidenceForSignalStrength(confidence)
-
-        // 6. Actualización de BPM y manejo de arritmias
-        if (isPeak) {
-            val currentTime = System.currentTimeMillis()
-            if (lastPeakTime != null && (currentTime - lastPeakTime!! > DEFAULT_MIN_PEAK_TIME_MS)) {
-                previousPeakTime = lastPeakTime
-                lastPeakTime = currentTime
-                updateBPM()
-                
-                // Detección de arritmia (simple: variabilidad del intervalo RR)
-                // La lógica original de arrhythmia no estaba en el outline, esto es un ejemplo
-                if (previousPeakTime != null) {
-                    val rrInterval = lastPeakTime!! - previousPeakTime!!
-                    val expectedInterval = if (smoothBPM > 0) 60000.0 / smoothBPM else DEFAULT_MIN_PEAK_TIME_MS.toDouble()
-                    if (abs(rrInterval - expectedInterval) > expectedInterval * 0.25) { // >25% de variación
-                        if (!isArrhythmiaDetected) {
-                           arrhythmiaCountInternal++
-                           isArrhythmiaDetected = true // Marcar para el tono
-                        }
-                    } else {
-                        isArrhythmiaDetected = false
-                    }
-                }
-                playHeartSound(playArrhythmiaTone = isArrhythmiaDetected)
-
-                // Tuning adaptativo
-                recentPeakAmplitudes.add(abs(normalizedValue))
-                recentPeakConfidences.add(confidence)
-                recentPeakDerivatives.add(abs(derivative))
-                if (recentPeakAmplitudes.size > ADAPTIVE_TUNING_PEAK_WINDOW) recentPeakAmplitudes.removeAt(0)
-                if (recentPeakConfidences.size > ADAPTIVE_TUNING_PEAK_WINDOW) recentPeakConfidences.removeAt(0)
-                if (recentPeakDerivatives.size > ADAPTIVE_TUNING_PEAK_WINDOW) recentPeakDerivatives.removeAt(0)
-                peaksSinceLastTuning++
-                if (peaksSinceLastTuning >= ADAPTIVE_TUNING_PEAK_WINDOW) {
-                    performAdaptiveTuning()
-                    peaksSinceLastTuning = 0
-                }
-            } else if (lastPeakTime == null) { // Primer pico
-                lastPeakTime = currentTime
-            }
-            lastConfirmedPeak = true
-        } else {
-            lastConfirmedPeak = false
-            isArrhythmiaDetected = false // Resetear si no hay pico
-        }
-
-        // 7. Auto-reset si la señal es baja (originalmente deshabilitado)
-        // autoResetIfSignalIsLow(abs(normalizedValue))
-
-        // 8. Calcular calidad de la señal
         currentSignalQuality = calculateSignalQuality(normalizedValue, confidence)
 
-        lastValue = filteredValue
+        if (isConfirmedPeak && !isInWarmup()) {
+            val now = getCurrentTimeMillis()
+            val timeSinceLastPeak = lastPeakTime?.let { now - it } ?: Long.MAX_VALUE
+
+            if (timeSinceLastPeak >= DEFAULT_MIN_PEAK_TIME_MS) {
+                if (validatePeak(normalizedValue, confidence)) { // validatePeak always returns true in TS
+                    previousPeakTime = lastPeakTime
+                    lastPeakTime = now
+                    
+                    playHeartSound(1.0, this.isArrhythmiaDetected)
+                    updateBPM()
+
+                    recentPeakAmplitudes.add(normalizedValue)
+                    recentPeakConfidences.add(confidence)
+                    if (rawDerivative != null) recentPeakDerivatives.add(rawDerivative)
+
+                    if (recentPeakAmplitudes.size > ADAPTIVE_TUNING_PEAK_WINDOW) recentPeakAmplitudes.removeAt(0)
+                    if (recentPeakConfidences.size > ADAPTIVE_TUNING_PEAK_WINDOW) recentPeakConfidences.removeAt(0)
+                    if (recentPeakDerivatives.size > ADAPTIVE_TUNING_PEAK_WINDOW) recentPeakDerivatives.removeAt(0)
+                    
+                    peaksSinceLastTuning++
+                    if (peaksSinceLastTuning >= floor(ADAPTIVE_TUNING_PEAK_WINDOW / 2.0).toInt()) {
+                        performAdaptiveTuning()
+                        peaksSinceLastTuning = 0
+                    }
+                } else {
+                    println("HeartBeatProcessor: Pico rechazado - confianza insuficiente: $confidence")
+                    isPeak = false // Update local isPeak if rejected
+                }
+            } else {
+                 isPeak = false // Not a peak if too soon
+            }
+        } else if (isConfirmedPeak && isInWarmup()){ // if confirmed but in warmup, it's not a "final" peak
+            isPeak = false
+        }
+        
         return HeartBeatResult(
-            bpm = getSmoothBPM(),
-            confidence = confidence,
+            bpm = getSmoothBPM().roundToInt().toDouble(),
+            confidence = if (isPeak) 0.95 else adjustConfidenceForSignalStrength(0.6),
             isPeak = isPeak,
             filteredValue = filteredValue,
-            arrhythmiaCount = arrhythmiaCountInternal,
+            arrhythmiaCount = 0, // TS version also returns 0, seems this is handled externally
             signalQuality = currentSignalQuality
         )
     }
 
     private fun boostSignal(value: Double): Double {
-        // Amplificar la señal si es débil, con cuidado de no sobresaturar
-        // Esta es una implementación de ejemplo, la original podría ser diferente.
-        val signalRange = (values.maxOrNull() ?: value) - (values.minOrNull() ?: value)
-        return if (signalRange > 0 && signalRange < 0.1) { // Si el rango dinámico es muy bajo
-            value * SIGNAL_BOOST_FACTOR
-        } else {
-            value
+        if (signalBuffer.size < 10) return value * SIGNAL_BOOST_FACTOR
+        
+        val recentSignals = signalBuffer.takeLast(10)
+        val avgSignal = recentSignals.average()
+        val maxSignal = recentSignals.maxOrNull() ?: avgSignal
+        val minSignal = recentSignals.minOrNull() ?: avgSignal
+        val range = maxSignal - minSignal
+        
+        var boostFactor = SIGNAL_BOOST_FACTOR
+        
+        if (range < 1.0) {
+            boostFactor = SIGNAL_BOOST_FACTOR * 1.8
+        } else if (range < 3.0) {
+            boostFactor = SIGNAL_BOOST_FACTOR * 1.4
+        } else if (range > 10.0) {
+            boostFactor = 1.0
         }
+        
+        val centered = value - avgSignal
+        val boosted = avgSignal + (centered * boostFactor)
+        
+        return boosted
     }
 
     private fun trackSignalStrength(amplitude: Double) {
         lastSignalStrength = amplitude
         recentSignalStrengths.add(amplitude)
+        
         if (recentSignalStrengths.size > SIGNAL_STRENGTH_HISTORY) {
             recentSignalStrengths.removeAt(0)
         }
     }
 
     private fun adjustConfidenceForSignalStrength(confidence: Double): Double {
-        val avgStrength = if (recentSignalStrengths.isNotEmpty()) recentSignalStrengths.average() else 0.0
-        // Si la señal es consistentemente débil, reducir la confianza.
-        // Si es fuerte, podría aumentarse ligeramente, o no tocarla.
-        return when {
-            avgStrength < (adaptiveSignalThreshold * 0.5) -> confidence * 0.7 // Señal muy débil
-            avgStrength < adaptiveSignalThreshold -> confidence * 0.85 // Señal débil
-            else -> confidence // Señal adecuada o fuerte
+        if (recentSignalStrengths.size < 5) return confidence
+        
+        val avgStrength = recentSignalStrengths.average()
+        
+        return if (avgStrength < 0.1) {
+            min(1.0, confidence * 0.8)
+        } else {
+            min(1.0, confidence)
         }
     }
 
     private fun isInWarmup(): Boolean {
-        return System.currentTimeMillis() - startTime < WARMUP_TIME_MS
+        return getCurrentTimeMillis() - startTime < WARMUP_TIME_MS
     }
 
     private fun medianFilter(value: Double): Double {
@@ -391,11 +436,8 @@ class HeartBeatProcessor : CoroutineScope {
         if (medianBuffer.size > MEDIAN_FILTER_WINDOW) {
             medianBuffer.removeAt(0)
         }
-        if (medianBuffer.size < MEDIAN_FILTER_WINDOW) {
-            return value
-        }
-        val sortedWindow = medianBuffer.sorted()
-        return sortedWindow[MEDIAN_FILTER_WINDOW / 2]
+        val sorted = medianBuffer.sorted()
+        return sorted[sorted.size / 2]
     }
 
     private fun calculateMovingAverage(value: Double): Double {
@@ -403,284 +445,289 @@ class HeartBeatProcessor : CoroutineScope {
         if (movingAverageBuffer.size > MOVING_AVERAGE_WINDOW) {
             movingAverageBuffer.removeAt(0)
         }
-        if (movingAverageBuffer.isEmpty()) return value
         return movingAverageBuffer.average()
     }
 
     private fun calculateEMA(value: Double): Double {
-        smoothedValue = if (smoothedValue == 0.0 && values.isNotEmpty()) values.average() else smoothedValue // Inicializar si es el primer valor
         smoothedValue = EMA_ALPHA * value + (1 - EMA_ALPHA) * smoothedValue
         return smoothedValue
     }
 
     fun setArrhythmiaDetected(isDetected: Boolean) {
-        // Esta función parece ser para una anulación externa, pero la lógica interna ya maneja isArrhythmiaDetected
-        // this.isArrhythmiaDetected = isDetected 
-        // Si se quiere que el contador se afecte desde fuera:
-        // if(isDetected && !this.isArrhythmiaDetected) arrhythmiaCountInternal++
-        // this.isArrhythmiaDetected = isDetected
-        println("Arrhythmia externally set to: $isDetected (internal count: $arrhythmiaCountInternal)")
+        this.isArrhythmiaDetected = isDetected
+        println("HeartBeatProcessor: Estado de arritmia establecido a $isDetected")
     }
 
     private fun autoResetIfSignalIsLow(amplitude: Double) {
-        if (LOW_SIGNAL_THRESHOLD > 0) { // Solo si está habilitado
-            if (amplitude < LOW_SIGNAL_THRESHOLD) {
-                lowSignalCount++
-                if (lowSignalCount >= LOW_SIGNAL_FRAMES) {
-                    println("Low signal detected for $LOW_SIGNAL_FRAMES frames. Resetting detection states.")
-                    resetDetectionStates()
-                    lowSignalCount = 0
-                }
-            } else {
-                lowSignalCount = 0
+        if (amplitude < LOW_SIGNAL_THRESHOLD) {
+            lowSignalCount++
+            if (lowSignalCount >= LOW_SIGNAL_FRAMES) {
+                resetDetectionStates()
+                adaptiveSignalThreshold = DEFAULT_SIGNAL_THRESHOLD
+                adaptiveMinConfidence = DEFAULT_MIN_CONFIDENCE
+                adaptiveDerivativeThreshold = DEFAULT_DERIVATIVE_THRESHOLD
+                isArrhythmiaDetected = false
+                println("HeartBeatProcessor: auto-reset adaptative parameters and arrhythmia flag (low signal).")
             }
+        } else {
+            lowSignalCount = max(0, lowSignalCount - 1)
         }
     }
 
     private fun resetDetectionStates() {
-        lastPeakTime = null
-        previousPeakTime = null
-        bpmHistory.clear()
-        values.clear() // Limpiar la ventana de valores también
-        signalBuffer.clear()
-        peakConfirmationBuffer.clear()
-        isArrhythmiaDetected = false
-        // arrhythmiaCountInternal no se resetea aquí, es un contador acumulativo
-        // smoothBPM = 0.0 // Opcional, podría resetearse o dejarse que se reajuste
-        println("HeartBeatProcessor detection states reset.")
+        lastConfirmedPeak = false
+        peakConfirmationBuffer.clear() // TS clears this
+        println("HeartBeatProcessor: auto-reset detection states (low signal).")
     }
 
+    // Based on enhancedPeakDetection in TS
     private fun enhancedPeakDetection(normalizedValue: Double, derivative: Double): 
-        Pair<Boolean, Double> { // Pair<isPeak, confidence>
-        
-        var isPeakCandidate = false
-        var currentConfidence = 0.0
+        Triple<Boolean, Double, Double?> { // isPeak, confidence, rawDerivative
+        val now = getCurrentTimeMillis()
+        val timeSinceLastPeak = lastPeakTime?.let { now - it } ?: Long.MAX_VALUE
 
-        // Lógica de detección de picos del original (el outline no la detalla)
-        // Esta es una implementación de ejemplo:
-        // Pico si el valor es mayor que el umbral adaptativo y la derivada cambia de positiva a negativa
-        // O si la derivada es fuertemente negativa (pasando por un pico)
+        if (timeSinceLastPeak < DEFAULT_MIN_PEAK_TIME_MS) {
+            return Triple(false, 0.0, derivative)
+        }
+        // TS logic: peak on local maximum implies derivative < 0 (changing from positive to negative)
+        // The original TS code checked `derivative < 0`. This might be too simplistic or might relate
+        // to how `derivative` is calculated (e.g. if it's smoothed derivative after the peak).
+        // Let's stick to the TS logic: `derivative < 0` for `isOverThreshold`.
+        val isOverThreshold = derivative < 0 
+        val confidence = 1.0 // TS sets confidence to 1 here
 
-        val prevDerivative = if (signalBuffer.size >= 2) signalBuffer[signalBuffer.size - 2] - (signalBuffer.getOrNull(signalBuffer.size - 3) ?: signalBuffer[signalBuffer.size-2]) else 0.0
-        
-        if (normalizedValue > adaptiveSignalThreshold && derivative < adaptiveDerivativeThreshold ) {
-             // Podría ser un pico si la derivada es suficientemente negativa
-             if (abs(derivative) > abs(adaptiveDerivativeThreshold) * 1.5) { // Más estricto
-                 isPeakCandidate = true
-                 currentConfidence = (abs(derivative) / (abs(adaptiveDerivativeThreshold) * 2)).coerceIn(0.1, 1.0)
-             }
-        }
-        // Otra condición: si el valor es un máximo local y supera el umbral
-        if (signalBuffer.size >=3 && 
-            signalBuffer[signalBuffer.size-2] > signalBuffer.last() && 
-            signalBuffer[signalBuffer.size-2] > signalBuffer[signalBuffer.size-3] &&
-            signalBuffer[signalBuffer.size-2] > adaptiveSignalThreshold) {
-            isPeakCandidate = true
-            currentConfidence = ((signalBuffer[signalBuffer.size-2] - adaptiveSignalThreshold) / adaptiveSignalThreshold).coerceIn(0.1,1.0)
-        }
-
-        // Aplicar sensibilidad
-        if (isPeakCandidate) {
-            currentConfidence *= PEAK_DETECTION_SENSITIVITY
-        }
-        
-        return Pair(isPeakCandidate && currentConfidence > adaptiveMinConfidence, currentConfidence.coerceIn(0.0,1.0))
+        return Triple(isOverThreshold, confidence, derivative)
     }
-
-    private fun confirmPeak(isPeak: Boolean, normalizedValue: Double, confidence: Double): Boolean {
-        if (!isPeak) return false
-
-        peakConfirmationBuffer.add(normalizedValue)
-        if (peakConfirmationBuffer.size > 5) peakConfirmationBuffer.removeAt(0)
-
-        // Lógica de confirmación: el pico debe ser significativamente mayor que los valores recientes en el buffer.
-        // El original no detalla esto. Ejemplo:
-        val avgRecent = peakConfirmationBuffer.take(peakConfirmationBuffer.size -1).averageOrNull() ?: (normalizedValue * 0.8)
-        if (normalizedValue > avgRecent * 1.1 && confidence > (adaptiveMinConfidence * 1.1)) {
+    
+    // Based on confirmPeak in TS
+    private fun confirmPeak(
+        isPeak: Boolean,
+        normalizedValue: Double, // normalizedValue is in TS, but not used in its logic
+        confidence: Double // confidence is in TS, but not used in its logic
+    ): Boolean {
+        // TS peakConfirmationBuffer logic is not used for actual confirmation
+        // this.peakConfirmationBuffer.add(normalizedValue);
+        // if (this.peakConfirmationBuffer.size > 5) {
+        //   this.peakConfirmationBuffer.removeAt(0);
+        // }
+        
+        // Simplified confirmation from TS:
+        if (isPeak && !this.lastConfirmedPeak) {
+            this.lastConfirmedPeak = true
             return true
+        } else if (!isPeak) {
+            this.lastConfirmedPeak = false
         }
         return false
     }
 
+    // Based on validatePeak in TS
     private fun validatePeak(peakValue: Double, confidence: Double): Boolean {
-        // Validación adicional del pico.
-        // El original no detalla. Ejemplo: usar PEAK_VALIDATION_THRESHOLD
-        if (confidence < PEAK_VALIDATION_THRESHOLD) return false // Confianza mínima
-        
-        peakValidationBuffer.add(peakValue)
-        if (peakValidationBuffer.size > 10) peakValidationBuffer.removeAt(0)
-
-        // Un pico no debe ser demasiado pequeño en comparación con el promedio de picos recientes.
-        if (peakValidationBuffer.size > 5) {
-            val avgPeak = peakValidationBuffer.filter { it > adaptiveSignalThreshold }.averageOrNull() // Promedio de picos válidos
-            if (avgPeak != null && peakValue < avgPeak * 0.5) {
-                return false // El pico es demasiado débil en comparación con otros
-            }
-        }
+        // TS validation is simplified to always return true.
         return true
     }
 
     private fun updateBPM() {
-        if (lastPeakTime != null && previousPeakTime != null) {
-            val interval = lastPeakTime!! - previousPeakTime!!
-            if (interval > 0) {
-                val currentBpm = 60000.0 / interval
-                if (currentBpm >= DEFAULT_MIN_BPM && currentBpm <= DEFAULT_MAX_BPM) {
-                    bpmHistory.add(currentBpm)
-                    if (bpmHistory.size > 10) { // Mantener historial para suavizado
-                        bpmHistory.removeAt(0)
-                    }
-                }
+        val lpt = lastPeakTime ?: return
+        val ppt = previousPeakTime ?: return
+        val interval = lpt - ppt
+        if (interval <= 0) return
+
+        val instantBPM = 60000.0 / interval
+        if (instantBPM >= DEFAULT_MIN_BPM && instantBPM <= DEFAULT_MAX_BPM) { 
+            bpmHistory.add(instantBPM)
+            if (bpmHistory.size > 12) { 
+                bpmHistory.removeAt(0)
             }
         }
-        smoothBPM = getSmoothBPM()
     }
 
     private fun getSmoothBPM(): Double {
-        if (bpmHistory.isEmpty()) return 0.0
-        // EMA para BPM
-        var emaBpm = if (smoothBPM == 0.0 && bpmHistory.isNotEmpty()) bpmHistory.average() else smoothBPM
-        emaBpm = BPM_ALPHA * bpmHistory.last() + (1 - BPM_ALPHA) * emaBpm
-        // Alternativa: promedio simple de los últimos N BPMs
-        // return bpmHistory.takeLast(5).average().roundToInt()
-        return emaBpm
+        val rawBPM = calculateCurrentBPM()
+        if (smoothBPM == 0.0 && rawBPM > 0) { 
+            smoothBPM = rawBPM
+        } else if (rawBPM > 0) { 
+            smoothBPM = BPM_ALPHA * rawBPM + (1 - BPM_ALPHA) * smoothBPM
+        } else if (bpmHistory.isEmpty()) { 
+            smoothBPM = 0.0
+        }
+        return smoothBPM
     }
 
-    private fun calculateCurrentBPM(): Double { // No se usa directamente en la lógica principal, pero es una utilidad
-        if (lastPeakTime == null || previousPeakTime == null) return 0.0
-        val interval = lastPeakTime!! - previousPeakTime!!
-        return if (interval > 0) (60000.0 / interval) else 0.0
+    private fun calculateCurrentBPM(): Double {
+        if (bpmHistory.size < 2) {
+            return 0.0
+        }
+        val sortedBPM = bpmHistory.sorted()
+        val mid = sortedBPM.size / 2
+        return if (sortedBPM.size % 2 == 0) {
+            (sortedBPM[mid - 1] + sortedBPM[mid]) / 2.0
+        } else {
+            sortedBPM[mid]
+        }
     }
 
     fun getFinalBPM(): Double { 
-        val finalBpm = getSmoothBPM()
-        // El original tenía una lógica más compleja aquí, no visible en el outline.
-        // Si el BPM es muy bajo o inconsistente, devolver 0 o un valor indicativo.
-        if (finalBpm < DEFAULT_MIN_BPM / 2.0 || confidence < (adaptiveMinConfidence * 0.8) ) {
-             // Si la confianza es baja o el BPM es irrealmente bajo después del suavizado
-            // return 0.0 // Podría ser demasiado agresivo
+        if (bpmHistory.size < 5) {
+            return getSmoothBPM().roundToInt().toDouble()
         }
-        return if (bpmHistory.size < 3 && finalBpm < DEFAULT_MIN_BPM) 0.0 else finalBpm // Requiere algunos picos para un BPM estable
+        val sorted = bpmHistory.sorted()
+        val cut = floor(sorted.size * 0.2).toInt()
+        val finalSet = sorted.subList(cut, sorted.size - cut)
+        
+        if (finalSet.isEmpty()) {
+            return getSmoothBPM().roundToInt().toDouble()
+        }
+        return finalSet.average().roundToInt().toDouble()
     }
 
     fun reset() {
+        signalBuffer.clear()
+        medianBuffer.clear()
+        movingAverageBuffer.clear()
+        peakConfirmationBuffer.clear()
+        bpmHistory.clear()
+        values.clear()
+        smoothBPM = 0.0
+        lastPeakTime = null
+        previousPeakTime = null
+        lastConfirmedPeak = false
+        lastBeepTime = 0L
+        baseline = 0.0
+        lastValue = 0.0
+        smoothedValue = 0.0
+        startTime = getCurrentTimeMillis()
+        lowSignalCount = 0
+
         adaptiveSignalThreshold = DEFAULT_SIGNAL_THRESHOLD
         adaptiveMinConfidence = DEFAULT_MIN_CONFIDENCE
         adaptiveDerivativeThreshold = DEFAULT_DERIVATIVE_THRESHOLD
-        
         recentPeakAmplitudes.clear()
         recentPeakConfidences.clear()
         recentPeakDerivatives.clear()
         peaksSinceLastTuning = 0
-
-        signalBuffer.clear()
-        medianBuffer.clear()
-        movingAverageBuffer.clear()
-        smoothedValue = 0.0
         
-        // No resetear audioContext aquí, podría ser compartido o persistente.
-        // heartSoundOscillator?.stop() // Detener si está sonando
-        // heartSoundOscillator = null
-        lastBeepTime = 0L
-        
-        resetDetectionStates()
-        arrhythmiaCountInternal = 0 // Resetear contador de arritmias
-        
-        baseline = 0.0
-        lastValue = 0.0
-        startTime = System.currentTimeMillis() // Reiniciar tiempo de inicio para el warmup
-        
+        isArrhythmiaDetected = false
         peakValidationBuffer.clear()
-        lastSignalStrength = 0.0
-        recentSignalStrengths.clear()
-        currentSignalQuality = 0.0
-        smoothBPM = 0.0
-        bpmHistory.clear()
-
-        println("HeartBeatProcessor reset.")
+        currentSignalQuality = 0.0 // Reset signal quality
+        println("HeartBeatProcessor: Full reset including adaptive parameters and arrhythmia flag.")
     }
 
-    fun getRRIntervals(): Pair<List<Long>, Long?> { // intervals, lastPeakTime
-        // Esta función no estaba completamente definida en el original. 
-        // Necesitaríamos almacenar los tiempos de los picos para calcular los intervalos RR.
-        // Por ahora, devolvemos una lista vacía y el último tiempo de pico.
-        // Para una implementación real, se necesitaría un buffer de tiempos de picos.
-        // Ejemplo simplificado (asumiendo que bpmHistory guarda tiempos o se puede derivar)
-        val intervals = mutableListOf<Long>()
-        if (bpmHistory.size >=2 ) {
-            for(i in 0 until bpmHistory.size -1) {
-                if(bpmHistory[i+1] > 0 && bpmHistory[i] > 0) {
-                    // Esto no es correcto, bpmHistory tiene BPMs, no tiempos. 
-                    // Se necesitaría un `peakTimesHistory: MutableList<Long>`
-                }
-            }
-        }
-        return Pair(intervals, lastPeakTime)
+    fun getRRIntervals(): Pair<List<Double>, Long?> {
+        val rrIntervals = bpmHistory.map { bpm -> 60000.0 / bpm }
+        return Pair(rrIntervals, lastPeakTime)
     }
-
+  
     private fun performAdaptiveTuning() {
-        if (recentPeakAmplitudes.isEmpty() || recentPeakConfidences.isEmpty() || recentPeakDerivatives.isEmpty()) {
+        if (isInWarmup() || recentPeakAmplitudes.size < 4) {
             return
         }
 
-        val avgAmplitude = recentPeakAmplitudes.average()
-        val avgConfidence = recentPeakConfidences.average()
-        // val avgDerivative = recentPeakDerivatives.average() // No usado directamente en la lógica de ajuste de umbrales del original (según el outline)
+        if (recentPeakAmplitudes.isNotEmpty()) {
+            val avgAmplitude = recentPeakAmplitudes.average()
+            var targetSignalThreshold = avgAmplitude * 0.45
+            val learningRate = ADAPTIVE_TUNING_LEARNING_RATE
+            
+            adaptiveSignalThreshold = adaptiveSignalThreshold * (1 - learningRate) + targetSignalThreshold * learningRate
+            adaptiveSignalThreshold = adaptiveSignalThreshold.coerceIn(MIN_ADAPTIVE_SIGNAL_THRESHOLD, MAX_ADAPTIVE_SIGNAL_THRESHOLD)
+        }
 
-        // Ajustar adaptiveSignalThreshold
-        // Si la amplitud promedio es consistentemente más alta o más baja que el umbral actual,
-        // ajustar el umbral hacia esa amplitud promedio.
-        val targetSignalThreshold = avgAmplitude * 0.6 // Ejemplo: 60% de la amplitud promedio de los picos
-        adaptiveSignalThreshold = (1 - ADAPTIVE_TUNING_LEARNING_RATE) * adaptiveSignalThreshold +
-                                  ADAPTIVE_TUNING_LEARNING_RATE * targetSignalThreshold
-        adaptiveSignalThreshold = adaptiveSignalThreshold.coerceIn(MIN_ADAPTIVE_SIGNAL_THRESHOLD, MAX_ADAPTIVE_SIGNAL_THRESHOLD)
+        if (recentPeakConfidences.isNotEmpty()) {
+            val avgConfidence = recentPeakConfidences.average()
+            var targetMinConfidence = adaptiveMinConfidence 
 
-        // Ajustar adaptiveMinConfidence
-        // Si la confianza promedio de los picos detectados es consistentemente alta,
-        // podríamos ser un poco más estrictos (aumentar el umbral de confianza).
-        // Si es baja, relajarlo un poco.
-        // Esta lógica es una suposición, el original podría ser diferente.
-        val targetMinConfidence = avgConfidence * 0.9 // Apuntar a un 90% de la confianza promedio observada
-        adaptiveMinConfidence = (1 - ADAPTIVE_TUNING_LEARNING_RATE) * adaptiveMinConfidence +
-                                ADAPTIVE_TUNING_LEARNING_RATE * targetMinConfidence
-        adaptiveMinConfidence = adaptiveMinConfidence.coerceIn(MIN_ADAPTIVE_MIN_CONFIDENCE, MAX_ADAPTIVE_MIN_CONFIDENCE)
+            if (avgConfidence < 0.5) {
+                targetMinConfidence = adaptiveMinConfidence - 0.08
+            } else if (avgConfidence > 0.80 && recentSignalStrengths.size > 5) {
+                val avgStrength = recentSignalStrengths.average()
+                if (avgStrength > 0.25) {
+                    targetMinConfidence = adaptiveMinConfidence + 0.01
+                }
+            }
+            
+            adaptiveMinConfidence = adaptiveMinConfidence * (1 - ADAPTIVE_TUNING_LEARNING_RATE) + targetMinConfidence * ADAPTIVE_TUNING_LEARNING_RATE
+            adaptiveMinConfidence = adaptiveMinConfidence.coerceIn(MIN_ADAPTIVE_MIN_CONFIDENCE, MAX_ADAPTIVE_MIN_CONFIDENCE)
+        }
         
-        // Ajustar adaptiveDerivativeThreshold
-        // El original no muestra cómo se ajusta este umbral. Usaremos una lógica similar:
-        // si las derivadas promedio de los picos son consistentemente de cierta magnitud.
-        // Tomamos el promedio de las magnitudes de las derivadas de los picos.
-        val avgPeakDerivativeMag = recentPeakDerivatives.filter { it != 0.0 }.map{ abs(it) }.averageOrNull() ?: abs(DEFAULT_DERIVATIVE_THRESHOLD)
-        val targetDerivativeThreshold = -avgPeakDerivativeMag * 0.7 // Ejemplo: 70% de la magnitud promedio, negativo
-        adaptiveDerivativeThreshold = (1 - ADAPTIVE_TUNING_LEARNING_RATE) * adaptiveDerivativeThreshold +
-                                     ADAPTIVE_TUNING_LEARNING_RATE * targetDerivativeThreshold
-        adaptiveDerivativeThreshold = adaptiveDerivativeThreshold.coerceIn(MIN_ADAPTIVE_DERIVATIVE_THRESHOLD, MAX_ADAPTIVE_DERIVATIVE_THRESHOLD)
-        
-        // println("Adaptive tuning: ST=%.3f, MC=%.2f, DT=%.4f".format(adaptiveSignalThreshold, adaptiveMinConfidence, adaptiveDerivativeThreshold))
+        if (recentPeakDerivatives.isNotEmpty()) {
+            val avgDerivative = recentPeakDerivatives.average()
+            var targetDerivativeThreshold = avgDerivative * 0.25
 
-        recentPeakAmplitudes.clear()
-        recentPeakConfidences.clear()
-        recentPeakDerivatives.clear()
+            adaptiveDerivativeThreshold = adaptiveDerivativeThreshold * (1 - ADAPTIVE_TUNING_LEARNING_RATE) + targetDerivativeThreshold * ADAPTIVE_TUNING_LEARNING_RATE
+            adaptiveDerivativeThreshold = adaptiveDerivativeThreshold.coerceIn(MIN_ADAPTIVE_DERIVATIVE_THRESHOLD, MAX_ADAPTIVE_DERIVATIVE_THRESHOLD)
+        }
+        
+        val avgSignalStrengthStr = if (recentSignalStrengths.isNotEmpty()) {
+            recentSignalStrengths.average().toString().take(5)
+        } else "N/A"
+
+        println("HeartBeatProcessor: Adaptive tuning updated, signalThreshold: ${adaptiveSignalThreshold.toString().take(5)}, minConfidence: ${adaptiveMinConfidence.toString().take(5)}, derivativeThreshold: ${adaptiveDerivativeThreshold.toString().take(5)}, avgSignalStrength: $avgSignalStrengthStr, currentSignalQuality: $currentSignalQuality")
     }
-
+  
     fun getSignalQuality(): Double {
         return currentSignalQuality
     }
 
     private fun calculateSignalQuality(normalizedValue: Double, confidence: Double): Double {
-        // Lógica de ejemplo para la calidad de la señal, el original podría ser más complejo.
-        // Combina la fuerza de la señal (amplitud normalizada) y la confianza de detección de picos.
-        val strengthScore = (abs(normalizedValue) / (adaptiveSignalThreshold * 2.0)).coerceIn(0.0, 1.0) // Normalizar amplitud respecto al umbral
-        val confidenceScore = confidence.coerceIn(0.0, 1.0)
-        
-        // Ponderar más la confianza si hay un pico detectado.
-        val quality = if (lastConfirmedPeak) {
-            (strengthScore * 0.4 + confidenceScore * 0.6)
-        } else {
-            (strengthScore * 0.6 + confidenceScore * 0.4) // Si no hay pico, la amplitud podría ser más relevante
+        if (signalBuffer.size < 10) {
+            currentSignalQuality = min(currentSignalQuality + 5, 30.0) // Incremento gradual
+            return currentSignalQuality
         }
-        return quality.coerceIn(0.0, 1.0)
+        
+        val recentSignals = signalBuffer.takeLast(20)
+        val avgSignal = recentSignals.average()
+        val maxSignal = recentSignals.maxOrNull() ?: 0.0
+        val minSignal = recentSignals.minOrNull() ?: 0.0
+        val range = maxSignal - minSignal
+        
+        var amplitudeQuality = 0.0
+        var stabilityQuality = 0.0
+        var rhythmQuality = 0.0
+        
+        amplitudeQuality = min(abs(normalizedValue) * 100, 40.0)
+        
+        if (range > 0.01 && abs(avgSignal) > 1e-6) { // Avoid division by zero or near-zero
+            val variability = range / abs(avgSignal) // Use abs(avgSignal)
+            stabilityQuality = when {
+                variability < 0.5 -> 30.0
+                variability < 1.0 -> 20.0
+                variability < 2.0 -> 10.0
+                else -> 5.0
+            }
+        } else if (range <= 0.01) { // Very stable or flat signal
+             stabilityQuality = 5.0 // Low quality if flat, potentially higher if stable oscillation
+        }
+
+        if (bpmHistory.size >= 3) {
+            val recentBPMs = bpmHistory.takeLast(3)
+            val bpmVariance = (recentBPMs.maxOrNull() ?: 0.0) - (recentBPMs.minOrNull() ?: 0.0)
+            
+            rhythmQuality = when {
+                bpmVariance < 5 -> 30.0
+                bpmVariance < 10 -> 20.0
+                bpmVariance < 15 -> 10.0
+                else -> 5.0
+            }
+        }
+        
+        var totalQuality = amplitudeQuality + stabilityQuality + rhythmQuality
+        
+        if (confidence < 0.6 && confidence > 1e-6) { // Avoid division by zero
+            totalQuality *= (confidence / 0.6)
+        } else if (confidence <= 1e-6) {
+            totalQuality *= 0.1 // Heavily penalize near-zero confidence
+        }
+        
+        // Suavizado EMA para la calidad
+        currentSignalQuality = currentSignalQuality * 0.7 + totalQuality * 0.3
+        
+        return currentSignalQuality.coerceIn(0.0, 100.0).roundToInt().toDouble()
     }
-    
+
+    private fun getCurrentTimeMillis(): Long {
+        return kotlinx.datetime.Clock.System.now().toEpochMilliseconds()
+    }
+
     fun cancelScope() {
         job.cancel()
         audioContext?.close()?.catch { e -> println("Error closing AudioContext: ${e.message}") }

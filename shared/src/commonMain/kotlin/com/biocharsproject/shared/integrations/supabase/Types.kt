@@ -4,7 +4,6 @@ import kotlinx.serialization.Serializable
 
 @Serializable
 sealed interface JsonElement {
-    // ... (contenido existente de JsonElement sin cambios)
     @Serializable
     data class JsonString(val value: String) : JsonElement
     @Serializable
@@ -158,4 +157,4 @@ object Database {
         }
         object CompositeTypes { /* ... */ }
     }
-}
+} 

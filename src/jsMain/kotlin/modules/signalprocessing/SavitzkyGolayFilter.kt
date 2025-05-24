@@ -1,50 +1,68 @@
 package modules.signalprocessing
 
+import kotlin.IllegalArgumentException
+
 // Based on src/modules/signal-processing/SavitzkyGolayFilter.ts
-class SavitzkyGolayFilter(windowSize: Int = 9) {
+class SavitzkyGolayFilter(windowSizeInput: Int = 9) {
     private val coefficients: List<Double>
     private val normFactor: Double
-    private var buffer: MutableList<Double> = mutableListOf()
+    private var buffer: MutableList<Double>
     private val windowSize: Int
 
     init {
-        if (windowSize % 2 == 0 || windowSize < 3) {
-            throw IllegalArgumentException("Window size must be an odd number >= 3")
+        this.windowSize = windowSizeInput
+        // Coefficients and normFactor from the original TypeScript version for windowSize = 9
+        if (windowSize == 9) {
+            coefficients = listOf(0.035, 0.105, 0.175, 0.245, 0.285, 0.245, 0.175, 0.105, 0.035)
+            normFactor = 1.405
+        } else if (windowSize == 7) { // From previous Kotlin version, kept as an option
+            coefficients = listOf(-2.0, 3.0, 6.0, 7.0, 6.0, 3.0, -2.0)
+            normFactor = coefficients.sum()
+        } else if (windowSize == 5) { // From previous Kotlin version, kept as an option
+            coefficients = listOf(-3.0, 12.0, 17.0, 12.0, -3.0)
+            normFactor = coefficients.sum()
+        } else {
+             if (windowSize % 2 == 0 || windowSize < 3) {
+                throw IllegalArgumentException("Window size must be an odd number >= 3 for generic SG or provide specific coefficients.")
+            }
+            // Fallback or throw error for other window sizes if coefficients are not defined
+            // For this example, let's stick to defined ones or throw.
+            throw IllegalArgumentException("Unsupported SG window size: $windowSize. Provide coefficients or use 5, 7, or 9.")
         }
-        this.windowSize = windowSize
-        // Placeholder coefficients for a common SG filter (e.g., size 9, quadratic/cubic)
-        // Real applications might need to generate these based on windowSize and polynomial order
-        // These are for smoothing, not for derivatives.
-        // Example for windowSize = 5: [-3, 12, 17, 12, -3] / 35
-        // Example for windowSize = 9 (more smoothing, taken from a reference):
-        coefficients = when (windowSize) {
-            5 -> listOf(-3.0, 12.0, 17.0, 12.0, -3.0)
-            7 -> listOf(-2.0, 3.0, 6.0, 7.0, 6.0, 3.0, -2.0)
-            9 -> listOf(-21.0, 14.0, 39.0, 54.0, 59.0, 54.0, 39.0, 14.0, -21.0) // Sum = 231
-            // Add more cases or a generator if needed
-            else -> throw IllegalArgumentException("Unsupported SG window size: $windowSize. Provide coefficients manually or add case.")
-        }
-        normFactor = coefficients.sum()
+
+        // Initialize buffer with zeros, as in the TS version
+        buffer = MutableList(this.windowSize) { 0.0 }
     }
 
     fun filter(value: Double): Double {
-        buffer.add(value)
-        if (buffer.size > windowSize) {
-            buffer.removeAt(0)
-        }
+        // Update buffer (circularly)
+        buffer.removeAt(0) // Remove oldest
+        buffer.add(value)    // Add newest
 
-        if (buffer.size < windowSize) {
-            return value // Not enough data to filter, return raw value or an average of buffer
-        }
+        // The buffer should always be full due to initialization with zeros
+        // and maintained size. The check 'buffer.size < windowSize' might not be strictly needed
+        // if we ensure it's always full after init.
+        // However, the TS version implies that if buffer is not full (which shouldn't happen with prefill),
+        // it would return the value. But TS pre-fills, so it's always full.
 
         var filteredValue = 0.0
+        // Ensure buffer and coefficients are accessed correctly if sizes could mismatch
+        // (though here they are tied to windowSize)
         for (i in coefficients.indices) {
-            filteredValue += coefficients[i] * buffer[i]
+            // Check if buffer has enough elements, though it should
+            if (i < buffer.size) { 
+                filteredValue += coefficients[i] * buffer[i]
+            }
         }
-        return filteredValue / normFactor
+        
+        // The TS version divides by normFactor, which is the sum of its specific coefficients.
+        // If normFactor is 1 (already normalized coefficients), this division isn't needed.
+        // The original TS coefficients sum to 1.405, and it divides by 1.405.
+        return if (normFactor != 0.0) filteredValue / normFactor else filteredValue
     }
 
     fun reset() {
-        buffer.clear()
+        // Fill buffer with zeros, as in the TS version
+        buffer = MutableList(windowSize) { 0.0 }
     }
 } 

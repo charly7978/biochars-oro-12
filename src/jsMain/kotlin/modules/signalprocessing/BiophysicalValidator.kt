@@ -6,22 +6,43 @@ import kotlin.math.min
 
 // Based on src/modules/signal-processing/BiophysicalValidator.ts
 class BiophysicalValidator {
+    // Properties from TS version, even if not all used by the simplified public methods
     private var lastPulsatilityValues: MutableList<Double> = mutableListOf()
-    private val MAX_PULSATILITY_HISTORY = 30
-    private val MIN_PULSATILITY = 0.08 
-    private val MAX_PULSATILITY = 8.0
-    // private var lastRawValues: MutableList<Double> = mutableListOf() // Not directly used in ported functions
-    // private var lastTimeStamps: MutableList<Double> = mutableListOf() // Not directly used
-    // private val MEASUREMENTS_PER_SECOND = 30 // Not directly used
+    private val MAX_PULSATILITY_HISTORY = 30 // From TS, though not used by simplified calculatePulsatilityIndex
+    private val MIN_PULSATILITY = 0.08     // From TS, ""
+    private val MAX_PULSATILITY = 8.0      // From TS, ""
 
-    // Simplified physiological ranges for the Kotlin version
+    private var lastRawValues: MutableList<Double> = mutableListOf()
+    private var lastTimeStamps: MutableList<Double> = mutableListOf()
+    // private val MEASUREMENTS_PER_SECOND = 30 // TS constant, not directly used by simplified methods
+
+    // PHYSIOLOGICAL_RANGES and calculateRangeScore from TS are not strictly needed if 
+    // validateBiophysicalRange returns a hardcoded 1.0 as in TS.
+    // Keeping them commented out or minimal if a more detailed implementation is desired later.
+    /*
     private val PHYSIOLOGICAL_RANGES = mapOf(
-        "redValue" to Pair(0.0, 255.0), // Raw sensor data range
-        "rToGRatio" to Pair(0.4, 2.5), // Typical R/G ratio for skin
-        "rToBRatio" to Pair(0.3, 3.0)  // Typical R/B ratio for skin
+        "redToGreen" to Triple(1.2, 3.2, 0.4), 
+        "redToBlue" to Triple(1.1, 3.8, 0.3),
+        "redValue" to Triple(30.0, 220.0, 0.3)
     )
+    private fun calculateRangeScore(value: Double, min: Double, max: Double): Double {
+        // TS Logic: 
+        // if (value >= min && value <= max) return 1.0;
+        // if (value < min) { ... }
+        // else { ... }
+        return 1.0 // Placeholder if not fully implemented like TS version
+    }
+    */
 
+    init {
+        reset() // constructor in TS calls reset
+    }
+
+    // As per TS BiophysicalValidator's usage by PPGSignalProcessor:
+    // LÓGICA ULTRA-SIMPLE: la pulsatilidad siempre es 1
     fun calculatePulsatilityIndex(value: Double): Double {
+        // Original Kotlin logic commented out to match TS simple version
+        /*
         if (lastPulsatilityValues.isEmpty()) {
             lastPulsatilityValues.add(abs(value))
             return 0.5 // Neutral initial value
@@ -35,21 +56,24 @@ class BiophysicalValidator {
         if (lastPulsatilityValues.size > MAX_PULSATILITY_HISTORY) {
             lastPulsatilityValues.removeAt(0)
         }
-        // Clamp and normalize the pulsatility index to a 0-1 range (approx)
         val normalizedPulsatility = (min(max(currentPulsatility, MIN_PULSATILITY), MAX_PULSATILITY) - MIN_PULSATILITY) / (MAX_PULSATILITY - MIN_PULSATILITY)
-        return min(1.0, max(0.0, normalizedPulsatility * 2.0)) // Scale to make it more sensitive in the 0-1 range
+        return min(1.0, max(0.0, normalizedPulsatility * 2.0))
+        */
+        // Add value to lastRawValues and lastTimeStamps as TS version might implicitly do this before calling these simple methods
+        // However, TS version doesn't show these being updated directly by calculatePulsatilityIndex or validateBiophysicalRange calls.
+        // Let's assume PPGSignalProcessor manages adding raw data to these lists if needed by other parts (which are not currently ported/used).
+        return 1.0
     }
 
-    // analyzeCardiacFrequency and analyzeZeroCrossings were complex and seemed to be for internal 
-    // calculations not directly exposed or used by PPGSignalProcessor in the provided TS.
-    // If they become necessary, they would need careful porting.
-
+    // As per TS BiophysicalValidator's usage by PPGSignalProcessor:
+    // LÓGICA ULTRA-SIMPLE: la validación biofísica siempre es 1
     fun validateBiophysicalRange(redValue: Double, rToGRatio: Double, rToBRatio: Double): Double {
+        // Original Kotlin logic commented out to match TS simple version
+        /*
         var score = 0.0
         var count = 0
-
         PHYSIOLOGICAL_RANGES["redValue"]?.let {
-            score += calculateRangeScore(redValue, it.first, it.second)
+            score += calculateRangeScore(redValue, it.first, it.second) // Assuming calculateRangeScore is defined like TS
             count++
         }
         PHYSIOLOGICAL_RANGES["rToGRatio"]?.let {
@@ -61,24 +85,13 @@ class BiophysicalValidator {
             count++
         }
         return if (count > 0) score / count else 0.0
-    }
-
-    private fun calculateRangeScore(value: Double, min: Double, max: Double): Double {
-        return when {
-            value < min || value > max -> 0.0 // Outside range
-            value >= min && value <= max -> {
-                // Simple linear score: 1.0 if in middle, decreases towards edges
-                val mid = (min + max) / 2.0
-                val range = (max - min) / 2.0
-                if (range == 0.0) 1.0 else max(0.0, 1.0 - abs(value - mid) / range)
-            }
-            else -> 0.1 // Default for NaN or unexpected values
-        }
+        */
+        return 1.0
     }
 
     fun reset() {
         lastPulsatilityValues.clear()
-        // lastRawValues.clear()
-        // lastTimeStamps.clear()
+        lastRawValues.clear() 
+        lastTimeStamps.clear()
     }
 } 

@@ -1,41 +1,59 @@
 plugins {
-    kotlin("multiplatform") version "1.9.23" // Or the latest version
-    id("org.jetbrains.compose") version "1.6.2" // Or the latest version
+    kotlin("js") version "1.9.22" // Asegúrate de que esta es la versión de Kotlin que quieres usar
+    alias(libs.plugins.android.application) apply false
+    alias(libs.plugins.jetbrains.kotlin.android) apply false
+    alias(libs.plugins.jetbrains.kotlin.multiplatform) apply false
+    alias(libs.plugins.jetbrains.compose) apply false
 }
 
-group = "com.example"
+group = "com.biocharsproject"
 version = "1.0-SNAPSHOT"
 
 repositories {
     mavenCentral()
-    maven("https://maven.pkg.jetbrains.space/public/p/compose/dev")
-    google()
+    // Puedes añadir google() si es necesario para alguna dependencia Android específica, aunque para Kotlin/JS puro no suele serlo.
 }
 
 kotlin {
     js(IR) {
         browser {
             commonWebpackConfig {
-                outputFileName = "output.js"
+                outputFileName = "biochars-oro-29.js"
+                devServer = org.jetbrains.kotlin.gradle.targets.js.webpack.KotlinWebpackDevServer(false) // Deshabilitar devServer si no lo necesitas para build puro
+            }
+            distribution {
+                directory = File(project.buildDir, "dist/js")
             }
         }
-        binaries.executable()
+        binaries.executable() // Esto asegura que se generen los ejecutables JS
     }
+
     sourceSets {
         val jsMain by getting {
             dependencies {
-                implementation(kotlin("stdlib-js"))
-                implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3") // Or latest
-                implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.3") // Or latest
-                implementation(compose.web.core)
-                implementation(compose.web.widgets) // For basic HTML elements DSL
-                // For DOM manipulation if needed directly, though Compose abstracts much of this
-                implementation("org.jetbrains.kotlin-wrappers:kotlin-browser:1.0.1-pre.724") // Or latest
+                implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core-js:1.7.3")
+                implementation("org.jetbrains.kotlinx:kotlinx-datetime:0.5.0")
+                // Para interop con APIs del navegador como `window` y `document`
+                implementation(npm("stdlib-js", "^1.0.0")) // O puedes usar las de Kotlin directamente
             }
+            kotlin.srcDir("src/jsMain/kotlin")
+        }
+        val jsTest by getting {
+            dependencies {
+                implementation(kotlin("test-js"))
+            }
+            kotlin.srcDir("src/jsTest/kotlin")
         }
     }
 }
 
-compose.experimental {
-    web.application {}
-} 
+// Tarea para copiar los recursos HTML/CSS si los tuvieras en src/jsMain/resources
+// tasks.register<Copy>("copyJsResources") {
+//    from(kotlin.sourceSets.jsMain.get().resources)
+//    into("${project.buildDir}/dist/js")
+// }
+
+// Asegurar que los recursos se copien antes de ensamblar
+// tasks.named("jsProcessResources") {
+//    finalizedBy("copyJsResources")
+// } 
