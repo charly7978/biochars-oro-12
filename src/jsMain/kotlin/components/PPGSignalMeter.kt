@@ -22,11 +22,177 @@ import com.biocharsproject.shared.types.ProcessedSignal
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.min
+import androidx.compose.web.dom.*
+import kotlinx.browser.document
+import kotlinx.browser.window
+import org.w3c.dom.CanvasRenderingContext2D
+import org.w3c.dom.HTMLCanvasElement
+import org.w3c.dom.ImageData
+import kotlinx.coroutines.*
+import kotlin.math.max
+import kotlin.js.Date
 
 /**
  * Componente para visualizar la señal PPG y métricas asociadas
  * Este componente replica el comportamiento del medidor de señal PPG de la versión web
  */
+@Composable
+fun PPGSignalMeter(
+    isMonitoring: Boolean,
+    onQualityChange: (quality: Double) -> Unit,
+    onFingerDetectionChange: (detected: Boolean) -> Unit,
+    onPPGSignalData: (data: ProcessedSignal) -> Unit
+) {
+    val canvasRef = remember { mutableStateOf<HTMLCanvasElement?>(null) }
+    val signalProcessor = remember { 
+        PPGSignalProcessor(
+            onSignalReady = { signal -> 
+                onPPGSignalData(signal)
+                onQualityChange(signal.quality)
+                onFingerDetectionChange(signal.fingerDetected)
+            },
+            onError = { error ->
+                console.error("PPG Signal Error: ${error.code} - ${error.message}")
+            }
+        )
+    }
+    val bufferSize = 150
+    val signalData = remember { mutableStateListOf<Double>() }
+    val lastTimestamp = remember { mutableStateOf(0.0) }
+
+    // Effect to initialize and control signal processor
+    LaunchedEffect(isMonitoring) {
+        if (isMonitoring) {
+            try {
+                signalProcessor.initialize()
+                signalProcessor.start()
+            } catch (e: Exception) {
+                console.error("Failed to start signal processor: ${e.message}")
+            }
+        } else {
+            signalProcessor.stop()
+        }
+
+        // Cleanup when component is destroyed
+        return@LaunchedEffect {
+            signalProcessor.stop()
+        }
+    }
+
+    // Effect to update signal data when new data arrives
+    DisposableEffect(Unit) {
+        val signalHandler: (ProcessedSignal) -> Unit = { signal ->
+            if (signal.timestamp > lastTimestamp.value) {
+                if (signalData.size >= bufferSize) {
+                    signalData.removeAt(0)
+                }
+                signalData.add(signal.filteredValue)
+                lastTimestamp.value = signal.timestamp
+                
+                // Redraw the canvas with new data
+                canvasRef.value?.let { canvas ->
+                    drawPPGSignal(canvas, signalData)
+                }
+            }
+        }
+        
+        // Register signal handler
+        signalProcessor.onSignalReady = signalHandler
+        
+        onDispose {
+            // Cleanup when component is unmounted
+            signalProcessor.stop()
+        }
+    }
+
+    // Canvas element for displaying the PPG signal
+    Canvas(
+        attrs = {
+            id("ppgSignalCanvas")
+            style {
+                width("100%")
+                height("150px")
+                background("black")
+            }
+            ref {
+                canvasRef.value = it as HTMLCanvasElement
+                it.width = it.clientWidth
+                it.height = it.clientHeight
+                drawPPGSignal(it, signalData)
+            }
+        }
+    )
+}
+
+private fun drawPPGSignal(canvas: HTMLCanvasElement, signalData: List<Double>) {
+    val ctx = canvas.getContext("2d") as CanvasRenderingContext2D
+    val width = canvas.width.toDouble()
+    val height = canvas.height.toDouble()
+    
+    // Clear canvas
+    ctx.clearRect(0.0, 0.0, width, height)
+    
+    // No data to display
+    if (signalData.isEmpty()) return
+    
+    // Calculate min/max for scaling
+    val min = signalData.minOrNull() ?: 0.0
+    val max = signalData.maxOrNull() ?: 1.0
+    val range = max(max - min, 0.1) // Avoid division by zero
+    
+    // Draw signal
+    ctx.beginPath()
+    ctx.strokeStyle = "#00ff00" // Green color for PPG signal
+    ctx.lineWidth = 2.0
+    
+    val stepX = width / (signalData.size - 1).coerceAtLeast(1)
+    
+    signalData.forEachIndexed { index, value ->
+        val x = index * stepX
+        // Normalize and invert the y-coordinate (canvas y grows downward)
+        val normalizedValue = (value - min) / range
+        val y = height - (normalizedValue * height * 0.8 + height * 0.1)
+        
+        if (index == 0) {
+            ctx.moveTo(x, y)
+        } else {
+            ctx.lineTo(x, y)
+        }
+    }
+    
+    ctx.stroke()
+    
+    // Draw grid lines
+    ctx.strokeStyle = "#333333"
+    ctx.lineWidth = 0.5
+    
+    // Horizontal grid lines
+    val horizontalLines = 5
+    for (i in 0..horizontalLines) {
+        val y = height * i / horizontalLines
+        ctx.beginPath()
+        ctx.moveTo(0.0, y)
+        ctx.lineTo(width, y)
+        ctx.stroke()
+    }
+    
+    // Vertical grid lines
+    val verticalLines = 10
+    for (i in 0..verticalLines) {
+        val x = width * i / verticalLines
+        ctx.beginPath()
+        ctx.moveTo(x, 0.0)
+        ctx.lineTo(x, height)
+        ctx.stroke()
+    }
+}
+
+// Console logger for debugging in JS
+private external object console {
+    fun log(message: String)
+    fun error(message: String)
+}
+
 @Composable
 fun PPGSignalMeter(
     signalBuffer: List<Float>,

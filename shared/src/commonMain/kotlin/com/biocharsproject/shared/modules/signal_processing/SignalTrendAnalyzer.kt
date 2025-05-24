@@ -1,136 +1,287 @@
 package com.biocharsproject.shared.modules.signal_processing
 
 import kotlin.math.abs
+import kotlin.math.min
+import kotlin.math.max
 
-// Tipo para el resultado del análisis de tendencia
-typealias TrendResult = String // "stable" | "unstable" | "non_physiological"
-// En Kotlin, podemos usar un enum para mayor seguridad de tipos si estos son los únicos valores posibles:
-// enum class TrendResultType { STABLE, UNSTABLE, NON_PHYSIOLOGICAL }
+/**
+ * Result of a trend analysis
+ */
+enum class TrendResult {
+    STABLE, UNSTABLE, NON_PHYSIOLOGICAL
+}
 
-data class TrendScores(
-    var stability: Double = 0.0,
-    var periodicity: Double = 0.0,
-    var consistency: Double = 0.0,
-    var physiological: Double = 0.0
-)
-
+/**
+ * SignalTrendAnalyzer analyzes PPG signal patterns over time to detect
+ * stability, periodicity, and physiological validity.
+ */
 class SignalTrendAnalyzer(private val historyLength: Int = 30) {
-    private var valueHistory: MutableList<Double> = mutableListOf()
-    private var diffHistory: MutableList<Double> = mutableListOf()
-    private var patternHistory: MutableList<String> = mutableListOf() // "+", "-", "0"
-    private var trendScores: TrendScores = TrendScores()
-
-    companion object {
-        private const val STABILITY_THRESHOLD_LOW = 0.1
-        private const val STABILITY_THRESHOLD_HIGH = 0.3
-        private const val PERIODICITY_THRESHOLD = 0.5
-        private const val CONSISTENCY_THRESHOLD = 0.6
-        private const val PHYSIOLOGICAL_CHANGE_THRESHOLD = 0.5 // Ejemplo, ajustar según necesidad
-    }
-
+    private val valueHistory = mutableListOf<Double>()
+    private val diffHistory = mutableListOf<Double>()
+    private val patternHistory = mutableListOf<String>()
+    
+    private val trendScores = TrendScores(
+        stability = 0.0,
+        periodicity = 0.0,
+        consistency = 0.0,
+        physiological = 0.0
+    )
+    
+    /**
+     * Analyze trend of the signal based on history
+     * @param value The new value to analyze
+     * @return The trend result classification
+     */
     fun analyzeTrend(value: Double): TrendResult {
+        // Add value to history
         addValue(value)
-        return getAnalysisResult()
+        
+        // If we don't have enough history, consider it unstable
+        if (valueHistory.size < min(10, historyLength / 3)) {
+            return TrendResult.UNSTABLE
+        }
+        
+        // Update all trend metrics
+        updateAnalysis()
+        
+        // Classify result based on scores
+        return when {
+            trendScores.physiological < 0.3 -> TrendResult.NON_PHYSIOLOGICAL
+            trendScores.stability > 0.6 && trendScores.periodicity > 0.5 -> TrendResult.STABLE
+            else -> TrendResult.UNSTABLE
+        }
     }
-
+    
+    /**
+     * Get the current stability score (0-1)
+     */
     fun getStabilityScore(): Double {
         return trendScores.stability
     }
-
+    
+    /**
+     * Get the current periodicity score (0-1)
+     */
     fun getPeriodicityScore(): Double {
         return trendScores.periodicity
     }
-
-    fun addValue(value: Double) {
-        if (valueHistory.isNotEmpty()) {
-            val diff = value - valueHistory.last()
-            diffHistory.add(diff)
-            if (diffHistory.size > historyLength) {
-                diffHistory.removeAt(0)
-            }
-
-            when {
-                diff > 0 -> patternHistory.add("+")
-                diff < 0 -> patternHistory.add("-")
-                else -> patternHistory.add("0")
-            }
-            if (patternHistory.size > historyLength) {
-                patternHistory.removeAt(0)
-            }
-        }
-
+    
+    /**
+     * Add a new value to the history and update difference history
+     */
+    fun addValue(value: Double): Unit {
+        // Add the value to history
         valueHistory.add(value)
+        
+        // Keep history at the right size
         if (valueHistory.size > historyLength) {
             valueHistory.removeAt(0)
         }
-
-        if (valueHistory.size >= historyLength / 2) { // Empezar a analizar cuando hay suficientes datos
-            updateAnalysis()
+        
+        // Calculate differences
+        if (valueHistory.size >= 2) {
+            val diff = value - valueHistory[valueHistory.size - 2]
+            diffHistory.add(diff)
+            
+            // Keep diff history same size as value history
+            if (diffHistory.size > historyLength - 1) {
+                diffHistory.removeAt(0)
+            }
+            
+            // Add pattern (up, down, same)
+            val pattern = when {
+                diff > 0.05 -> "U" // Up
+                diff < -0.05 -> "D" // Down
+                else -> "S" // Same
+            }
+            patternHistory.add(pattern)
+            
+            // Keep pattern history same size as diff history
+            if (patternHistory.size > historyLength - 1) {
+                patternHistory.removeAt(0)
+            }
         }
     }
-
+    
+    /**
+     * Update all analysis metrics based on current history
+     */
     private fun updateAnalysis() {
-        if (valueHistory.size < 2) {
-            trendScores = TrendScores() // Resetear si no hay suficientes datos
+        if (valueHistory.size < 5 || diffHistory.size < 4) {
             return
         }
-
-        // Calculate Stability (e.g., based on variance or range)
-        val mean = valueHistory.average()
-        val variance = valueHistory.map { (it - mean) * (it - mean) }.average()
-        trendScores.stability = 1.0 / (1.0 + variance) // Normalizar, más alto es más estable
-
-        // Calculate Periodicity (e.g., autocorrelation or dominant frequency analysis - simplified here)
-        // Esta es una simplificación. Una detección de periodicidad real es más compleja.
-        var signChanges = 0
-        for (i in 1 until diffHistory.size) {
-            if ((diffHistory[i] > 0 && diffHistory[i-1] < 0) || (diffHistory[i] < 0 && diffHistory[i-1] > 0)) {
-                signChanges++
-            }
-        }
-        trendScores.periodicity = if (diffHistory.size > 1) signChanges.toDouble() / diffHistory.size else 0.0
-
-        // Calculate Consistency (e.g., how often the pattern changes)
-        var patternChanges = 0
-        for (i in 1 until patternHistory.size) {
-            if (patternHistory[i] != patternHistory[i-1]) {
-                patternChanges++
-            }
-        }
-        trendScores.consistency = if (patternHistory.size > 1) 1.0 - (patternChanges.toDouble() / patternHistory.size) else 0.0
-
-        // Calculate Physiological plausibility (e.g., changes are within expected physiological rates)
-        val maxChange = diffHistory.maxOfOrNull { abs(it) } ?: 0.0
-        trendScores.physiological = if (maxChange < PHYSIOLOGICAL_CHANGE_THRESHOLD) 1.0 else 0.0 
-    }
-
-    fun getScores(): TrendScores {
-        return trendScores
-    }
-
-    fun getAnalysisResult(): TrendResult {
-        // Lógica basada en la implementación original que devuelve una cadena descriptiva
-        // Esta lógica puede necesitar ajustes para coincidir con la complejidad del original
-        val stability = trendScores.stability
-        val periodicity = trendScores.periodicity
-        // val consistency = trendScores.consistency // No usado directamente en la lógica original de getAnalysisResult
-        val physiological = trendScores.physiological
-
-        if (physiological < 0.5) return "non_physiological"
         
-        return when {
-            stability > 0.8 && periodicity > PERIODICITY_THRESHOLD -> "highly_stable"
-            stability > 0.6 && periodicity > PERIODICITY_THRESHOLD * 0.8 -> "stable"
-            stability > 0.4 -> "moderately_stable"
-            stability > 0.2 -> "unstable"
-            else -> "highly_unstable"
+        // Calculate stability score
+        val recentValues = valueHistory.takeLast(min(valueHistory.size, 20))
+        val min = recentValues.minOrNull() ?: 0.0
+        val max = recentValues.maxOrNull() ?: 0.0
+        val mean = recentValues.average()
+        
+        // Coefficient of variation (lower is more stable)
+        val absVariation = if (mean != 0.0) (max - min) / mean else 1.0
+        val stabilityScore = max(0.0, min(1.0, 1.0 - absVariation))
+        trendScores.stability = stabilityScore
+        
+        // Calculate periodicity score by looking for repeated patterns
+        val periodicityScore = calculatePeriodicityScore()
+        trendScores.periodicity = periodicityScore
+        
+        // Calculate consistency (how well the signal follows expected patterns)
+        val consistencyScore = calculateConsistencyScore()
+        trendScores.consistency = consistencyScore
+        
+        // Physiological validity check
+        val physiologicalScore = calculatePhysiologicalScore()
+        trendScores.physiological = physiologicalScore
+    }
+    
+    /**
+     * Calculate periodicity score by analyzing patterns in the signal
+     */
+    private fun calculatePeriodicityScore(): Double {
+        if (patternHistory.size < 8) return 0.0
+        
+        // Look for repeating up-down patterns (characteristic of PPG)
+        var periodicCount = 0
+        var nonPeriodicCount = 0
+        
+        // Count "up-down" and "down-up" transitions
+        for (i in 0 until patternHistory.size - 1) {
+            val current = patternHistory[i]
+            val next = patternHistory[i + 1]
+            
+            if ((current == "U" && next == "D") || (current == "D" && next == "U")) {
+                periodicCount++
+            } else if (current != "S" && next != "S") {
+                nonPeriodicCount++
+            }
+        }
+        
+        // Calculate score - higher when more periodic transitions
+        val total = periodicCount + nonPeriodicCount
+        return if (total > 0) {
+            max(0.0, min(1.0, periodicCount.toDouble() / total))
+        } else {
+            0.0
         }
     }
-
+    
+    /**
+     * Calculate consistency score
+     */
+    private fun calculateConsistencyScore(): Double {
+        if (diffHistory.size < 8) return 0.0
+        
+        // Calculate variance of differences
+        val diffs = diffHistory.takeLast(min(diffHistory.size, 20))
+        val meanDiff = diffs.average()
+        val diffVariance = diffs.map { (it - meanDiff) * (it - meanDiff) }.average()
+        
+        // Lower variance means more consistent changes
+        return max(0.0, min(1.0, 1.0 - diffVariance.coerceIn(0.0, 1.0)))
+    }
+    
+    /**
+     * Calculate physiological score
+     */
+    private fun calculatePhysiologicalScore(): Double {
+        if (valueHistory.size < 10) return 0.5
+        
+        // Check for physiologically plausible patterns in PPG
+        // 1. Regular up-down patterns
+        // 2. Reasonable amplitude variation
+        
+        // Count direction changes (should be regular in PPG)
+        var directionChanges = 0
+        var lastDirection = ""
+        
+        for (pattern in patternHistory) {
+            if (pattern != "S" && pattern != lastDirection && lastDirection.isNotEmpty()) {
+                directionChanges++
+            }
+            if (pattern != "S") {
+                lastDirection = pattern
+            }
+        }
+        
+        // PPG typically has 2-4 direction changes per second (at 30Hz, 20 samples ≈ 0.67s)
+        val recentPatterns = patternHistory.takeLast(min(patternHistory.size, 20))
+        val expectedChanges = recentPatterns.size / 10.0 * 3.0  // ~3 changes per 10 samples
+        val actualChanges = directionChanges.toDouble()
+        
+        val changeScore = if (expectedChanges > 0) {
+            val ratio = actualChanges / expectedChanges
+            when {
+                ratio < 0.5 -> ratio * 2.0  // Too few changes
+                ratio > 1.5 -> max(0.0, 1.0 - (ratio - 1.5) / 1.5)  // Too many changes
+                else -> 1.0  // Just right
+            }
+        } else {
+            0.5
+        }
+        
+        return changeScore
+    }
+    
+    /**
+     * Get the current trend scores
+     */
+    fun getScores(): TrendScores {
+        return trendScores.copy()
+    }
+    
+    /**
+     * Get a detailed analysis result classification
+     */
+    fun getAnalysisResult(): TrendClassification {
+        // Highly stable: stable + periodic + consistent
+        return when {
+            trendScores.physiological < 0.3 -> TrendClassification.NON_PHYSIOLOGICAL
+            trendScores.stability > 0.8 && trendScores.periodicity > 0.7 && trendScores.consistency > 0.7 -> 
+                TrendClassification.HIGHLY_STABLE
+            trendScores.stability > 0.7 && trendScores.periodicity > 0.6 -> 
+                TrendClassification.STABLE
+            trendScores.stability > 0.5 && trendScores.periodicity > 0.4 -> 
+                TrendClassification.MODERATELY_STABLE
+            trendScores.stability > 0.3 -> 
+                TrendClassification.UNSTABLE
+            else -> 
+                TrendClassification.HIGHLY_UNSTABLE
+        }
+    }
+    
+    /**
+     * Reset the analyzer state
+     */
     fun reset() {
         valueHistory.clear()
         diffHistory.clear()
         patternHistory.clear()
-        trendScores = TrendScores()
+        trendScores.stability = 0.0
+        trendScores.periodicity = 0.0
+        trendScores.consistency = 0.0
+        trendScores.physiological = 0.0
     }
-} 
+}
+
+/**
+ * Detailed trend classification
+ */
+enum class TrendClassification {
+    HIGHLY_STABLE,
+    STABLE,
+    MODERATELY_STABLE,
+    UNSTABLE,
+    HIGHLY_UNSTABLE,
+    NON_PHYSIOLOGICAL
+}
+
+/**
+ * Scores for different aspects of signal trend
+ */
+data class TrendScores(
+    var stability: Double,
+    var periodicity: Double,
+    var consistency: Double,
+    var physiological: Double
+) 

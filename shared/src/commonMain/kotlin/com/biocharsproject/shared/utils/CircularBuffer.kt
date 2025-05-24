@@ -2,46 +2,65 @@ package com.biocharsproject.shared.utils
 
 import kotlinx.serialization.Serializable
 
+/**
+ * Data point structure for PPG signal with timestamp and analysis metadata
+ */
 @Serializable // Si se necesita serializar este objeto
 data class PPGDataPoint(
-    val time: Long, // Asumiendo que time es un timestamp, Long es apropiado
+    val time: Double,
     val value: Double,
-    val isArrhythmia: Boolean
+    val isArrhythmia: Boolean = false
 )
 
+/**
+ * CircularBuffer is a fixed-size buffer that overwrites oldest items when full.
+ * Used for storing time-series PPG data efficiently.
+ */
 class CircularBuffer(private val maxSize: Int) {
-    private var buffer: MutableList<PPGDataPoint> = mutableListOf()
-    private var head: Int = 0 // No es estrictamente necesario con MutableList, pero puede optimizar `push` si se usa como array circular real.
-                             // Por simplicidad con MutableList, simplemente añadiremos y quitaremos.
-
+    private val buffer = mutableListOf<PPGDataPoint>()
+    
     init {
         if (maxSize <= 0) {
             throw IllegalArgumentException("Buffer size must be positive")
         }
     }
 
+    /**
+     * Add a data point to the buffer, removing oldest if needed
+     */
     fun push(point: PPGDataPoint) {
-        if (buffer.size == maxSize) {
-            buffer.removeAt(0) // Eliminar el más antiguo si el buffer está lleno
+        if (buffer.size >= maxSize) {
+            buffer.removeAt(0)
         }
-        buffer.add(point) // Añadir el nuevo al final
+        buffer.add(point)
     }
-
+    
+    /**
+     * Get all data points in the buffer
+     */
     fun getPoints(): List<PPGDataPoint> {
-        // Devuelve una copia inmutable de los puntos actuales en el buffer
         return buffer.toList()
     }
-
+    
+    /**
+     * Clear all data points from the buffer
+     */
     fun clear() {
         buffer.clear()
     }
     
-    fun size(): Int {
-        return buffer.size
-    }
-
+    /**
+     * Check if the buffer is empty
+     */
     fun isEmpty(): Boolean {
         return buffer.isEmpty()
+    }
+    
+    /**
+     * Get the current size of the buffer
+     */
+    fun size(): Int {
+        return buffer.size
     }
 
     fun isFull(): Boolean {

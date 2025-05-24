@@ -1,6 +1,25 @@
 package com.biocharsproject.shared.modules.signal_processing
 
 import kotlinx.serialization.Serializable
+import com.biocharsproject.shared.types.Signal.ROI
+
+/**
+ * Common types for PPG signal processing
+ */
+
+/**
+ * Frame data from camera image processing
+ */
+@Serializable
+data class FrameData(
+    val redValue: Double,
+    val avgRed: Double? = null,
+    val avgGreen: Double? = null,
+    val avgBlue: Double? = null,
+    val textureScore: Double,
+    val rToGRatio: Double,
+    val rToBRatio: Double
+)
 
 @Serializable
 data class SignalProcessorConfig(
@@ -40,17 +59,6 @@ data class DetectorScores(
     // se podría optar por añadir propiedades opcionales o un mapa si hay muchas claves dinámicas.
     // Por simplicidad, mantendremos las propiedades fijas y se puede añadir un mapa si es necesario.
     var textureScore: Double? = null // Ejemplo de propiedad adicional que era opcional
-)
-
-@Serializable
-data class FrameData(
-    val redValue: Double,
-    val avgRed: Double? = null,
-    val avgGreen: Double? = null,
-    val avgBlue: Double? = null,
-    val textureScore: Double,
-    val rToGRatio: Double,
-    val rToBRatio: Double
 )
 
 @Serializable

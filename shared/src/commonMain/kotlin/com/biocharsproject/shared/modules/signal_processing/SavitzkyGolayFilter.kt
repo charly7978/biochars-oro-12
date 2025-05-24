@@ -3,102 +3,82 @@ package com.biocharsproject.shared.modules.signal_processing
 import kotlin.math.abs
 
 /**
- * Implementación del filtro Savitzky-Golay para suavizado de señal PPG
- * 
- * El filtro Savitzky-Golay es superior a un simple promedio móvil ya que preserva
- * características como los picos y valles que son esenciales en la señal PPG,
- * mientras elimina el ruido de alta frecuencia.
+ * Savitzky-Golay filter implementation for smoothing PPG signals.
+ * This filter performs local polynomial regression to preserve features
+ * like peaks while removing noise.
  */
-class SavitzkyGolayFilter {
-    private val buffer = mutableListOf<Double>()
+class SavitzkyGolayFilter(windowSize: Int = 9) {
     private val coefficients: DoubleArray
-    private val normalizationFactor: Double
+    private val normFactor: Double
+    private val buffer = mutableListOf<Double>()
     private val windowSize: Int
     
-    /**
-     * Constructor con tamaño de ventana configurable
-     * 
-     * @param windowSize Tamaño de la ventana de filtrado (debe ser impar)
-     */
-    constructor(windowSize: Int = 9) {
-        // Asegurar que el tamaño de la ventana sea impar
+    init {
+        // Ensure window size is odd
         this.windowSize = if (windowSize % 2 == 0) windowSize + 1 else windowSize
         
-        // Generar coeficientes para un filtro de segundo orden
-        coefficients = generateSavitzkyGolayCoefficients(this.windowSize, 2)
-        
-        // Calcular factor de normalización
-        normalizationFactor = coefficients.sum()
+        // Generate quadratic Savitzky-Golay coefficients for the specified window size
+        coefficients = generateQuadraticCoefficients(this.windowSize)
+        normFactor = coefficients.sum()
     }
     
     /**
-     * Aplica el filtro a un nuevo valor
-     * 
-     * @param value El nuevo valor a filtrar
-     * @return El valor filtrado
+     * Apply the Savitzky-Golay filter to a new value
+     * @param value The new value to filter
+     * @return The filtered value
      */
     fun filter(value: Double): Double {
-        // Añadir el valor al buffer
+        // Add the value to the buffer
         buffer.add(value)
         
-        // Mantener el buffer limitado al tamaño de la ventana
-        if (buffer.size > windowSize) {
-            buffer.removeAt(0)
-        }
-        
-        // Si no tenemos suficientes valores, devolver el valor actual
+        // If buffer is not full yet, return the input value
         if (buffer.size < windowSize) {
             return value
         }
         
-        // Aplicar los coeficientes del filtro
-        var result = 0.0
-        for (i in buffer.indices) {
-            result += buffer[i] * coefficients[i]
+        // If buffer is too large, remove oldest values
+        while (buffer.size > windowSize) {
+            buffer.removeAt(0)
         }
         
-        // Normalizar el resultado
-        return result / normalizationFactor
+        // Apply the filter by convolving with coefficients
+        var filteredValue = 0.0
+        for (i in buffer.indices) {
+            filteredValue += buffer[i] * coefficients[i]
+        }
+        
+        // Normalize
+        return filteredValue / normFactor
     }
     
     /**
-     * Reinicia el filtro
+     * Reset the filter buffer
      */
     fun reset() {
         buffer.clear()
     }
     
     /**
-     * Genera coeficientes para el filtro Savitzky-Golay
-     * 
-     * @param windowSize Tamaño de la ventana (impar)
-     * @param polynomialOrder Orden del polinomio (típicamente 2 o 4)
-     * @return Array de coeficientes
+     * Generate quadratic Savitzky-Golay coefficients for the given window size.
+     * This implementation uses a simplified approach for quadratic fitting.
      */
-    private fun generateSavitzkyGolayCoefficients(windowSize: Int, polynomialOrder: Int): DoubleArray {
-        // Para un filtro Savitzky-Golay de orden 2 y tamaño de ventana común,
-        // utilizamos coeficientes predefinidos por eficiencia
-        return when (windowSize) {
-            5 -> doubleArrayOf(-3.0, 12.0, 17.0, 12.0, -3.0)  // Normalizar con 35
-            7 -> doubleArrayOf(-2.0, 3.0, 6.0, 7.0, 6.0, 3.0, -2.0)  // Normalizar con 21
-            9 -> doubleArrayOf(-21.0, 14.0, 39.0, 54.0, 59.0, 54.0, 39.0, 14.0, -21.0)  // Normalizar con 231
-            11 -> doubleArrayOf(-36.0, 9.0, 44.0, 69.0, 84.0, 89.0, 84.0, 69.0, 44.0, 9.0, -36.0)  // Normalizar con 429
-            13 -> doubleArrayOf(-11.0, 0.0, 9.0, 16.0, 21.0, 24.0, 25.0, 24.0, 21.0, 16.0, 9.0, 0.0, -11.0)  // Normalizar con 143
-            15 -> doubleArrayOf(-78.0, -13.0, 42.0, 87.0, 122.0, 147.0, 162.0, 167.0, 162.0, 147.0, 122.0, 87.0, 42.0, -13.0, -78.0)  // Normalizar con 1105
-            else -> {
-                // Para otros tamaños, generamos coeficientes aproximados
-                // Este es un enfoque simplificado, no el cálculo completo de SG
-                val halfWindow = windowSize / 2
-                DoubleArray(windowSize) { i ->
-                    val position = i - halfWindow
-                    when {
-                        abs(position) > halfWindow - 1 -> -1.0
-                        abs(position) > halfWindow - 3 -> 0.0
-                        else -> (halfWindow - abs(position)).toDouble()
-                    }
-                }
-            }
+    private fun generateQuadraticCoefficients(windowSize: Int): DoubleArray {
+        val halfWindow = windowSize / 2
+        val result = DoubleArray(windowSize)
+        
+        // For quadratic fit (order 2), use the formula for each coefficient
+        for (i in 0 until windowSize) {
+            val x = i - halfWindow
+            // Quadratic coefficient: 3(3n² - W² + 1) / (2W(W² - 1))
+            // Where n is position relative to center, W is half window width
+            val n = x.toDouble()
+            val w = halfWindow.toDouble()
+            
+            // Simplified formula for quadratic S-G filter
+            result[i] = (3.0 * (3.0 * n * n - w * w + 1.0)) / (2.0 * w * (w * w - 1.0))
         }
+        
+        return result
     }
     
     /**
@@ -132,6 +112,6 @@ class SavitzkyGolayFilter {
         }
         
         // Normalizar el resultado
-        return result / normalizationFactor
+        return result / normFactor
     }
 } 

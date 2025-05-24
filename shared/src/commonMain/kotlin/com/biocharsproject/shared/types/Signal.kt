@@ -146,3 +146,49 @@ declare global {
     }
 }
 */
+
+object Signal {
+    /**
+     * Represents a processed PPG signal with associated metadata
+     */
+    data class ProcessedSignal(
+        val timestamp: Double,
+        val rawValue: Double,
+        val filteredValue: Double,
+        val quality: Double,
+        val fingerDetected: Boolean,
+        val roi: ROI,
+        val perfusionIndex: Double? = null
+    )
+
+    /**
+     * Region of interest for signal processing
+     */
+    data class ROI(
+        val x: Int,
+        val y: Int,
+        val width: Int,
+        val height: Int
+    )
+
+    /**
+     * Error information from signal processing
+     */
+    data class ProcessingError(
+        val code: String,
+        val message: String,
+        val timestamp: Double
+    )
+
+    /**
+     * Interface for signal processors
+     */
+    interface SignalProcessor {
+        suspend fun initialize()
+        fun start()
+        fun stop()
+        suspend fun calibrate(): Boolean
+        var onSignalReady: ((ProcessedSignal) -> Unit)?
+        var onError: ((ProcessingError) -> Unit)?
+    }
+}
