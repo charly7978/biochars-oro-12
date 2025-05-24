@@ -7,4 +7,4 @@ pluginManagement {
     }
 }
 
-rootProject.name = "biochars-oro-29-kotlin" 
+rootProject.name = "biochars-oro-29" 
