@@ -11,18 +11,19 @@ version = "1.0-SNAPSHOT"
 
 repositories {
     mavenCentral()
+    google()
     // Puedes añadir google() si es necesario para alguna dependencia Android específica, aunque para Kotlin/JS puro no suele serlo.
 }
 
+@OptIn(org.jetbrains.kotlin.gradle.targets.js.dsl.ExperimentalDistributionDsl::class)
 kotlin {
     js(IR) {
         browser {
             commonWebpackConfig {
                 outputFileName = "biochars-oro-29.js"
-                devServer = org.jetbrains.kotlin.gradle.targets.js.webpack.KotlinWebpackDevServer(false) // Deshabilitar devServer si no lo necesitas para build puro
             }
             distribution {
-                directory = File(project.buildDir, "dist/js")
+                directory = File("${layout.buildDirectory.get()}", "dist/js")
             }
         }
         binaries.executable() // Esto asegura que se generen los ejecutables JS
