@@ -1,22 +1,22 @@
 
 /**
  * Detector adaptativo multi-modal para detección de dedo
- * Versión mejorada con reducción de falsos positivos
+ * Versión optimizada para mayor sensibilidad
  */
 export class AdaptiveDetector {
   private detectionHistory: boolean[] = [];
-  private readonly HISTORY_SIZE = 20; // Aumentado para mayor estabilidad
-  private readonly CONFIDENCE_THRESHOLD = 0.7; // Aumentado para ser más estricto
+  private readonly HISTORY_SIZE = 15; // Reducido para respuesta más rápida
+  private readonly CONFIDENCE_THRESHOLD = 0.5; // Reducido de 0.7 a 0.5 para mayor sensibilidad
   private baselineValues: { red: number; green: number; blue: number } | null = null;
-  private adaptiveThresholds: { min: number; max: number } = { min: 80, max: 180 };
+  private adaptiveThresholds: { min: number; max: number } = { min: 60, max: 200 }; // Rango más amplio
   private consecutiveDetections = 0;
   private consecutiveNonDetections = 0;
-  private readonly MIN_CONSECUTIVE_DETECTIONS = 5; // Requiere 5 detecciones consecutivas
-  private readonly MAX_CONSECUTIVE_NON_DETECTIONS = 3;
+  private readonly MIN_CONSECUTIVE_DETECTIONS = 2; // Reducido de 5 a 2
+  private readonly MAX_CONSECUTIVE_NON_DETECTIONS = 5;
   private stabilityHistory: number[] = [];
   
   /**
-   * Detección multi-modal mejorada con validación estricta
+   * Detección multi-modal mejorada con mayor sensibilidad
    */
   public detectFingerMultiModal(frameData: {
     redValue: number;
@@ -30,16 +30,16 @@ export class AdaptiveDetector {
     
     const { redValue, avgGreen, avgBlue, textureScore, rToGRatio, rToBRatio, stability } = frameData;
     
-    // Validación de entrada más estricta
-    if (redValue < 10 || redValue > 255 || 
-        avgGreen < 5 || avgBlue < 5 ||
-        rToGRatio < 0.1 || rToBRatio < 0.1) {
+    // Validación de entrada más permisiva
+    if (redValue < 5 || redValue > 255 || 
+        avgGreen < 2 || avgBlue < 2 ||
+        rToGRatio < 0.05 || rToBRatio < 0.05) {
       this.consecutiveNonDetections++;
       this.consecutiveDetections = 0;
       return { detected: false, confidence: 0, reasons: ['invalid_input_values'] };
     }
     
-    // Establecer baseline con validación más estricta
+    // Establecer baseline con criterios más flexibles
     if (!this.baselineValues && this.isValidBaselineCandidate(redValue, avgGreen, avgBlue, stability)) {
       this.baselineValues = {
         red: redValue,
@@ -47,11 +47,11 @@ export class AdaptiveDetector {
         blue: avgBlue
       };
       
-      // Ajustar umbrales adaptativos de forma más conservadora
-      this.adaptiveThresholds.min = Math.max(60, redValue * 0.7);
-      this.adaptiveThresholds.max = Math.min(200, redValue * 1.8);
+      // Ajustar umbrales adaptativos de forma más flexible
+      this.adaptiveThresholds.min = Math.max(30, redValue * 0.5); // Más permisivo
+      this.adaptiveThresholds.max = Math.min(240, redValue * 2.2); // Rango más amplio
       
-      console.log("AdaptiveDetector: Baseline establecido con validación estricta", {
+      console.log("AdaptiveDetector: Baseline establecido con criterios flexibles", {
         baseline: this.baselineValues,
         thresholds: this.adaptiveThresholds
       });
@@ -60,64 +60,75 @@ export class AdaptiveDetector {
     const reasons: string[] = [];
     let score = 0;
     
-    // 1. Test de intensidad roja con validación estricta
+    // 1. Test de intensidad roja más permisivo
     const redIntensityValid = redValue >= this.adaptiveThresholds.min && 
                              redValue <= this.adaptiveThresholds.max;
     if (redIntensityValid) {
-      score += 0.25;
+      score += 0.3; // Incrementado de 0.25 a 0.3
       reasons.push('red_intensity_valid');
     }
     
-    // 2. Test de ratios de color con rangos fisiológicos estrictos
-    const colorRatiosValid = rToGRatio >= 1.1 && rToGRatio <= 2.5 && 
-                            rToBRatio >= 1.0 && rToBRatio <= 2.2;
+    // Test adicional: detección básica de cambio de intensidad
+    if (redValue > 25) { // Umbral muy bajo para detectar cualquier presencia
+      score += 0.2;
+      reasons.push('basic_intensity_detected');
+    }
+    
+    // 2. Test de ratios de color con rangos más amplios
+    const colorRatiosValid = rToGRatio >= 0.8 && rToGRatio <= 3.0 && // Más permisivo
+                            rToBRatio >= 0.7 && rToBRatio <= 2.8;
     if (colorRatiosValid) {
       score += 0.25;
       reasons.push('color_ratios_physiological');
     }
     
-    // 3. Test de estabilidad temporal más estricto
+    // 3. Test de estabilidad temporal más flexible
     this.stabilityHistory.push(stability);
-    if (this.stabilityHistory.length > 10) {
+    if (this.stabilityHistory.length > 8) {
       this.stabilityHistory.shift();
     }
     
     const avgStability = this.stabilityHistory.reduce((a, b) => a + b, 0) / this.stabilityHistory.length;
-    if (avgStability >= 0.3 && stability >= 0.2) {
-      score += 0.2;
-      reasons.push('stable_temporal_contact');
+    if (avgStability >= 0.15 || stability >= 0.1) { // Umbrales más bajos
+      score += 0.15;
+      reasons.push('minimal_temporal_stability');
     }
     
-    // 4. Test de cambio relativo al baseline más estricto
+    // 4. Test de cambio relativo al baseline más permisivo
     if (this.baselineValues) {
       const redChange = Math.abs(redValue - this.baselineValues.red) / this.baselineValues.red;
       const greenChange = Math.abs(avgGreen - this.baselineValues.green) / this.baselineValues.green;
       
-      // Debe haber cambio significativo pero no extremo
-      if (redChange >= 0.1 && redChange <= 0.8 && 
-          greenChange >= 0.05 && greenChange <= 0.6) {
-        score += 0.15;
-        reasons.push('appropriate_baseline_change');
+      // Cualquier cambio significativo es válido
+      if (redChange >= 0.05 || greenChange >= 0.03) { // Umbrales muy bajos
+        score += 0.1;
+        reasons.push('baseline_change_detected');
       }
     }
     
-    // 5. Test de textura (presencia de estructura biológica)
-    if (textureScore >= 0.2) {
+    // 5. Test de textura más permisivo
+    if (textureScore >= 0.1) { // Reducido de 0.2 a 0.1
       score += 0.1;
-      reasons.push('biological_texture_detected');
+      reasons.push('texture_detected');
     }
     
-    // 6. Test de consistencia de señal (no debe fluctuar demasiado)
-    const signalConsistency = this.evaluateSignalConsistency(redValue);
-    if (signalConsistency >= 0.7) {
-      score += 0.05;
-      reasons.push('consistent_signal_pattern');
+    // 6. Bonus por valores altos de rojo (probable dedo)
+    if (redValue > 50) {
+      score += 0.15;
+      reasons.push('strong_red_signal');
+    }
+    
+    // 7. Detección de patrón de contacto (cualquier variación)
+    const signalVariation = this.evaluateSignalVariation(redValue);
+    if (signalVariation >= 0.3) {
+      score += 0.1;
+      reasons.push('signal_variation_detected');
     }
     
     const confidence = Math.min(1.0, score);
     const rawDetected = confidence >= this.CONFIDENCE_THRESHOLD;
     
-    // Aplicar filtro de detecciones consecutivas para reducir falsos positivos
+    // Aplicar filtro de detecciones consecutivas más permisivo
     if (rawDetected) {
       this.consecutiveDetections++;
       this.consecutiveNonDetections = 0;
@@ -126,7 +137,7 @@ export class AdaptiveDetector {
       this.consecutiveDetections = 0;
     }
     
-    // Solo confirmar detección después de suficientes detecciones consecutivas
+    // Confirmar detección con menos requisitos
     const finalDetected = this.consecutiveDetections >= this.MIN_CONSECUTIVE_DETECTIONS;
     
     // Actualizar historial
@@ -142,67 +153,67 @@ export class AdaptiveDetector {
       requiredConsecutive: this.MIN_CONSECUTIVE_DETECTIONS,
       reasons,
       redValue,
-      stability: avgStability
+      score
     });
     
     return {
       detected: finalDetected,
-      confidence: finalDetected ? confidence : 0,
+      confidence: finalDetected ? confidence : Math.max(0.1, confidence * 0.5), // Mantener algo de confianza
       reasons
     };
   }
   
   /**
-   * Validar si los valores pueden servir como baseline
+   * Validar si los valores pueden servir como baseline - más permisivo
    */
   private isValidBaselineCandidate(red: number, green: number, blue: number, stability: number): boolean {
-    return red > 40 && red < 220 &&
-           green > 20 && green < 200 &&
-           blue > 15 && blue < 180 &&
-           stability > 0.3;
+    return red > 15 && red < 240 && // Rango más amplio
+           green > 10 && green < 220 &&
+           blue > 8 && blue < 200 &&
+           stability > 0.05; // Mucho más permisivo
   }
   
   /**
-   * Evaluar consistencia de la señal
+   * Evaluar variación de la señal para detectar contacto
    */
-  private evaluateSignalConsistency(currentValue: number): number {
-    if (!this.baselineValues) return 0;
+  private evaluateSignalVariation(currentValue: number): number {
+    if (!this.baselineValues) return 0.5; // Asumir variación si no hay baseline
     
-    const deviation = Math.abs(currentValue - this.baselineValues.red) / this.baselineValues.red;
+    const deviation = Math.abs(currentValue - this.baselineValues.red);
     
-    // Penalizar desviaciones extremas
-    if (deviation > 1.0) return 0;
-    if (deviation > 0.5) return 0.3;
-    if (deviation > 0.3) return 0.6;
+    // Cualquier variación es buena señal de contacto
+    if (deviation > 5) return 1.0;
+    if (deviation > 2) return 0.7;
+    if (deviation > 1) return 0.5;
     
-    return 1.0; // Señal muy consistente
+    return 0.3;
   }
   
   /**
-   * Adaptación dinámica de umbrales con validación
+   * Adaptación dinámica de umbrales más agresiva
    */
   public adaptThresholds(recentValues: number[]): void {
-    if (recentValues.length < 15) return; // Requiere más datos
+    if (recentValues.length < 8) return; // Requiere menos datos
     
-    const validValues = recentValues.filter(v => v > 30 && v < 240);
-    if (validValues.length < 10) return;
+    const validValues = recentValues.filter(v => v > 10 && v < 250); // Rango más amplio
+    if (validValues.length < 5) return;
     
     const avg = validValues.reduce((a, b) => a + b, 0) / validValues.length;
     const stdDev = Math.sqrt(
       validValues.reduce((acc, val) => acc + Math.pow(val - avg, 2), 0) / validValues.length
     );
     
-    // Ajustar umbrales de forma más conservadora
-    this.adaptiveThresholds.min = Math.max(50, avg - stdDev * 1.5);
-    this.adaptiveThresholds.max = Math.min(220, avg + stdDev * 1.5);
+    // Ajustar umbrales de forma más agresiva para detectar
+    this.adaptiveThresholds.min = Math.max(20, avg - stdDev * 2.0); // Más amplio
+    this.adaptiveThresholds.max = Math.min(240, avg + stdDev * 2.0);
     
-    console.log("AdaptiveDetector: Umbrales adaptados conservadoramente:", this.adaptiveThresholds);
+    console.log("AdaptiveDetector: Umbrales adaptados agresivamente:", this.adaptiveThresholds);
   }
   
   public reset(): void {
     this.detectionHistory = [];
     this.baselineValues = null;
-    this.adaptiveThresholds = { min: 80, max: 180 };
+    this.adaptiveThresholds = { min: 60, max: 200 };
     this.consecutiveDetections = 0;
     this.consecutiveNonDetections = 0;
     this.stabilityHistory = [];

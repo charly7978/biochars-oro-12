@@ -1,5 +1,5 @@
 /**
- * Procesador de frames mejorado con optimizaciones específicas por dispositivo
+ * Procesador de frames mejorado con mayor sensibilidad para detección
  */
 export class EnhancedFrameProcessor {
   private deviceType: 'android' | 'ios' | 'desktop';
@@ -82,7 +82,7 @@ export class EnhancedFrameProcessor {
   }
   
   /**
-   * Detección mejorada de ROI con compensación de movimiento
+   * Detección mejorada de ROI con mayor área de captura
    */
   public detectEnhancedROI(imageData: ImageData): {
     x: number;
@@ -95,17 +95,17 @@ export class EnhancedFrameProcessor {
     const centerX = Math.floor(width / 2);
     const centerY = Math.floor(height / 2);
     
-    // ROI adaptativo según dispositivo
+    // ROI más grande para capturar más área del dedo
     let roiSize: number;
     switch (this.deviceType) {
       case 'android':
-        roiSize = Math.min(width, height) * 0.4;
+        roiSize = Math.min(width, height) * 0.6; // Incrementado de 0.4
         break;
       case 'ios':
-        roiSize = Math.min(width, height) * 0.35;
+        roiSize = Math.min(width, height) * 0.55; // Incrementado de 0.35
         break;
       default:
-        roiSize = Math.min(width, height) * 0.5;
+        roiSize = Math.min(width, height) * 0.7; // Incrementado de 0.5
     }
     
     const roiX = Math.max(0, centerX - roiSize / 2);
@@ -113,13 +113,14 @@ export class EnhancedFrameProcessor {
     const roiWidth = Math.min(roiSize, width - roiX);
     const roiHeight = Math.min(roiSize, height - roiY);
     
-    // Calcular estabilidad basada en variación de intensidad
+    // Calcular estabilidad con algoritmo más sensible
     let totalIntensity = 0;
     let pixelCount = 0;
     const intensities: number[] = [];
     
-    for (let y = roiY; y < roiY + roiHeight; y += 4) {
-      for (let x = roiX; x < roiX + roiWidth; x += 4) {
+    // Sampling más denso para mejor detección
+    for (let y = roiY; y < roiY + roiHeight; y += 2) { // Reducido de 4 a 2
+      for (let x = roiX; x < roiX + roiWidth; x += 2) { // Reducido de 4 a 2
         const index = (y * width + x) * 4;
         const intensity = (data[index] + data[index + 1] + data[index + 2]) / 3;
         intensities.push(intensity);
@@ -130,7 +131,7 @@ export class EnhancedFrameProcessor {
     
     const avgIntensity = totalIntensity / pixelCount;
     const variance = intensities.reduce((acc, val) => acc + Math.pow(val - avgIntensity, 2), 0) / pixelCount;
-    const stability = Math.max(0, 1 - variance / 10000); // Normalizar estabilidad
+    const stability = Math.max(0.1, 1 - variance / 15000); // Más permisivo y con mínimo
     
     return {
       x: Math.round(roiX),
@@ -142,7 +143,7 @@ export class EnhancedFrameProcessor {
   }
   
   /**
-   * Extracción mejorada de datos del frame
+   * Extracción mejorada de datos del frame con mayor sensibilidad
    */
   public extractEnhancedFrameData(imageData: ImageData) {
     const roi = this.detectEnhancedROI(imageData);
@@ -152,9 +153,10 @@ export class EnhancedFrameProcessor {
     let pixelCount = 0;
     let textureVariance = 0;
     const intensities: number[] = [];
+    const redValues: number[] = [];
     
-    // Extracción optimizada por dispositivo
-    const step = this.deviceType === 'desktop' ? 2 : 3; // Menor sampling en móviles
+    // Extracción más densa para mejor captura de señal
+    const step = this.deviceType === 'desktop' ? 1 : 2; // Sampling más denso
     
     for (let y = roi.y; y < roi.y + roi.height; y += step) {
       for (let x = roi.x; x < roi.x + roi.width; x += step) {
@@ -167,6 +169,7 @@ export class EnhancedFrameProcessor {
         greenSum += g;
         blueSum += b;
         
+        redValues.push(r);
         const intensity = (r + g + b) / 3;
         intensities.push(intensity);
         pixelCount++;
@@ -181,14 +184,22 @@ export class EnhancedFrameProcessor {
     const avgIntensity = intensities.reduce((a, b) => a + b, 0) / intensities.length;
     textureVariance = intensities.reduce((acc, val) => acc + Math.pow(val - avgIntensity, 2), 0) / intensities.length;
     
+    // Usar percentiles para valores más robustos
+    redValues.sort((a, b) => a - b);
+    const medianRed = redValues[Math.floor(redValues.length / 2)];
+    const p75Red = redValues[Math.floor(redValues.length * 0.75)];
+    
+    // Usar el valor más alto entre promedio, mediana y percentil 75 para mejor detección
+    const enhancedRedValue = Math.max(avgRed, medianRed, p75Red);
+    
     return {
-      redValue: avgRed,
+      redValue: enhancedRedValue,
       avgRed,
       avgGreen,
       avgBlue,
-      textureScore: Math.sqrt(textureVariance) / 255,
-      rToGRatio: avgGreen > 0 ? avgRed / avgGreen : 0,
-      rToBRatio: avgBlue > 0 ? avgRed / avgBlue : 0,
+      textureScore: Math.min(1.0, Math.sqrt(textureVariance) / 200), // Normalizado mejor
+      rToGRatio: avgGreen > 0 ? enhancedRedValue / avgGreen : 0,
+      rToBRatio: avgBlue > 0 ? enhancedRedValue / avgBlue : 0,
       roi,
       stability: roi.stability
     };
