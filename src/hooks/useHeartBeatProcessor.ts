@@ -1,32 +1,49 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { HeartBeatProcessor } from '../modules/HeartBeatProcessor';
-
-interface HeartBeatResult {
-  bpm: number;
-  confidence: number;
-  isPeak: boolean;
-  filteredValue?: number;
-  arrhythmiaCount: number;
-  signalQuality?: number; // Nuevo campo para calidad de señal
-  rrData?: {
-    intervals: number[];
-    lastPeakTime: number | null;
-  };
-}
+import { HeartBeatResult } from '../modules/heart-beat/types';
+import { 
+  MIN_QUALITY_THRESHOLD,
+  INITIAL_SENSITIVITY_LEVEL,
+  PEAK_AMPLIFICATION_FACTOR,
+  PEAK_DECAY_RATE
+} from '../modules/heart-beat/constants';
+import { detectAndValidatePeak } from '../modules/heart-beat/peak-detection';
+import { 
+  assessSignalQuality, 
+  createInitialSignalQualityState 
+} from '../modules/heart-beat/signal-quality';
+import { updateBPM, decreaseBPMGradually } from '../modules/heart-beat/bpm-manager';
 
 export const useHeartBeatProcessor = () => {
   const processorRef = useRef<HeartBeatProcessor | null>(null);
   const [currentBPM, setCurrentBPM] = useState<number>(0);
   const [confidence, setConfidence] = useState<number>(0);
-  const [signalQuality, setSignalQuality] = useState<number>(0); // Estado para calidad de señal
+  const [signalQuality, setSignalQuality] = useState<number>(0);
   const sessionId = useRef<string>(Math.random().toString(36).substring(2, 9));
-  // Variables para seguimiento de detección
+  
+  // Variables for detection tracking
   const detectionAttempts = useRef<number>(0);
   const lastDetectionTime = useRef<number>(Date.now());
   
-  // Umbral de calidad mínima para procesar - muy reducido para mejorar detección inicial
-  const MIN_QUALITY_THRESHOLD = 10; // Valor muy bajo para permitir detección inicial
+  // Variables for whip effect on peaks
+  const peakAmplificationFactor = useRef<number>(PEAK_AMPLIFICATION_FACTOR);
+  const peakDecayRate = useRef<number>(PEAK_DECAY_RATE);
+  const lastPeakTime = useRef<number | null>(null);
+  
+  // Variables for peak visual sync with audio
+  const lastReportedPeakTime = useRef<number>(0);
+  
+  // Peak detection state
+  const peakDetectionState = useRef({
+    processingPeakLock: false,
+    lastPeakTime: null as number | null,
+    lastReportedPeakTime: 0,
+    lastValidPeakValue: 0
+  });
+  
+  // Signal quality state
+  const signalQualityState = useRef(createInitialSignalQualityState());
 
   useEffect(() => {
     console.log('useHeartBeatProcessor: Creando nueva instancia de HeartBeatProcessor', {
@@ -43,11 +60,11 @@ export const useHeartBeatProcessor = () => {
         timestamp: new Date().toISOString()
       });
 
-      // Añadir evento para asegurar que el audio se inicialice correctamente
+      // Add event to ensure audio initializes correctly
       const initializeAudio = () => {
         console.log('useHeartBeatProcessor: Inicializando audio por interacción del usuario');
         if (processorRef.current) {
-          // Esto forzará la creación del contexto de audio
+          // This will force audio context creation
           const dummyContext = new AudioContext();
           dummyContext.resume().then(() => {
             console.log('Audio context activated by user interaction');
@@ -84,7 +101,7 @@ export const useHeartBeatProcessor = () => {
     const now = Date.now();
     detectionAttempts.current++;
     
-    // Inicialización de processor si no existe
+    // Initialize processor if it doesn't exist
     if (!processorRef.current) {
       console.warn('useHeartBeatProcessor: Processor no inicializado', {
         sessionId: sessionId.current,
@@ -104,64 +121,58 @@ export const useHeartBeatProcessor = () => {
       };
     }
 
-    // Procesar señal independientemente de estado de detección para entrenar algoritmos
-    // Esto ayuda a los algoritmos adaptativos a ajustarse más rápido
-    console.log('useHeartBeatProcessor - processSignal:', {
-      inputValue: value,
-      normalizadoValue: value.toFixed(2),
-      fingerDetected,
-      detectionAttempts: detectionAttempts.current,
-      timeSinceLastDetection: now - lastDetectionTime.current,
-      sessionId: sessionId.current,
-      timestamp: new Date().toISOString()
-    });
+    // AGGRESSIVE AMPLIFICATION - crucial for very weak signals
+    value = value * 2.0;
 
+    // Process signal quality and sensitivity
+    const qualityResult = assessSignalQuality(
+      value, 
+      signalQuality, 
+      { confidence }, 
+      signalQualityState.current,
+      fingerDetected,
+      detectionAttempts.current
+    );
+    signalQualityState.current = qualityResult.state;
+
+    // Process signal with HeartBeatProcessor
     const result = processorRef.current.processSignal(value);
     const rrData = processorRef.current.getRRIntervals();
     const currentQuality = result.signalQuality || 0;
     
-    // Actualizar el estado de calidad de señal
+    // Update the signal quality state
     setSignalQuality(currentQuality);
 
-    console.log('useHeartBeatProcessor - resultado:', {
-      bpm: result.bpm,
-      confidence: result.confidence,
-      isPeak: result.isPeak,
-      arrhythmiaCount: result.arrhythmiaCount,
-      signalQuality: currentQuality,
-      rrIntervals: JSON.stringify(rrData.intervals.slice(-5)),
-      ultimoPico: rrData.lastPeakTime,
-      tiempoDesdeUltimoPico: rrData.lastPeakTime ? Date.now() - rrData.lastPeakTime : null,
-      sessionId: sessionId.current,
-      timestamp: new Date().toISOString()
-    });
+    // Enhanced peak validation
+    const peakResult = detectAndValidatePeak(
+      value, 
+      result, 
+      peakDetectionState.current, 
+      currentBPM
+    );
     
-    // Si no hay dedo detectado pero tenemos una señal de calidad razonable
-    // consideramos que el dedo está presente (corrige falsos negativos)
-    const effectiveFingerDetected = fingerDetected || (currentQuality > MIN_QUALITY_THRESHOLD && result.confidence > 0.3);
-    
-    // Si no hay dedo detectado efectivamente, reducir los valores
+    // Update peak detection state
+    const isPeak = peakResult.isPeak;
+    if (isPeak) {
+      peakDetectionState.current = peakResult.updatedState;
+      lastPeakTime.current = now;
+    }
+
+    // Handle no finger detection
+    const effectiveFingerDetected = qualityResult.effectiveFingerDetected;
     if (!effectiveFingerDetected) {
-      console.log('useHeartBeatProcessor: Dedo no detectado efectivamente', {
-        fingerDetected,
-        currentQuality,
-        confidence: result.confidence,
-        timestamp: new Date().toISOString()
-      });
-      
-      // Reducir gradualmente los valores actuales en vez de resetearlos inmediatamente
-      // Esto evita cambios bruscos en la UI
-      if (currentBPM > 0) {
-        const reducedBPM = Math.max(0, currentBPM - 5);
-        const reducedConfidence = Math.max(0, confidence - 0.1);
-        setCurrentBPM(reducedBPM);
-        setConfidence(reducedConfidence);
-      }
+      // Very gradual reduction
+      const bpmState = decreaseBPMGradually({ currentBPM, confidence });
+      setCurrentBPM(bpmState.currentBPM);
+      setConfidence(bpmState.confidence);
+      signalQualityState.current.sensitivityLevel = INITIAL_SENSITIVITY_LEVEL;
+      signalQualityState.current.consistentSignalCounter = 0;
       
       return {
-        bpm: currentBPM, // Mantener último valor conocido brevemente
-        confidence: Math.max(0, confidence - 0.1), // Reducir gradualmente
+        bpm: currentBPM,
+        confidence: Math.max(0, confidence - 0.02),
         isPeak: false,
+        filteredValue: value,
         arrhythmiaCount: 0,
         signalQuality: currentQuality,
         rrData: {
@@ -171,26 +182,21 @@ export const useHeartBeatProcessor = () => {
       };
     }
 
-    // Actualizar tiempo de última detección
+    // Update last detection time
     lastDetectionTime.current = now;
     
-    // Si la confianza es suficiente, actualizar valores
-    if (result.confidence >= 0.5 && result.bpm > 0) {
-      console.log('useHeartBeatProcessor - Actualizando BPM y confianza', {
-        prevBPM: currentBPM,
-        newBPM: result.bpm,
-        prevConfidence: confidence,
-        newConfidence: result.confidence,
-        sessionId: sessionId.current,
-        timestamp: new Date().toISOString()
-      });
-      
-      setCurrentBPM(result.bpm);
-      setConfidence(result.confidence);
+    // Update BPM if confidence is sufficient
+    const bpmState = updateBPM(result, { currentBPM, confidence });
+    if (bpmState.currentBPM !== currentBPM || bpmState.confidence !== confidence) {
+      setCurrentBPM(bpmState.currentBPM);
+      setConfidence(bpmState.confidence);
     }
 
+    // Return result with controlled isPeak for synchronization with beeps
     return {
       ...result,
+      isPeak, 
+      filteredValue: value,
       signalQuality: currentQuality,
       rrData
     };
@@ -220,9 +226,17 @@ export const useHeartBeatProcessor = () => {
     setSignalQuality(0);
     detectionAttempts.current = 0;
     lastDetectionTime.current = Date.now();
+    lastReportedPeakTime.current = 0;
+    signalQualityState.current = createInitialSignalQualityState();
+    peakDetectionState.current = {
+      processingPeakLock: false,
+      lastPeakTime: null,
+      lastReportedPeakTime: 0,
+      lastValidPeakValue: 0
+    };
   }, [currentBPM, confidence]);
 
-  // Aseguramos que setArrhythmiaState funcione correctamente
+  // Ensure that setArrhythmiaState works correctly
   const setArrhythmiaState = useCallback((isArrhythmiaDetected: boolean) => {
     console.log('useHeartBeatProcessor: Estableciendo estado de arritmia', {
       isArrhythmiaDetected,
@@ -236,12 +250,21 @@ export const useHeartBeatProcessor = () => {
     }
   }, []);
 
+  // Addition to get RR data for API compatibility
+  const getRRIntervals = useCallback(() => {
+    if (processorRef.current) {
+      return processorRef.current.getRRIntervals();
+    }
+    return { intervals: [], lastPeakTime: null };
+  }, []);
+
   return {
     currentBPM,
     confidence,
-    signalQuality, // Exponiendo la calidad de señal
+    signalQuality,
     processSignal,
     reset,
-    setArrhythmiaState
+    setArrhythmiaState,
+    getRRIntervals
   };
 };
