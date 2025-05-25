@@ -1,4 +1,3 @@
-
 /**
  * Procesador de frames mejorado con optimizaciones específicas por dispositivo
  */
@@ -33,8 +32,7 @@ export class EnhancedFrameProcessor {
           ...baseConstraints,
           facingMode: { exact: 'environment' },
           exposureMode: 'manual',
-          whiteBalanceMode: 'manual',
-          resizeMode: 'crop-and-scale'
+          whiteBalanceMode: 'manual'
         };
       
       case 'ios':

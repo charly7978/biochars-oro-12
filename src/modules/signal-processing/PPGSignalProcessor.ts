@@ -1,4 +1,3 @@
-
 import { ProcessedSignal, ProcessingError, SignalProcessor as SignalProcessorInterface } from '../../types/signal';
 import { OptimizedKalmanFilter } from './OptimizedKalmanFilter';
 import { SavitzkyGolayFilter } from './SavitzkyGolayFilter';
@@ -29,19 +28,19 @@ export class PPGSignalProcessor implements SignalProcessorInterface {
   public isCalibrating: boolean = false;
   public frameProcessedCount = 0;
   
-  // Configuración optimizada
+  // Configuración optimizada para mejor detección
   public readonly CONFIG: SignalProcessorConfig = {
-    BUFFER_SIZE: 20,
-    MIN_RED_THRESHOLD: 40,
-    MAX_RED_THRESHOLD: 220,
-    STABILITY_WINDOW: 12,
-    MIN_STABILITY_COUNT: 6,
-    HYSTERESIS: 3.0,
-    MIN_CONSECUTIVE_DETECTIONS: 4,
-    MAX_CONSECUTIVE_NO_DETECTIONS: 3,
+    BUFFER_SIZE: 15, // Reducido para respuesta más rápida
+    MIN_RED_THRESHOLD: 25, // Más bajo para mayor sensibilidad
+    MAX_RED_THRESHOLD: 250, // Más alto para mayor rango
+    STABILITY_WINDOW: 8, // Reducido
+    MIN_STABILITY_COUNT: 3, // Reducido para detección más rápida
+    HYSTERESIS: 2.0, // Reducido
+    MIN_CONSECUTIVE_DETECTIONS: 2, // Reducido drásticamente
+    MAX_CONSECUTIVE_NO_DETECTIONS: 5, // Aumentado para mantener detección
     QUALITY_LEVELS: 25,
-    QUALITY_HISTORY_SIZE: 15,
-    CALIBRATION_SAMPLES: 15,
+    QUALITY_HISTORY_SIZE: 10, // Reducido
+    CALIBRATION_SAMPLES: 10, // Reducido
     TEXTURE_GRID_SIZE: 8,
     ROI_SIZE_FACTOR: 0.6
   };
@@ -147,7 +146,7 @@ export class PPGSignalProcessor implements SignalProcessorInterface {
 
     try {
       this.frameProcessedCount++;
-      const shouldLog = this.frameProcessedCount % 30 === 0;
+      const shouldLog = this.frameProcessedCount % 15 === 0; // Log más frecuente para debug
 
       if (!this.onSignalReady) {
         console.error("PPGSignalProcessor mejorado: onSignalReady callback no disponible");
@@ -159,16 +158,17 @@ export class PPGSignalProcessor implements SignalProcessorInterface {
       const { redValue, textureScore, rToGRatio, rToBRatio, roi, stability } = extractionResult;
 
       if (shouldLog) {
-        console.log("PPGSignalProcessor mejorado: Extracción de frame", {
+        console.log("PPGSignalProcessor: Datos extraídos", {
           redValue,
           stability,
           textureScore,
           rToGRatio,
-          rToBRatio
+          rToBRatio,
+          frameCount: this.frameProcessedCount
         });
       }
 
-      // 2. Detección adaptativa multi-modal
+      // 2. Detección adaptativa multi-modal con logging detallado
       const detectionResult = this.adaptiveDetector.detectFingerMultiModal({
         redValue,
         avgGreen: extractionResult.avgGreen,
@@ -179,22 +179,31 @@ export class PPGSignalProcessor implements SignalProcessorInterface {
         stability
       });
 
+      if (shouldLog || detectionResult.detected) {
+        console.log("PPGSignalProcessor: Resultado de detección", {
+          detected: detectionResult.detected,
+          confidence: detectionResult.confidence,
+          reasons: detectionResult.reasons,
+          redValue
+        });
+      }
+
       // 3. Procesamiento de señal con filtros optimizados
       let filteredValue = this.optimizedKalmanFilter.filter(redValue);
       filteredValue = this.sgFilter.filter(filteredValue);
       
-      // Amplificación adaptativa
-      const amplificationFactor = detectionResult.confidence > 0.8 ? 25 : 35;
+      // Amplificación adaptativa más agresiva para detección
+      const amplificationFactor = detectionResult.confidence > 0.6 ? 20 : 30;
       filteredValue = filteredValue * amplificationFactor;
 
-      // 4. Análisis FFT para BPM (solo si hay detección confiable)
+      // 4. Análisis FFT para BPM
       this.fftAnalyzer.addSample(filteredValue);
       
-      // 5. Análisis de tendencia mejorado
+      // 5. Análisis de tendencia
       const trendResult = this.trendAnalyzer.analyzeTrend(filteredValue);
 
-      // 6. Validación biofísica estricta
-      if (trendResult === "non_physiological" && !this.isCalibrating) {
+      // 6. Validación biofísica más permisiva durante calibración
+      if (trendResult === "non_physiological" && !this.isCalibrating && this.frameProcessedCount > 50) {
         const rejectSignal: ProcessedSignal = {
           timestamp: Date.now(),
           rawValue: redValue,
@@ -208,27 +217,32 @@ export class PPGSignalProcessor implements SignalProcessorInterface {
         return;
       }
 
-      // 7. Cálculo de calidad mejorado
+      // 7. Cálculo de calidad mejorado y más generoso
       let quality = 0;
       if (detectionResult.detected) {
-        quality = Math.round(detectionResult.confidence * 100);
+        quality = Math.round(detectionResult.confidence * 80); // Base más alta
         
         // Bonus por estabilidad
-        quality += Math.round(stability * 20);
+        quality += Math.round(stability * 15);
+        
+        // Bonus por presencia de señal fuerte
+        if (redValue > 50) {
+          quality += 10;
+        }
         
         // Bonus por análisis FFT exitoso
         const fftResult = this.fftAnalyzer.analyzeBPM();
-        if (fftResult && fftResult.confidence > 0.5) {
-          quality += Math.round(fftResult.confidence * 15);
+        if (fftResult && fftResult.confidence > 0.3) {
+          quality += Math.round(fftResult.confidence * 10);
         }
         
-        quality = Math.min(100, quality);
+        quality = Math.min(100, Math.max(25, quality)); // Mínimo 25 si hay detección
       }
 
       // 8. Adaptación de umbrales
       if (detectionResult.detected) {
         this.lastValues.push(redValue);
-        if (this.lastValues.length > 20) {
+        if (this.lastValues.length > 15) { // Buffer más pequeño para adaptación más rápida
           this.lastValues.shift();
           this.adaptiveDetector.adaptThresholds(this.lastValues);
         }
@@ -242,16 +256,18 @@ export class PPGSignalProcessor implements SignalProcessorInterface {
         quality: quality,
         fingerDetected: detectionResult.detected,
         roi: roi,
-        perfusionIndex: detectionResult.detected && quality > 40 ? 
-                       Math.max(0, (Math.log(redValue + 1) * 0.6 - 1.5)) : 0
+        perfusionIndex: detectionResult.detected && quality > 30 ? 
+                       Math.max(0, (Math.log(redValue + 1) * 0.6 - 1.2)) : 0
       };
 
-      if (shouldLog) {
-        console.log("PPGSignalProcessor mejorado: Señal procesada", {
+      if (shouldLog || detectionResult.detected) {
+        console.log("PPGSignalProcessor: Señal final", {
           fingerDetected: detectionResult.detected,
           confidence: detectionResult.confidence,
           quality,
-          reasons: detectionResult.reasons
+          rawValue: redValue,
+          filteredValue: filteredValue,
+          perfusionIndex: processedSignal.perfusionIndex
         });
       }
 
