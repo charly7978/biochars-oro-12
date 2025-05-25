@@ -1,32 +1,33 @@
 /**
- * Advanced Arrhythmia Processor con reducción de falsos positivos
- * Basado en investigación médica peer-reviewed con validación estricta
+ * Procesador de Arritmias Ultra-Conservador con eliminación agresiva de falsos positivos
+ * Implementa múltiples capas de validación médica estricta
  */
 export class ArrhythmiaProcessor {
-  // Configuración más estricta basada en estándares médicos
-  private readonly RR_WINDOW_SIZE = 15; // Ventana más grande para mejor análisis
-  private readonly RMSSD_THRESHOLD = 60; // Umbral más alto y conservador
-  private readonly ARRHYTHMIA_LEARNING_PERIOD = 8000; // Período de aprendizaje extendido
-  private readonly SD1_THRESHOLD = 45; // Umbral Poincaré más conservador
-  private readonly PERFUSION_INDEX_MIN = 0.4; // PI mínimo más alto
+  // Configuración ultra-conservadora
+  private readonly RR_WINDOW_SIZE = 20; // Ventana más grande para análisis robusto
+  private readonly RMSSD_THRESHOLD = 80; // Umbral muy alto y conservador
+  private readonly ARRHYTHMIA_LEARNING_PERIOD = 12000; // Período de aprendizaje muy extendido
+  private readonly SD1_THRESHOLD = 60; // Umbral Poincaré muy conservador
+  private readonly PERFUSION_INDEX_MIN = 0.6; // PI mínimo muy alto
   
-  // Parámetros de detección más estrictos
-  private readonly PNNX_THRESHOLD = 0.35; // pNN50 más conservador
-  private readonly SHANNON_ENTROPY_THRESHOLD = 2.2; // Entropía más alta
-  private readonly SAMPLE_ENTROPY_THRESHOLD = 1.8; // Entropía de muestra más alta
+  // Parámetros ultra-estrictos
+  private readonly PNNX_THRESHOLD = 0.5; // pNN50 muy conservador
+  private readonly SHANNON_ENTROPY_THRESHOLD = 2.8; // Entropía muy alta
+  private readonly SAMPLE_ENTROPY_THRESHOLD = 2.2; // Entropía de muestra muy alta
   
-  // Control de falsos positivos
-  private readonly MIN_ARRHYTHMIA_INTERVAL = 3000; // 3 segundos mínimo entre arritmias
-  private readonly MAX_ARRHYTHMIAS_PER_MINUTE = 3; // Máximo 3 arritmias por minuto
-  private readonly MIN_SIGNAL_QUALITY = 0.7; // Calidad mínima de señal requerida
+  // Control agresivo de falsos positivos
+  private readonly MIN_ARRHYTHMIA_INTERVAL = 8000; // 8 segundos mínimo entre arritmias
+  private readonly MAX_ARRHYTHMIAS_PER_MINUTE = 1; // Máximo 1 arritmia por minuto
+  private readonly MIN_SIGNAL_QUALITY = 0.8; // Calidad mínima muy alta
   
-  // Validación de consistencia
-  private readonly CONSISTENCY_WINDOW = 5; // Ventana para validar consistencia
-  private readonly MIN_CONSISTENT_DETECTIONS = 3; // Detecciones consistentes requeridas
+  // Validación ultra-estricta
+  private readonly CONSISTENCY_WINDOW = 8; // Ventana más grande
+  private readonly MIN_CONSISTENT_DETECTIONS = 6; // Más detecciones consistentes
+  private readonly MIN_VALID_RR_INTERVALS = 15; // Mínimo de intervalos válidos
+  private readonly MAX_RR_VARIATION_THRESHOLD = 0.3; // Máxima variación permitida
 
   // State variables
   private rrIntervals: number[] = [];
-  private rrDifferences: number[] = [];
   private qualityHistory: number[] = [];
   private lastPeakTime: number | null = null;
   private isLearningPhase = true;
@@ -39,8 +40,14 @@ export class ArrhythmiaProcessor {
   private measurementStartTime: number = Date.now();
   private arrhythmiaTimestamps: number[] = [];
   private consecutiveNormalBeats = 0;
-  private potentialArrhythmias: Array<{timestamp: number, confidence: number}> = [];
+  private potentialArrhythmias: Array<{timestamp: number, confidence: number, metrics: any}> = [];
   
+  // Nuevas validaciones ultra-estrictas
+  private baselineRRMean: number = 0;
+  private baselineRRSD: number = 0;
+  private rrStabilityHistory: number[] = [];
+  private falsePositivePreventionScore = 0;
+
   // Advanced metrics
   private shannonEntropy: number = 0;
   private sampleEntropy: number = 0;
@@ -54,11 +61,11 @@ export class ArrhythmiaProcessor {
    */
   public setArrhythmiaDetectionCallback(callback: (isDetected: boolean) => void): void {
     this.onArrhythmiaDetection = callback;
-    console.log("ArrhythmiaProcessor: Callback de detección establecido con validación estricta");
+    console.log("ArrhythmiaProcessor: Callback ultra-conservador establecido");
   }
 
   /**
-   * Procesa datos RR con validación médica estricta y reducción de falsos positivos
+   * Procesamiento ultra-conservador con múltiples capas de validación
    */
   public processRRData(rrData?: { intervals: number[]; lastPeakTime: number | null }): {
     arrhythmiaStatus: string;
@@ -66,38 +73,38 @@ export class ArrhythmiaProcessor {
   } {
     const currentTime = Date.now();
 
-    // Actualizar intervalos RR con validación estricta
+    // Actualizar intervalos RR con validación ultra-estricta
     if (rrData?.intervals && rrData.intervals.length > 0) {
-      // Filtrar intervalos fisiológicamente válidos (más estricto)
-      const validIntervals = rrData.intervals.filter(interval => 
-        interval >= 400 && interval <= 2000 // Rango más estricto
+      // Filtrar intervalos con criterios ultra-estrictos
+      const ultraValidIntervals = rrData.intervals.filter(interval => 
+        interval >= 500 && interval <= 1500 && // Rango más estricto
+        this.isPhysiologicallyPlausible(interval)
       );
       
-      if (validIntervals.length < rrData.intervals.length * 0.8) {
-        console.log("ArrhythmiaProcessor: Demasiados intervalos inválidos, ignorando frame");
+      if (ultraValidIntervals.length < rrData.intervals.length * 0.9) {
+        console.log("ArrhythmiaProcessor: Demasiados intervalos inválidos, rechazando frame");
         return this.getCurrentStatus(currentTime);
       }
       
-      this.rrIntervals = validIntervals;
+      this.rrIntervals = ultraValidIntervals;
       this.lastPeakTime = rrData.lastPeakTime;
       
-      // Calcular diferencias RR
-      if (this.rrIntervals.length >= 2) {
-        this.rrDifferences = [];
-        for (let i = 1; i < this.rrIntervals.length; i++) {
-          this.rrDifferences.push(this.rrIntervals[i] - this.rrIntervals[i-1]);
-        }
+      // Establecer baseline una sola vez con datos muy robustos
+      if (this.baselineRRMean === 0 && this.rrIntervals.length >= this.MIN_VALID_RR_INTERVALS) {
+        this.establishUltraStrictBaseline();
       }
       
-      // Solo procesar si hay suficientes datos y no estamos en fase de aprendizaje
-      if (!this.isLearningPhase && this.rrIntervals.length >= this.RR_WINDOW_SIZE) {
-        this.detectArrhythmiaWithValidation();
+      // Solo procesar después del período de aprendizaje extendido y con baseline
+      if (!this.isLearningPhase && 
+          this.rrIntervals.length >= this.RR_WINDOW_SIZE && 
+          this.baselineRRMean > 0) {
+        this.detectArrhythmiaUltraConservative();
       }
     }
 
-    // Verificar si la fase de aprendizaje está completa
+    // Verificar fase de aprendizaje extendida
     const timeSinceStart = currentTime - this.measurementStartTime;
-    if (timeSinceStart > this.ARRHYTHMIA_LEARNING_PERIOD) {
+    if (timeSinceStart > this.ARRHYTHMIA_LEARNING_PERIOD && this.baselineRRMean > 0) {
       this.isLearningPhase = false;
     }
 
@@ -105,126 +112,197 @@ export class ArrhythmiaProcessor {
   }
 
   /**
-   * Detección de arritmias con validación médica múltiple y reducción de falsos positivos
+   * Establecer baseline ultra-estricto
    */
-  private detectArrhythmiaWithValidation(): void {
+  private establishUltraStrictBaseline(): void {
+    if (this.rrIntervals.length < this.MIN_VALID_RR_INTERVALS) return;
+    
+    // Usar solo los intervalos más estables para el baseline
+    const sortedIntervals = [...this.rrIntervals].sort((a, b) => a - b);
+    const trimCount = Math.floor(sortedIntervals.length * 0.2); // Eliminar 20% extremos
+    const stableIntervals = sortedIntervals.slice(trimCount, sortedIntervals.length - trimCount);
+    
+    this.baselineRRMean = stableIntervals.reduce((a, b) => a + b, 0) / stableIntervals.length;
+    
+    const variance = stableIntervals.reduce((acc, val) => 
+      acc + Math.pow(val - this.baselineRRMean, 2), 0) / stableIntervals.length;
+    this.baselineRRSD = Math.sqrt(variance);
+    
+    console.log("ArrhythmiaProcessor: Baseline ultra-estricto establecido", {
+      media: this.baselineRRMean.toFixed(1),
+      desviacion: this.baselineRRSD.toFixed(1),
+      intervalos: stableIntervals.length
+    });
+  }
+
+  /**
+   * Verificar si un intervalo RR es fisiológicamente plausible
+   */
+  private isPhysiologicallyPlausible(interval: number): boolean {
+    // Verificar que está en rango de frecuencias cardíacas normales (40-150 BPM)
+    const bpm = 60000 / interval;
+    return bpm >= 40 && bpm <= 150;
+  }
+
+  /**
+   * Detección ultra-conservadora con múltiples validaciones
+   */
+  private detectArrhythmiaUltraConservative(): void {
     if (this.rrIntervals.length < this.RR_WINDOW_SIZE) return;
 
     const currentTime = Date.now();
     const recentRR = this.rrIntervals.slice(-this.RR_WINDOW_SIZE);
     
-    // 1. Validación de calidad de señal
+    // 1. Validación de calidad ultra-estricta
     const avgQuality = this.qualityHistory.length > 0 ? 
       this.qualityHistory.reduce((a, b) => a + b, 0) / this.qualityHistory.length : 0;
     
     if (avgQuality < this.MIN_SIGNAL_QUALITY) {
-      console.log("ArrhythmiaProcessor: Calidad de señal insuficiente", { avgQuality });
+      console.log("ArrhythmiaProcessor: Calidad insuficiente para análisis", { avgQuality });
       return;
     }
     
-    // 2. Cálculo de métricas con validación estricta
-    const metrics = this.calculateAdvancedMetrics(recentRR);
+    // 2. Validación de estabilidad del baseline
+    if (!this.isBaselineStable(recentRR)) {
+      console.log("ArrhythmiaProcessor: Baseline inestable, evitando falsos positivos");
+      return;
+    }
+    
+    // 3. Cálculo de métricas ultra-conservadoras
+    const metrics = this.calculateUltraConservativeMetrics(recentRR);
     if (!metrics) return;
     
     const { rmssd, rrVariation, coefficientOfVariation } = metrics;
     
-    // 3. Algoritmo de detección multi-paramétrico más estricto
-    const arrhythmiaScore = this.calculateArrhythmiaScore(metrics);
+    // 4. Score ultra-conservador (requiere múltiples criterios simultáneos)
+    const arrhythmiaScore = this.calculateUltraConservativeScore(metrics);
     
-    // 4. Validación temporal para evitar falsos positivos
+    // 5. Validaciones temporales ultra-estrictas
     const timeSinceLastArrhythmia = currentTime - this.lastArrhythmiaTime;
     const canDetectArrhythmia = timeSinceLastArrhythmia >= this.MIN_ARRHYTHMIA_INTERVAL;
     
-    // 5. Validación de frecuencia (no más de X arritmias por minuto)
     const recentArrhythmias = this.arrhythmiaTimestamps.filter(
       timestamp => currentTime - timestamp < 60000
     );
     const tooManyArrhythmias = recentArrhythmias.length >= this.MAX_ARRHYTHMIAS_PER_MINUTE;
     
-    console.log("ArrhythmiaProcessor: Análisis de validación", {
+    // 6. Validación de consistencia ultra-estricta
+    const isConsistent = this.validateUltraStrictConsistency(metrics);
+    
+    console.log("ArrhythmiaProcessor: Análisis ultra-conservador", {
       arrhythmiaScore,
+      umbralRequerido: 0.95,
       canDetectArrhythmia,
       tooManyArrhythmias,
-      recentArrhythmias: recentArrhythmias.length,
-      timeSinceLastArrhythmia,
+      isConsistent,
       rmssd,
-      rrVariation,
-      coefficientOfVariation
+      umbralRMSSD: this.RMSSD_THRESHOLD
     });
     
-    // 6. Decisión final con múltiples validaciones
+    // 7. Decisión final ultra-estricta (requiere score muy alto y todas las validaciones)
     const shouldDetectArrhythmia = 
-      arrhythmiaScore >= 0.8 && // Score alto requerido
+      arrhythmiaScore >= 0.95 && // Score ultra-alto requerido
       canDetectArrhythmia && 
       !tooManyArrhythmias &&
-      this.validateConsistency(metrics);
+      isConsistent &&
+      rmssd > this.RMSSD_THRESHOLD && // Doble verificación de RMSSD
+      this.falsePositivePreventionScore < 0.3; // Score de prevención de falsos positivos
     
     if (shouldDetectArrhythmia) {
-      this.confirmArrhythmia(currentTime, metrics);
+      this.confirmArrhythmiaUltraConservative(currentTime, metrics);
     } else {
       this.consecutiveNormalBeats++;
       
-      // Si hay muchos latidos normales consecutivos, resetear estado
-      if (this.consecutiveNormalBeats >= 20) {
+      // Resetear estado después de muchos latidos normales
+      if (this.consecutiveNormalBeats >= 30) {
         this.arrhythmiaDetected = false;
+        this.falsePositivePreventionScore = Math.max(0, this.falsePositivePreventionScore - 0.1);
       }
     }
   }
-  
+
   /**
-   * Calcular métricas avanzadas con validación
+   * Verificar estabilidad del baseline para evitar falsos positivos
    */
-  private calculateAdvancedMetrics(intervals: number[]): {
+  private isBaselineStable(intervals: number[]): boolean {
+    const avgRR = intervals.reduce((a, b) => a + b, 0) / intervals.length;
+    const baselineDeviation = Math.abs(avgRR - this.baselineRRMean) / this.baselineRRMean;
+    
+    // Si nos alejamos mucho del baseline, el contexto cambió
+    if (baselineDeviation > 0.2) {
+      return false;
+    }
+    
+    // Verificar estabilidad reciente
+    this.rrStabilityHistory.push(baselineDeviation);
+    if (this.rrStabilityHistory.length > 10) {
+      this.rrStabilityHistory.shift();
+    }
+    
+    const avgStability = this.rrStabilityHistory.reduce((a, b) => a + b, 0) / 
+                        this.rrStabilityHistory.length;
+    
+    return avgStability < 0.15; // Muy estable
+  }
+
+  /**
+   * Calcular métricas ultra-conservadoras
+   */
+  private calculateUltraConservativeMetrics(intervals: number[]): {
     rmssd: number;
     rrVariation: number;
     coefficientOfVariation: number;
   } | null {
-    // Validar que tenemos suficientes intervalos válidos
-    const validIntervals = intervals.filter(rr => rr >= 500 && rr <= 1500);
-    if (validIntervals.length < this.RR_WINDOW_SIZE * 0.8) {
+    // Validar intervalos ultra-estrictamente
+    const ultraValidIntervals = intervals.filter(rr => 
+      rr >= 600 && rr <= 1200 && // Rango ultra-estricto
+      Math.abs(rr - this.baselineRRMean) / this.baselineRRMean < 0.4 // No muy lejos del baseline
+    );
+    
+    if (ultraValidIntervals.length < this.RR_WINDOW_SIZE * 0.9) {
       return null;
     }
     
-    // Calcular RMSSD con validación estricta
+    // Calcular RMSSD ultra-conservador
     let sumSquaredDiff = 0;
     let validDifferences = 0;
     
-    for (let i = 1; i < validIntervals.length; i++) {
-      const diff = validIntervals[i] - validIntervals[i-1];
-      // Solo incluir diferencias fisiológicamente plausibles
-      if (Math.abs(diff) <= 200) {
+    for (let i = 1; i < ultraValidIntervals.length; i++) {
+      const diff = ultraValidIntervals[i] - ultraValidIntervals[i-1];
+      // Solo diferencias fisiológicamente muy plausibles
+      if (Math.abs(diff) <= 150) {
         sumSquaredDiff += diff * diff;
         validDifferences++;
       }
     }
     
-    if (validDifferences < 3) return null;
+    if (validDifferences < 5) return null;
     
     const rmssd = Math.sqrt(sumSquaredDiff / validDifferences);
     
-    // Calcular otras métricas
-    const avgRR = validIntervals.reduce((a, b) => a + b, 0) / validIntervals.length;
-    const lastRR = validIntervals[validIntervals.length - 1];
+    // Otras métricas
+    const avgRR = ultraValidIntervals.reduce((a, b) => a + b, 0) / ultraValidIntervals.length;
+    const lastRR = ultraValidIntervals[ultraValidIntervals.length - 1];
     const rrVariation = Math.abs(lastRR - avgRR) / avgRR;
     
     const rrSD = Math.sqrt(
-      validIntervals.reduce((sum, val) => sum + Math.pow(val - avgRR, 2), 0) / validIntervals.length
+      ultraValidIntervals.reduce((sum, val) => sum + Math.pow(val - avgRR, 2), 0) / 
+      ultraValidIntervals.length
     );
     const coefficientOfVariation = rrSD / avgRR;
     
-    // Calcular métricas no lineales
-    this.calculateNonLinearMetrics(validIntervals);
+    this.calculateNonLinearMetrics(ultraValidIntervals);
     
     this.lastRMSSD = rmssd;
     this.lastRRVariation = rrVariation;
     
     return { rmssd, rrVariation, coefficientOfVariation };
   }
-  
+
   /**
-   * Calcular score de arritmia con múltiples criterios
+   * Score ultra-conservador que requiere múltiples criterios simultáneos
    */
-  private calculateArrhythmiaScore(metrics: {
+  private calculateUltraConservativeScore(metrics: {
     rmssd: number;
     rrVariation: number;
     coefficientOfVariation: number;
@@ -232,92 +310,91 @@ export class ArrhythmiaProcessor {
     const { rmssd, rrVariation, coefficientOfVariation } = metrics;
     
     let score = 0;
+    let criteriaCount = 0;
     
-    // Criterio 1: RMSSD elevado (peso 0.3)
+    // Todos los criterios deben ser muy altos para sumar
     if (rmssd > this.RMSSD_THRESHOLD) {
-      score += 0.3 * Math.min(1, rmssd / (this.RMSSD_THRESHOLD * 2));
+      score += 0.4;
+      criteriaCount++;
     }
     
-    // Criterio 2: Variación RR alta (peso 0.25)
-    if (rrVariation > 0.25) {
-      score += 0.25 * Math.min(1, rrVariation / 0.5);
+    if (rrVariation > 0.3) {
+      score += 0.3;
+      criteriaCount++;
     }
     
-    // Criterio 3: Coeficiente de variación alto (peso 0.2)
-    if (coefficientOfVariation > 0.2) {
-      score += 0.2 * Math.min(1, coefficientOfVariation / 0.4);
+    if (coefficientOfVariation > 0.25) {
+      score += 0.2;
+      criteriaCount++;
     }
     
-    // Criterio 4: Entropía Shannon alta (peso 0.15)
     if (this.shannonEntropy > this.SHANNON_ENTROPY_THRESHOLD) {
-      score += 0.15 * Math.min(1, this.shannonEntropy / (this.SHANNON_ENTROPY_THRESHOLD * 1.5));
+      score += 0.1;
+      criteriaCount++;
     }
     
-    // Criterio 5: pNN50 alto (peso 0.1)
-    if (this.pnnX > this.PNNX_THRESHOLD) {
-      score += 0.1 * Math.min(1, this.pnnX / (this.PNNX_THRESHOLD * 2));
+    // Requiere al menos 3 criterios simultáneos para considerar arritmia
+    if (criteriaCount < 3) {
+      score = 0;
     }
     
     return score;
   }
-  
+
   /**
-   * Validar consistencia de la detección
+   * Validación ultra-estricta de consistencia
    */
-  private validateConsistency(metrics: any): boolean {
-    // Agregar a la lista de potenciales arritmias
+  private validateUltraStrictConsistency(metrics: any): boolean {
     this.potentialArrhythmias.push({
       timestamp: Date.now(),
-      confidence: this.calculateArrhythmiaScore(metrics)
+      confidence: this.calculateUltraConservativeScore(metrics),
+      metrics
     });
     
-    // Mantener solo las últimas detecciones
     if (this.potentialArrhythmias.length > this.CONSISTENCY_WINDOW) {
       this.potentialArrhythmias.shift();
     }
     
-    // Verificar que tenemos suficientes detecciones consistentes
-    const recentHighConfidence = this.potentialArrhythmias.filter(
-      p => p.confidence >= 0.7
+    // Requiere muchas detecciones ultra-consistentes
+    const ultraHighConfidence = this.potentialArrhythmias.filter(
+      p => p.confidence >= 0.9
     ).length;
     
-    return recentHighConfidence >= this.MIN_CONSISTENT_DETECTIONS;
+    return ultraHighConfidence >= this.MIN_CONSISTENT_DETECTIONS;
   }
-  
+
   /**
-   * Confirmar arritmia después de todas las validaciones
+   * Confirmar arritmia con todas las validaciones ultra-conservadoras
    */
-  private confirmArrhythmia(currentTime: number, metrics: any): void {
+  private confirmArrhythmiaUltraConservative(currentTime: number, metrics: any): void {
     this.arrhythmiaCount++;
     this.lastArrhythmiaTime = currentTime;
     this.consecutiveNormalBeats = 0;
     this.hasDetectedFirstArrhythmia = true;
     this.arrhythmiaDetected = true;
     
-    // Agregar timestamp para control de frecuencia
-    this.arrhythmiaTimestamps.push(currentTime);
+    // Incrementar score de prevención para reducir futuras detecciones
+    this.falsePositivePreventionScore = Math.min(1.0, this.falsePositivePreventionScore + 0.5);
     
-    // Limpiar timestamps antiguos (más de 1 minuto)
+    this.arrhythmiaTimestamps.push(currentTime);
     this.arrhythmiaTimestamps = this.arrhythmiaTimestamps.filter(
       timestamp => currentTime - timestamp < 60000
     );
     
-    // Notificar cambio de estado
     if (this.onArrhythmiaDetection) {
       this.onArrhythmiaDetection(true);
     }
     
-    console.log('ArrhythmiaProcessor - Arritmia CONFIRMADA tras validación estricta:', {
+    console.log('ArrhythmiaProcessor - Arritmia ULTRA-CONFIRMADA:', {
       contador: this.arrhythmiaCount,
       rmssd: this.lastRMSSD,
       rrVariation: this.lastRRVariation,
       shannonEntropy: this.shannonEntropy,
-      pnnX: this.pnnX,
-      timestamp: currentTime,
-      arrhythmiasInLastMinute: this.arrhythmiaTimestamps.length
+      preventionScore: this.falsePositivePreventionScore,
+      timestamp: currentTime
     });
   }
-  
+
   /**
    * Obtener estado actual
    */
@@ -344,7 +421,7 @@ export class ArrhythmiaProcessor {
   }
 
   // ... keep existing code (calculateNonLinearMetrics, calculateShannonEntropy, estimateSampleEntropy methods)
-  
+
   private calculateNonLinearMetrics(rrIntervals: number[]): void {
     let countAboveThreshold = 0;
     for (let i = 1; i < rrIntervals.length; i++) {
@@ -399,7 +476,6 @@ export class ArrhythmiaProcessor {
    */
   public reset(): void {
     this.rrIntervals = [];
-    this.rrDifferences = [];
     this.qualityHistory = [];
     this.lastPeakTime = null;
     this.isLearningPhase = true;
@@ -416,6 +492,10 @@ export class ArrhythmiaProcessor {
     this.shannonEntropy = 0;
     this.sampleEntropy = 0;
     this.pnnX = 0;
+    this.baselineRRMean = 0;
+    this.baselineRRSD = 0;
+    this.rrStabilityHistory = [];
+    this.falsePositivePreventionScore = 0;
     
     if (this.onArrhythmiaDetection) {
       this.onArrhythmiaDetection(false);
