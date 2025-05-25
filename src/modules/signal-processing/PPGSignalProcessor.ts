@@ -1,4 +1,3 @@
-
 import { ProcessedSignal, ProcessingError, SignalProcessor as SignalProcessorInterface } from '../../types/signal';
 import { KalmanFilter } from './KalmanFilter';
 import { SavitzkyGolayFilter } from './SavitzkyGolayFilter';
@@ -172,7 +171,7 @@ export class PPGSignalProcessor implements SignalProcessorInterface {
 
       // 1. Extract frame features with enhanced validation
       const extractionResult = this.frameProcessor.extractFrameData(imageData);
-      const { redValue, textureScore, rToGRatio, rToBRatio, edgeValue } = extractionResult;
+      const { redValue, textureScore, rToGRatio, rToBRatio } = extractionResult;
       const roi = this.frameProcessor.detectROI(redValue, imageData);
 
       // DEBUGGING: Log extracted redValue and ROI
@@ -185,7 +184,6 @@ export class PPGSignalProcessor implements SignalProcessorInterface {
           roiWidth: roi.width,
           roiHeight: roi.height,
           textureScore,
-          edgeValue,
           rToGRatio,
           rToBRatio
         });
@@ -280,9 +278,7 @@ export class PPGSignalProcessor implements SignalProcessorInterface {
         stability: this.trendAnalyzer.getStabilityScore(),
         pulsatility: this.biophysicalValidator.calculatePulsatilityIndex(filteredValue),
         biophysical: this.biophysicalValidator.validateBiophysicalRange(redValue, rToGRatio, rToBRatio),
-        periodicity: this.trendAnalyzer.getPeriodicityScore(),
-        textureScore,
-        edgeValue // Nuevo: pasar valor de detección de bordes
+        periodicity: this.trendAnalyzer.getPeriodicityScore()
       };
 
       // Update analyzer with latest scores
@@ -347,3 +343,5 @@ export class PPGSignalProcessor implements SignalProcessorInterface {
     }
   }
 }
+
+
