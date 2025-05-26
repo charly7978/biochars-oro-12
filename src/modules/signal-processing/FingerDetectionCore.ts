@@ -27,6 +27,7 @@ export class FingerDetectionCore {
   private recentReadings: number[] = [];
   private calibrationData: { baseline: number; variance: number } | null = null;
   private hemoglobinValidator: HemoglobinValidator;
+  private recentRedHistory: { value: number; timestamp: number }[] = []; // Almacena valores y marcas de tiempo
   
   constructor() {
     this.hemoglobinValidator = new HemoglobinValidator();
@@ -41,8 +42,22 @@ export class FingerDetectionCore {
     // Extraer datos básicos del frame
     const { metrics, roi } = this.extractBasicMetrics(imageData);
     
+    // Almacenar historial de intensidad roja para detección de pulsaciones
+    this.recentRedHistory.push({ value: metrics.redIntensity, timestamp: Date.now() });
+    if (this.recentRedHistory.length > 120) { // ~4 segundos a 30 FPS
+      this.recentRedHistory.shift();
+    }
+    
     // Validación por pasos para dedos reales
     const validation = this.validateRealFinger(metrics);
+    
+    // Nueva verificación: presencia de pulsación
+    const pulsationDetected = this.detectPulsation();
+    if (validation.detected && !pulsationDetected) {
+      validation.detected = false;
+      validation.reasons.unshift('No se detectó pulsación');
+      validation.confidence *= 0.6;
+    }
     
     // Actualizar calibración con datos válidos
     if (validation.detected) {
@@ -276,10 +291,21 @@ export class FingerDetectionCore {
     return finalQuality;
   }
   
+  /** Detecta pulsación real en la historia reciente **/
+  private detectPulsation(): boolean {
+    if (this.recentRedHistory.length < 25) return false; // Necesitamos al menos ~1 s de datos
+    const timespan = this.recentRedHistory[this.recentRedHistory.length - 1].timestamp - this.recentRedHistory[0].timestamp;
+    if (timespan < 1000) return false;
+
+    const values = this.recentRedHistory.map(p => p.value);
+    return this.hemoglobinValidator.detectPulsation(values, timespan);
+  }
+  
   reset(): void {
     this.frameCount = 0;
     this.recentReadings = [];
     this.calibrationData = null;
     this.hemoglobinValidator.reset();
+    this.recentRedHistory = [];
   }
 }
