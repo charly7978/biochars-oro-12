@@ -5,12 +5,12 @@
 export class AdaptiveDetector {
   private detectionHistory: boolean[] = [];
   private readonly HISTORY_SIZE = 10;
-  private readonly CONFIDENCE_THRESHOLD = 0.45; // REDUCIDO para mejorar detección de dedo (era 0.65)
+  private readonly CONFIDENCE_THRESHOLD = 0.35; // MÁS SENSIBLE para dedo humano (era 0.45)
   private baselineValues: { red: number; green: number; blue: number } | null = null;
-  private adaptiveThresholds: { min: number; max: number } = { min: 60, max: 180 }; // AMPLIADO rango para dedo (era 80-160)
+  private adaptiveThresholds: { min: number; max: number } = { min: 60, max: 180 };
   private consecutiveDetections = 0;
   private consecutiveNonDetections = 0;
-  private readonly MIN_CONSECUTIVE_DETECTIONS = 2; // REDUCIDO para respuesta más rápida (era 4)
+  private readonly MIN_CONSECUTIVE_DETECTIONS = 2;
   private readonly MAX_CONSECUTIVE_NON_DETECTIONS = 3;
   private stabilityHistory: number[] = [];
   private signalConsistencyHistory: number[] = [];
@@ -20,14 +20,14 @@ export class AdaptiveDetector {
   private framesSinceBaseline = 0;
   private readonly BASELINE_RECALIBRATION_FRAMES = 60;
   
-  // Parámetros MUCHO MÁS ESTRICTOS para dedo humano real
-  private readonly BIOLOGICAL_RED_MIN = 85; // Más estricto
-  private readonly BIOLOGICAL_RED_MAX = 165; // Más estricto
-  private readonly RED_TO_GREEN_RATIO_MIN = 1.2; // Más estricto
-  private readonly RED_TO_GREEN_RATIO_MAX = 2.0; // Más estricto
-  private readonly MIN_TEXTURE_FOR_BIOLOGICAL = 0.25; // Más estricto
-  private readonly MIN_STABILITY_FOR_BIOLOGICAL = 0.4; // Más estricto
-  private readonly MAX_BRIGHTNESS_VARIATION = 0.25; // Más estricto
+  // Parámetros AJUSTADOS para favorecer dedo humano
+  private readonly BIOLOGICAL_RED_MIN = 75; // MÁS PERMISIVO para dedo (era 85)
+  private readonly BIOLOGICAL_RED_MAX = 175; // MÁS PERMISIVO para dedo (era 165)
+  private readonly RED_TO_GREEN_RATIO_MIN = 1.1; // MÁS FLEXIBLE para dedo humano (era 1.2)
+  private readonly RED_TO_GREEN_RATIO_MAX = 2.2; // MÁS FLEXIBLE para dedo humano (era 2.0)
+  private readonly MIN_TEXTURE_FOR_BIOLOGICAL = 0.15; // MÁS SENSIBLE para textura de dedo (era 0.25)
+  private readonly MIN_STABILITY_FOR_BIOLOGICAL = 0.4;
+  private readonly MAX_BRIGHTNESS_VARIATION = 0.25;
   
   /**
    * Detección ULTRA ESTRICTA para dedo humano - rechaza todo lo demás
@@ -135,7 +135,7 @@ export class AdaptiveDetector {
       this.detectionHistory.shift();
     }
     
-    console.log("AdaptiveDetector: Detección ESTRICTA para dedo real", {
+    console.log("AdaptiveDetector: Detección SENSIBLE para dedo real", {
       detected: finalDetected,
       confidence: finalDetected ? confidence : confidence * 0.5,
       consecutiveDetections: this.consecutiveDetections,
@@ -191,7 +191,7 @@ export class AdaptiveDetector {
     const skinTone = red > green && red > blue; // Piel tiene dominancia roja
     const moderateIntensity = red >= 80 && red <= 160; // Intensidad biológica
     const greenBalance = green >= 40 && green <= 110; // Verde en rango biológico
-    const blueBalance = blue >= 25 && blue <= 90; // Azul en rango biológico
+    const blueBalance = blue >= 25 && blue <= 90; // Azul en rango biological
     
     // Verificar que no sea demasiado brillante (artificial)
     const notToobrright = !(red > 170 && green > 140 && blue > 120);
