@@ -2,14 +2,11 @@
 import { NewAdaptiveDetector } from './NewAdaptiveDetector';
 
 /**
- * Wrapper para mantener compatibilidad con la interfaz existente
+ * Wrapper de compatibilidad para el sistema unificado
  */
 export class AdaptiveDetector {
   private newDetector = new NewAdaptiveDetector();
   
-  /**
-   * Método principal de detección (interfaz de compatibilidad)
-   */
   public detectFingerMultiModal(frameData: {
     redValue: number;
     avgGreen: number;
@@ -20,7 +17,7 @@ export class AdaptiveDetector {
     stability: number;
   }): { detected: boolean; confidence: number; reasons: string[] } {
     
-    // Crear un ROI por defecto ya que el nuevo sistema lo requiere
+    // ROI por defecto para compatibilidad
     const defaultROI = {
       x: 100,
       y: 100,
@@ -28,7 +25,7 @@ export class AdaptiveDetector {
       height: 200
     };
     
-    // Crear imageData dummy para compatibilidad (el sistema robusto calculará su propio ROI)
+    // ImageData dummy para compatibilidad
     const canvas = document.createElement('canvas');
     canvas.width = 400;
     canvas.height = 400;
@@ -49,8 +46,8 @@ export class AdaptiveDetector {
   }
   
   public adaptThresholds(recentValues: number[]): void {
-    // Método legacy - el nuevo sistema se auto-calibra
-    console.log("AdaptiveDetector: adaptThresholds llamado (legacy) - el nuevo sistema se auto-calibra");
+    // Método legacy - el sistema unificado se auto-calibra
+    console.log("AdaptiveDetector: adaptThresholds (legacy) - sistema unificado se auto-calibra");
   }
   
   public reset(): void {
