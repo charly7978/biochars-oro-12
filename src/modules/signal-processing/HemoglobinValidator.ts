@@ -1,4 +1,3 @@
-
 /**
  * Validador de firma espectral de hemoglobina real
  * Detecta específicamente las características ópticas de la sangre oxigenada
@@ -14,14 +13,17 @@ export class HemoglobinValidator {
   /**
    * Validar firma espectral de hemoglobina
    */
-  public validateHemoglobinSignature(red: number, green: number, blue: number): boolean {
+  public validateHemoglobinSignature(red: number, green: number, blue: number): number {
     // Normalizar valores a rango 0-1
     const total = red + green + blue;
-    if (total < 150) return false; // Señal demasiado débil
+    if (total < 150) return 0; // Señal demasiado débil, confianza cero
     
     const redNorm = red / total;
     const greenNorm = green / total;
     const blueNorm = blue / total;
+    
+    let score = 0;
+    const maxScore = 4; // Número de checks
     
     // La hemoglobina oxigenada tiene características específicas:
     // 1. Menor absorción en rojo (más reflectancia)
@@ -34,15 +36,18 @@ export class HemoglobinValidator {
     const blueAbsorption = blueNorm;
     
     // Verificar patrones de absorción característicos
-    const validRedPattern = redReflectance >= 0.35 && redReflectance <= 0.65;
-    const validGreenPattern = greenAbsorption >= 0.25 && greenAbsorption <= 0.45;
-    const validBluePattern = blueAbsorption >= 0.15 && blueAbsorption <= 0.35;
+    if (redReflectance >= 0.35 && redReflectance <= 0.65) score++;
+    if (greenAbsorption >= 0.25 && greenAbsorption <= 0.45) score++;
+    if (blueAbsorption >= 0.15 && blueAbsorption <= 0.35) score++;
     
     // Verificar ratio característico de hemoglobina oxigenada
-    const oxygenationRatio = red / (green + blue);
-    const validOxygenation = oxygenationRatio >= 0.8 && oxygenationRatio <= 1.8;
+    const oxygenationRatio = red / (green + blue + 1e-6); // Evitar división por cero
+    if (oxygenationRatio >= 0.8 && oxygenationRatio <= 1.8) score++;
     
-    return validRedPattern && validGreenPattern && validBluePattern && validOxygenation;
+    // Ponderar más el ratio de oxigenación
+    if (oxygenationRatio >= 1.0 && oxygenationRatio <= 1.5) score += 0.5;
+    
+    return score / (maxScore + 0.5) ; // Normalizar el score a un rango de 0 a 1
   }
   
   /**
@@ -71,5 +76,9 @@ export class HemoglobinValidator {
     
     // La señal de pulso debe tener variabilidad característica (1-8%)
     return cv >= 0.01 && cv <= 0.08;
+  }
+
+  public reset(): void {
+    // No state to reset in this version
   }
 }

@@ -1,4 +1,3 @@
-
 import { ProcessedSignal, ProcessingError, SignalProcessor as SignalProcessorInterface } from '../../types/signal';
 import { FingerDetectionCore, FingerDetectionResult } from './FingerDetectionCore';
 import { SignalProcessingCore, ProcessedSignalData } from './SignalProcessingCore';
@@ -163,7 +162,7 @@ export class PPGSignalProcessor implements SignalProcessorInterface {
         filteredValue: signalData.filteredValue,
         quality: finalQuality,
         fingerDetected: finalDetected,
-        roi: { x: 0, y: 0, width: imageData.width, height: imageData.height },
+        roi: detectionResult.roi,
         perfusionIndex: this.calculatePerfusionIndex(detectionResult.metrics)
       };
 
