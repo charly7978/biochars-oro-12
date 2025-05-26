@@ -1,9 +1,13 @@
+
 /**
- * Procesador de frames mejorado con mayor sensibilidad para detección
+ * Procesador de frames con calibración precisa y lógica humana firme
  */
 export class EnhancedFrameProcessor {
   private deviceType: 'android' | 'ios' | 'desktop';
   private exposureOptimized: boolean = false;
+  private baselineRed: number | null = null;
+  private frameCount: number = 0;
+  private readonly CALIBRATION_FRAMES = 30; // Calibración más rápida pero firme
   
   constructor() {
     this.deviceType = this.detectDeviceType();
@@ -82,7 +86,7 @@ export class EnhancedFrameProcessor {
   }
   
   /**
-   * Detección mejorada de ROI con mayor área de captura
+   * Detección de ROI con calibración precisa
    */
   public detectEnhancedROI(imageData: ImageData): {
     x: number;
@@ -95,17 +99,17 @@ export class EnhancedFrameProcessor {
     const centerX = Math.floor(width / 2);
     const centerY = Math.floor(height / 2);
     
-    // ROI más grande para capturar más área del dedo
+    // ROI optimizado para detección precisa
     let roiSize: number;
     switch (this.deviceType) {
       case 'android':
-        roiSize = Math.min(width, height) * 0.6; // Incrementado de 0.4
+        roiSize = Math.min(width, height) * 0.5; // Tamaño moderado para precisión
         break;
       case 'ios':
-        roiSize = Math.min(width, height) * 0.55; // Incrementado de 0.35
+        roiSize = Math.min(width, height) * 0.45;
         break;
       default:
-        roiSize = Math.min(width, height) * 0.7; // Incrementado de 0.5
+        roiSize = Math.min(width, height) * 0.55;
     }
     
     const roiX = Math.max(0, centerX - roiSize / 2);
@@ -113,25 +117,46 @@ export class EnhancedFrameProcessor {
     const roiWidth = Math.min(roiSize, width - roiX);
     const roiHeight = Math.min(roiSize, height - roiY);
     
-    // Calcular estabilidad con algoritmo más sensible
+    // Calcular estabilidad con algoritmo preciso
     let totalIntensity = 0;
     let pixelCount = 0;
     const intensities: number[] = [];
     
-    // Sampling más denso para mejor detección
-    for (let y = roiY; y < roiY + roiHeight; y += 2) { // Reducido de 4 a 2
-      for (let x = roiX; x < roiX + roiWidth; x += 2) { // Reducido de 4 a 2
+    // Sampling preciso para mejor análisis
+    for (let y = roiY; y < roiY + roiHeight; y += 3) {
+      for (let x = roiX; x < roiX + roiWidth; x += 3) {
         const index = (y * width + x) * 4;
-        const intensity = (data[index] + data[index + 1] + data[index + 2]) / 3;
-        intensities.push(intensity);
-        totalIntensity += intensity;
-        pixelCount++;
+        const r = data[index];
+        const g = data[index + 1];
+        const b = data[index + 2];
+        
+        // Solo considerar píxeles con valores razonables
+        if (r > 30 && g > 15 && b > 10) {
+          const intensity = (r * 0.5 + g * 0.3 + b * 0.2); // Peso hacia rojo
+          intensities.push(intensity);
+          totalIntensity += intensity;
+          pixelCount++;
+        }
       }
     }
     
-    const avgIntensity = totalIntensity / pixelCount;
-    const variance = intensities.reduce((acc, val) => acc + Math.pow(val - avgIntensity, 2), 0) / pixelCount;
-    const stability = Math.max(0.1, 1 - variance / 15000); // Más permisivo y con mínimo
+    let stability = 0.1; // Valor base bajo
+    if (pixelCount > 20 && intensities.length > 20) {
+      const avgIntensity = totalIntensity / pixelCount;
+      const variance = intensities.reduce((acc, val) => acc + Math.pow(val - avgIntensity, 2), 0) / pixelCount;
+      const cv = Math.sqrt(variance) / avgIntensity; // Coeficiente de variación
+      
+      // Estabilidad basada en coeficiente de variación
+      if (cv < 0.15) {
+        stability = 0.9; // Muy estable
+      } else if (cv < 0.25) {
+        stability = 0.7; // Moderadamente estable
+      } else if (cv < 0.35) {
+        stability = 0.4; // Poco estable
+      } else {
+        stability = 0.1; // Muy inestable
+      }
+    }
     
     return {
       x: Math.round(roiX),
@@ -143,65 +168,133 @@ export class EnhancedFrameProcessor {
   }
   
   /**
-   * Extracción mejorada de datos del frame con mayor sensibilidad
+   * Extracción de datos con calibración precisa y lógica humana
    */
   public extractEnhancedFrameData(imageData: ImageData) {
+    this.frameCount++;
     const roi = this.detectEnhancedROI(imageData);
     const { width, height, data } = imageData;
     
     let redSum = 0, greenSum = 0, blueSum = 0;
-    let pixelCount = 0;
+    let validPixelCount = 0;
     let textureVariance = 0;
     const intensities: number[] = [];
     const redValues: number[] = [];
+    const greenValues: number[] = [];
+    const blueValues: number[] = [];
     
-    // Extracción más densa para mejor captura de señal
-    const step = this.deviceType === 'desktop' ? 1 : 2; // Sampling más denso
-    
-    for (let y = roi.y; y < roi.y + roi.height; y += step) {
-      for (let x = roi.x; x < roi.x + roi.width; x += step) {
+    // Extracción precisa con validación de píxeles
+    for (let y = roi.y; y < roi.y + roi.height; y += 2) {
+      for (let x = roi.x; x < roi.x + roi.width; x += 2) {
         const index = (y * width + x) * 4;
         const r = data[index];
         const g = data[index + 1];
         const b = data[index + 2];
         
-        redSum += r;
-        greenSum += g;
-        blueSum += b;
-        
-        redValues.push(r);
-        const intensity = (r + g + b) / 3;
-        intensities.push(intensity);
-        pixelCount++;
+        // Validar que el píxel tenga valores razonables para PPG
+        if (r >= 40 && r <= 240 && g >= 20 && g <= 200 && b >= 15 && b <= 180) {
+          redSum += r;
+          greenSum += g;
+          blueSum += b;
+          
+          redValues.push(r);
+          greenValues.push(g);
+          blueValues.push(b);
+          
+          const intensity = (r + g + b) / 3;
+          intensities.push(intensity);
+          validPixelCount++;
+        }
       }
     }
     
-    const avgRed = redSum / pixelCount;
-    const avgGreen = greenSum / pixelCount;
-    const avgBlue = blueSum / pixelCount;
+    // Si no hay suficientes píxeles válidos, retornar valores que indiquen "sin dedo"
+    if (validPixelCount < 50) {
+      console.log("EnhancedFrameProcessor: Insuficientes píxeles válidos para detección");
+      return {
+        redValue: 25, // Valor bajo que será rechazado
+        avgRed: 25,
+        avgGreen: 20,
+        avgBlue: 18,
+        textureScore: 0.1,
+        rToGRatio: 1.0,
+        rToBRatio: 1.0,
+        roi,
+        stability: roi.stability
+      };
+    }
     
-    // Calcular textura mejorada
+    // Calcular promedios
+    const avgRed = redSum / validPixelCount;
+    const avgGreen = greenSum / validPixelCount;
+    const avgBlue = blueSum / validPixelCount;
+    
+    // Calcular textura precisa
     const avgIntensity = intensities.reduce((a, b) => a + b, 0) / intensities.length;
     textureVariance = intensities.reduce((acc, val) => acc + Math.pow(val - avgIntensity, 2), 0) / intensities.length;
+    const textureScore = Math.min(1.0, Math.sqrt(textureVariance) / 180);
     
-    // Usar percentiles para valores más robustos
+    // Usar valores robustos (mediana y percentiles)
     redValues.sort((a, b) => a - b);
+    greenValues.sort((a, b) => a - b);
+    blueValues.sort((a, b) => a - b);
+    
     const medianRed = redValues[Math.floor(redValues.length / 2)];
     const p75Red = redValues[Math.floor(redValues.length * 0.75)];
+    const p25Red = redValues[Math.floor(redValues.length * 0.25)];
     
-    // Usar el valor más alto entre promedio, mediana y percentil 75 para mejor detección
-    const enhancedRedValue = Math.max(avgRed, medianRed, p75Red);
+    // Valor rojo robusto que evita outliers
+    const robustRedValue = (medianRed + p75Red + p25Red) / 3;
+    
+    // Establecer baseline durante calibración
+    if (this.frameCount <= this.CALIBRATION_FRAMES && robustRedValue >= 60 && robustRedValue <= 180) {
+      if (this.baselineRed === null) {
+        this.baselineRed = robustRedValue;
+      } else {
+        this.baselineRed = this.baselineRed * 0.9 + robustRedValue * 0.1;
+      }
+    }
+    
+    // Usar el valor más confiable
+    const finalRedValue = Math.max(avgRed, robustRedValue);
+    
+    // Calcular ratios con validación
+    const rToGRatio = avgGreen > 15 ? finalRedValue / avgGreen : 0.8;
+    const rToBRatio = avgBlue > 12 ? finalRedValue / avgBlue : 0.8;
+    
+    console.log("EnhancedFrameProcessor: Datos extraídos con calibración precisa", {
+      finalRedValue: finalRedValue.toFixed(1),
+      avgRed: avgRed.toFixed(1),
+      avgGreen: avgGreen.toFixed(1),
+      avgBlue: avgBlue.toFixed(1),
+      textureScore: textureScore.toFixed(3),
+      rToGRatio: rToGRatio.toFixed(2),
+      rToBRatio: rToBRatio.toFixed(2),
+      stability: roi.stability.toFixed(2),
+      validPixelCount,
+      frameCount: this.frameCount,
+      baselineRed: this.baselineRed?.toFixed(1) || 'null'
+    });
     
     return {
-      redValue: enhancedRedValue,
+      redValue: finalRedValue,
       avgRed,
       avgGreen,
       avgBlue,
-      textureScore: Math.min(1.0, Math.sqrt(textureVariance) / 200), // Normalizado mejor
-      rToGRatio: avgGreen > 0 ? enhancedRedValue / avgGreen : 0,
-      rToBRatio: avgBlue > 0 ? enhancedRedValue / avgBlue : 0,
+      textureScore,
+      rToGRatio,
+      rToBRatio,
       roi,
       stability: roi.stability
     };
+  }
+  
+  /**
+   * Reset para nueva sesión de medición
+   */
+  public reset(): void {
+    this.baselineRed = null;
+    this.frameCount = 0;
+    this.exposureOptimized = false;
   }
 }
