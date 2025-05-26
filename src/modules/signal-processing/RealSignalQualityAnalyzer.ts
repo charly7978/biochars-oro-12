@@ -14,6 +14,9 @@ export interface RealQualityMetrics {
 }
 
 export class RealSignalQualityAnalyzer {
+  reset() {
+    throw new Error('Method not implemented.');
+  }
   private readonly HISTORY_SIZE = 30; // Samples for stability and trend analysis
   private valueHistory: number[] = [];
   private qualityHistory: number[] = [];

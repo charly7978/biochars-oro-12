@@ -283,6 +283,8 @@ export class FingerDetectionCore {
     this.calibrationData = null;
     this.hemoglobinValidator.reset();
     this.recentRedHistory = [];
-    this.realQualityAnalyzer.reset();
+    if (this.realQualityAnalyzer) {
+      this.realQualityAnalyzer.reset();
+    }
   }
 }
