@@ -41,6 +41,10 @@ const Index = () => {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [rrIntervals, setRRIntervals] = useState<number[]>([]);
   
+  // Nueva referencia para controlar el estado del procesamiento de imagen
+  const isProcessingFramesRef = useRef(false);
+  const processingLoopRef = useRef<number | null>(null);
+  
   const { startProcessing, stopProcessing, lastSignal, processFrame } = useSignalProcessor();
   const { 
     processSignal: processHeartBeat, 
@@ -319,7 +323,14 @@ const Index = () => {
   };
 
   const finalizeMeasurement = () => {
-    console.log("Finalizando medición: manteniendo resultados");
+    console.log("Finalizando medición: deteniendo procesamiento de frames");
+    
+    // CRÍTICO: Detener procesamiento de frames PRIMERO
+    isProcessingFramesRef.current = false;
+    if (processingLoopRef.current) {
+      cancelAnimationFrame(processingLoopRef.current);
+      processingLoopRef.current = null;
+    }
     
     if (isCalibrating) {
       console.log("Calibración en progreso al finalizar, forzando finalización");
@@ -349,6 +360,14 @@ const Index = () => {
 
   const handleReset = () => {
     console.log("Reseteando completamente la aplicación");
+    
+    // CRÍTICO: Detener procesamiento de frames PRIMERO
+    isProcessingFramesRef.current = false;
+    if (processingLoopRef.current) {
+      cancelAnimationFrame(processingLoopRef.current);
+      processingLoopRef.current = null;
+    }
+    
     setIsMonitoring(false);
     setIsCameraOn(false);
     setShowResults(false);
@@ -383,9 +402,21 @@ const Index = () => {
   };
 
   const handleStreamReady = (stream: MediaStream) => {
-    if (!isMonitoring) return;
+    if (!isMonitoring) {
+      console.log("handleStreamReady: No está monitoreando, ignorando stream");
+      return;
+    }
+    
+    console.log("handleStreamReady: Configurando procesamiento de frames");
     
     const videoTrack = stream.getVideoTracks()[0];
+    
+    // Verificar que el track esté activo
+    if (!videoTrack || videoTrack.readyState !== 'live') {
+      console.error("handleStreamReady: Track de video no está activo");
+      return;
+    }
+    
     const imageCapture = new ImageCapture(videoTrack);
     
     // Asegurar que la linterna esté encendida para mediciones de PPG
@@ -412,6 +443,8 @@ const Index = () => {
     let frameCount = 0;
     let lastFpsUpdateTime = Date.now();
     let processingFps = 0;
+    let consecutiveErrors = 0;
+    const maxConsecutiveErrors = 5;
     
     // Crearemos un contexto dedicado para el procesamiento de imagen
     const enhanceCanvas = document.createElement('canvas');
@@ -419,8 +452,22 @@ const Index = () => {
     enhanceCanvas.width = 320;  // Tamaño óptimo para procesamiento PPG
     enhanceCanvas.height = 240;
     
+    // Activar el flag de procesamiento
+    isProcessingFramesRef.current = true;
+    
     const processImage = async () => {
-      if (!isMonitoring) return;
+      // CRÍTICO: Verificar si debemos seguir procesando
+      if (!isProcessingFramesRef.current || !isMonitoring) {
+        console.log("processImage: Deteniendo loop de procesamiento");
+        return;
+      }
+      
+      // Verificar que el track siga siendo válido
+      if (!videoTrack || videoTrack.readyState !== 'live') {
+        console.error("processImage: Track de video ya no está activo");
+        isProcessingFramesRef.current = false;
+        return;
+      }
       
       const now = Date.now();
       const timeSinceLastProcess = now - lastProcessTime;
@@ -428,8 +475,11 @@ const Index = () => {
       // Control de tasa de frames para no sobrecargar el dispositivo
       if (timeSinceLastProcess >= targetFrameInterval) {
         try {
-          // Capturar frame 
+          // Capturar frame con verificación de estado
           const frame = await imageCapture.grabFrame();
+          
+          // Reset contador de errores consecutivos
+          consecutiveErrors = 0;
           
           // Configurar tamaño adecuado del canvas para procesamiento
           const targetWidth = Math.min(320, frame.width);
@@ -482,16 +532,26 @@ const Index = () => {
             console.log(`Rendimiento de procesamiento: ${processingFps} FPS`);
           }
         } catch (error) {
-          console.error("Error capturando frame:", error);
+          consecutiveErrors++;
+          console.error(`Error capturando frame (${consecutiveErrors}/${maxConsecutiveErrors}):`, error);
+          
+          // Si hay demasiados errores consecutivos, detener el procesamiento
+          if (consecutiveErrors >= maxConsecutiveErrors) {
+            console.error("Demasiados errores consecutivos, deteniendo procesamiento de frames");
+            isProcessingFramesRef.current = false;
+            return;
+          }
         }
       }
       
-      // Programar el siguiente frame
-      if (isMonitoring) {
-        requestAnimationFrame(processImage);
+      // Programar el siguiente frame SOLO si debemos seguir procesando
+      if (isProcessingFramesRef.current && isMonitoring) {
+        processingLoopRef.current = requestAnimationFrame(processImage);
       }
     };
 
+    // Iniciar el loop de procesamiento
+    console.log("Iniciando loop de procesamiento de frames");
     processImage();
   };
 
