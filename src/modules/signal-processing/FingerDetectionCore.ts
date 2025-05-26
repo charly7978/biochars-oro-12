@@ -1,10 +1,9 @@
-
-import { RealFingerDetector } from './RealFingerDetector';
 import { HemoglobinValidator } from './HemoglobinValidator';
 import { RealSignalQualityAnalyzer } from './RealSignalQualityAnalyzer';
 
 /**
- * NÚCLEO DE DETECCIÓN SIMPLIFICADO - USA EL NUEVO SISTEMA ROBUSTO
+ * NÚCLEO DE DETECCIÓN DE DEDOS CORREGIDO
+ * Sistema simplificado y efectivo para detectar SOLO dedos reales
  */
 
 export interface FingerDetectionResult {
@@ -22,79 +21,45 @@ export interface FingerDetectionResult {
     hemoglobinScore: number;
     pulsationStrength: number;
   };
-  roi: { x: number; y: number; width: number; height: number };
+  roi: { x: number; y: number; width: number; height: number }; 
 }
 
 export class FingerDetectionCore {
-  private realDetector: RealFingerDetector;
-  private hemoglobinValidator: HemoglobinValidator;
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
   private frameCount = 0;
-=======
+  private recentReadings: number[] = [];
+  private calibrationData: { baseline: number; variance: number } | null = null;
+  private hemoglobinValidator: HemoglobinValidator;
   private realQualityAnalyzer: RealSignalQualityAnalyzer;
   private recentRedHistory: { value: number; timestamp: number }[] = [];
->>>>>>> Stashed changes
-=======
-  private realQualityAnalyzer: RealSignalQualityAnalyzer;
-  private recentRedHistory: { value: number; timestamp: number }[] = [];
->>>>>>> Stashed changes
-  
-  constructor() {
-    this.realDetector = new RealFingerDetector();
+
+  constructor() { 
     this.hemoglobinValidator = new HemoglobinValidator();
     this.realQualityAnalyzer = new RealSignalQualityAnalyzer();
   }
-  
+
   /**
-   * Detección principal usando el nuevo sistema robusto
+   * Detección principal CORREGIDA para dedos reales
    */
   detectFinger(imageData: ImageData): FingerDetectionResult {
     this.frameCount++;
-    
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
-    // Usar el detector real robusto
-    const detectionMetrics = this.realDetector.detectRealFinger(imageData);
-    
-    // Extraer métricas básicas para compatibilidad
-    const basicMetrics = this.extractBasicMetrics(imageData);
-    
-    // Determinar detección final
-    const detected = detectionMetrics.confidence > 0.5;
-    const quality = this.calculateQuality(detectionMetrics, basicMetrics);
-    
-    // Generar razones descriptivas
-    const reasons = this.generateReasons(detectionMetrics, detected);
-    
-    if (this.frameCount % 30 === 0) {
-      console.log("FingerDetectionCore (Nuevo):", {
-        detected,
-        confidence: detectionMetrics.confidence.toFixed(2),
-        quality: quality.toFixed(1),
-        skinTone: detectionMetrics.skinToneValid,
-        perfusion: detectionMetrics.perfusionDetected,
-        pulse: detectionMetrics.pulsationDetected
-=======
-=======
->>>>>>> Stashed changes
+
     const { metrics, roi } = this.extractBasicMetrics(imageData);
-    
+
     this.recentRedHistory.push({ value: metrics.redIntensity, timestamp: Date.now() });
-    if (this.recentRedHistory.length > 120) { // ~4 segundos a 30 FPS
+    if (this.recentRedHistory.length > 120) { 
       this.recentRedHistory.shift();
     }
-    
+
     const validation = this.validateRealFinger(metrics);
     const pulsationStrength = this.detectPulsation();
     const pulsationScore = pulsationStrength ? 1.0 : 0.1;
-    
+
     if (validation.detected && !pulsationStrength) {
       validation.detected = false;
       validation.reasons.unshift('No se detectó pulsación (validación final)');
       validation.confidence *= 0.2;
     }
-    
+
     if (validation.detected) {
       this.updateCalibration(metrics.redIntensity);
     }
@@ -123,61 +88,25 @@ export class FingerDetectionCore {
           stability: metrics.stability.toFixed(2),
           texture: metrics.textureScore.toFixed(2)
         }
-<<<<<<< Updated upstream
->>>>>>> Stashed changes
-=======
->>>>>>> Stashed changes
       });
     }
     
     return {
-      detected,
-      confidence: detectionMetrics.confidence,
+      detected: validation.detected,
+      confidence: validation.confidence,
       quality,
-      reasons,
+      reasons: validation.reasons,
       metrics: {
-<<<<<<< Updated upstream
-        ...basicMetrics,
-        hemoglobinScore: detectionMetrics.perfusionDetected ? 0.8 : 0.2
-=======
         ...metrics,
         pulsationStrength: pulsationScore
-<<<<<<< Updated upstream
->>>>>>> Stashed changes
-=======
->>>>>>> Stashed changes
       },
-      roi: { x: 0, y: 0, width: imageData.width, height: imageData.height }
+      roi
     };
   }
   
   private extractBasicMetrics(imageData: ImageData) {
     const { data, width, height } = imageData;
     
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
-    // Área central para análisis
-    const centerX = width / 2;
-    const centerY = height / 2;
-    const radius = Math.min(width, height) * 0.25;
-    
-    let redSum = 0, greenSum = 0, blueSum = 0;
-    let pixelCount = 0;
-    
-    for (let y = centerY - radius; y < centerY + radius; y += 2) {
-      for (let x = centerX - radius; x < centerX + radius; x += 2) {
-        if (x >= 0 && x < width && y >= 0 && y < height) {
-          const distance = Math.sqrt((x - centerX) ** 2 + (y - centerY) ** 2);
-          if (distance <= radius) {
-            const index = (Math.floor(y) * width + Math.floor(x)) * 4;
-            redSum += data[index];
-            greenSum += data[index + 1];
-            blueSum += data[index + 2];
-            pixelCount++;
-          }
-=======
-=======
->>>>>>> Stashed changes
     const roiSizeFactor = 0.35;
     const roiWidth = Math.min(width, height) * roiSizeFactor;
     const roiHeight = roiWidth;
@@ -201,24 +130,14 @@ export class FingerDetectionCore {
           blueSum += b;
           intensities.push((r + g + b) / 3);
           validPixels++;
->>>>>>> Stashed changes
         }
       }
     }
     
-    const avgRed = pixelCount > 0 ? redSum / pixelCount : 0;
-    const avgGreen = pixelCount > 0 ? greenSum / pixelCount : 0;
-    const avgBlue = pixelCount > 0 ? blueSum / pixelCount : 0;
+    const avgRed = validPixels > 0 ? redSum / validPixels : 0;
+    const avgGreen = validPixels > 0 ? greenSum / validPixels : 0;
+    const avgBlue = validPixels > 0 ? blueSum / validPixels : 0;
     
-<<<<<<< Updated upstream
-    return {
-      redIntensity: avgRed,
-      greenIntensity: avgGreen,
-      blueIntensity: avgBlue,
-      redToGreenRatio: avgGreen > 0 ? avgRed / avgGreen : 0,
-      textureScore: 0.5, // Simplificado
-      stability: 0.5      // Simplificado
-=======
     const hemoglobinScore = this.hemoglobinValidator.validateHemoglobinSignature(avgRed, avgGreen, avgBlue);
 
     if (this.frameCount % 15 === 0) {
@@ -242,42 +161,11 @@ export class FingerDetectionCore {
         hemoglobinScore,
       },
       roi: { x: roiX, y: roiY, width: roiWidth, height: roiHeight } 
->>>>>>> Stashed changes
     };
   }
   
-  private calculateQuality(detectionMetrics: any, basicMetrics: any): number {
-    // Calidad base del detector robusto
-    let quality = detectionMetrics.confidence * 80; // Base 0-80
-    
-    // Variabilidad realista
-    const variation = (Math.random() - 0.5) * 15; // ±7.5%
-    quality += variation;
-    
-    // Rango final: 35-85%
-    return Math.max(35, Math.min(85, quality));
-  }
-  
-  private generateReasons(metrics: any, detected: boolean): string[] {
+  private validateRealFinger(metrics: any) {
     const reasons: string[] = [];
-<<<<<<< Updated upstream
-    
-    if (detected) {
-      reasons.push("Dedo real detectado");
-      if (metrics.skinToneValid) reasons.push("Tono de piel válido");
-      if (metrics.perfusionDetected) reasons.push("Perfusión sanguínea detectada");
-      if (metrics.pulsationDetected) reasons.push("Micro-pulsaciones detectadas");
-      if (metrics.antiSpoofingPassed) reasons.push("Anti-falsificación OK");
-    } else {
-      if (!metrics.skinToneValid) reasons.push("Tono de piel inválido");
-      if (!metrics.perfusionDetected) reasons.push("Sin perfusión sanguínea");
-      if (!metrics.pulsationDetected) reasons.push("Sin micro-pulsaciones");
-      if (!metrics.antiSpoofingPassed) reasons.push("Posible objeto artificial");
-      reasons.push(`Confianza baja: ${(metrics.confidence * 100).toFixed(0)}%`);
-    }
-    
-    return reasons;
-=======
     let confidence = 0;
     const MIN_HEMOGLOBIN_SCORE = 0.30;
     const MIN_RED_INTENSITY = 50;
@@ -336,47 +224,6 @@ export class FingerDetectionCore {
     }
   }
   
-  /**
-   * Cálculo de textura simplificado
-   */
-  private calculateTexture(intensities: number[]): number {
-    if (intensities.length < 10) return 0;
-
-    const mean = intensities.reduce((a, b) => a + b, 0) / intensities.length;
-    const diffs = intensities.map(val => Math.abs(val - mean));
-    const mad = diffs.reduce((a,b) => a + b, 0) / diffs.length;
-    return Math.min(1.0, mad / 15.0);
-  }
-  
-  /**
-   * Cálculo de estabilidad temporal
-   */
-  private calculateStability(intensities: number[]): number {
-    this.recentReadings = intensities;
-    
-    if (this.recentReadings.length < 10) return 0.2;
-
-    const mean = this.recentReadings.reduce((a, b) => a + b, 0) / this.recentReadings.length;
-    if (mean < 1e-6) return 0;
-    const variance = this.recentReadings.reduce((acc, val) => acc + Math.pow(val - mean, 2), 0) / this.recentReadings.length;
-    const stdDev = Math.sqrt(variance);
-    const cv = stdDev / mean;
-    
-    return Math.max(0, Math.min(1, 1 - (cv / 0.30)));
-  }
-  
-  /**
-   * Actualizar calibración con datos válidos
-   */
-  private updateCalibration(redValue: number): void {
-    if (!this.calibrationData) {
-      this.calibrationData = { baseline: redValue, variance: 0 };
-    } else {
-      this.calibrationData.baseline = this.calibrationData.baseline * 0.90 + redValue * 0.10;
-    }
-  }
-  
-  /** Detecta pulsación real en la historia reciente **/
   private detectPulsation(): number {
     if (this.recentRedHistory.length < 15 || 
         (this.recentRedHistory[this.recentRedHistory.length - 1].timestamp - this.recentRedHistory[0].timestamp < 500))
@@ -397,23 +244,45 @@ export class FingerDetectionCore {
         return Math.max(0.3, 1 - Math.abs(cv - optimalCV) / 0.025); 
     }
     return 0.1;
-<<<<<<< Updated upstream
->>>>>>> Stashed changes
-=======
->>>>>>> Stashed changes
+  }
+  
+  private calculateTexture(intensities: number[]): number {
+    if (intensities.length < 10) return 0;
+
+    const mean = intensities.reduce((a, b) => a + b, 0) / intensities.length;
+    const diffs = intensities.map(val => Math.abs(val - mean));
+    const mad = diffs.reduce((a,b) => a + b, 0) / diffs.length;
+    return Math.min(1.0, mad / 15.0);
+  }
+  
+  private calculateStability(intensities: number[]): number {
+    this.recentReadings = intensities;
+    
+    if (this.recentReadings.length < 10) return 0.2;
+
+    const mean = this.recentReadings.reduce((a, b) => a + b, 0) / this.recentReadings.length;
+    if (mean < 1e-6) return 0;
+    const variance = this.recentReadings.reduce((acc, val) => acc + Math.pow(val - mean, 2), 0) / this.recentReadings.length;
+    const stdDev = Math.sqrt(variance);
+    const cv = stdDev / mean;
+    
+    return Math.max(0, Math.min(1, 1 - (cv / 0.30)));
+  }
+  
+  private updateCalibration(redValue: number): void {
+    if (!this.calibrationData) {
+      this.calibrationData = { baseline: redValue, variance: 0 };
+    } else {
+      this.calibrationData.baseline = this.calibrationData.baseline * 0.90 + redValue * 0.10;
+    }
   }
   
   reset(): void {
     this.frameCount = 0;
-    this.realDetector.reset();
+    this.recentReadings = [];
+    this.calibrationData = null;
     this.hemoglobinValidator.reset();
-<<<<<<< Updated upstream
-=======
     this.recentRedHistory = [];
     this.realQualityAnalyzer.reset();
-<<<<<<< Updated upstream
->>>>>>> Stashed changes
-=======
->>>>>>> Stashed changes
   }
 }
