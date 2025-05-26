@@ -1,7 +1,7 @@
 
 /**
- * DETECTOR DE DEDOS HUMANOS REAL - VERSIÓN DEFINITIVA
- * Umbrales calibrados para cámaras reales, no condiciones de laboratorio
+ * DETECTOR DE DEDOS HUMANOS REAL - UMBRALES ESTRICTOS
+ * Calibrado para eliminar falsos positivos completamente
  */
 
 export interface FingerDetectionResult {
@@ -22,46 +22,52 @@ export class RealFingerDetector {
   private qualityHistory: number[] = [];
   private redHistory: number[] = [];
   
-  // UMBRALES REALISTAS PARA CÁMARAS DE TELÉFONOS
+  // UMBRALES ESTRICTOS PARA ELIMINAR FALSOS POSITIVOS
   private readonly THRESHOLDS = {
-    // Rango de rojo muy amplio para diferentes tipos de piel y condiciones
-    MIN_RED: 25,          // Muy permisivo (antes 80)
-    MAX_RED: 220,         // Evitar saturación
+    // Rango de rojo MUY específico para piel humana
+    MIN_RED: 60,          // Mínimo estricto
+    MAX_RED: 180,         // Máximo estricto
     
-    // Ratio R/G realista para piel humana en cámaras
-    MIN_RG_RATIO: 0.8,    // Muy permisivo (antes 1.1)
-    MAX_RG_RATIO: 2.8,    // Amplio rango (antes 2.2)
+    // Ratio R/G muy específico para piel humana
+    MIN_RG_RATIO: 1.2,    // Estricto para piel real
+    MAX_RG_RATIO: 2.0,    // Estricto para piel real
     
-    // Textura mínima para distinguir de superficies planas
-    MIN_TEXTURE: 0.02,    // Muy bajo (antes 0.05)
+    // Textura mínima para distinguir de superficies
+    MIN_TEXTURE: 0.08,    // Más alto para requerir textura real
     
-    // Estabilidad temporal
-    MIN_STABILITY: 0.3,   // Permisivo para dedos con micro-movimientos
+    // Estabilidad temporal requerida
+    MIN_STABILITY: 0.6,   // Más estricto
     
-    // Calidad mínima final
-    MIN_QUALITY: 35       // Bajo para permitir detección (antes 75)
+    // Calidad mínima final MUY alta
+    MIN_QUALITY: 70       // Alto para eliminar falsos positivos
   };
   
   detectFinger(imageData: ImageData): FingerDetectionResult {
     // 1. EXTRAER MÉTRICAS BÁSICAS
     const metrics = this.extractBasicMetrics(imageData);
     
-    // 2. CALCULAR CALIDAD BASE
-    let baseQuality = this.calculateBaseQuality(metrics);
+    // 2. VALIDACIONES ESTRICTAS
+    const validations = this.performStrictValidations(metrics);
     
-    // 3. APLICAR VALIDACIONES SIMPLES Y PERMISIVAS
-    const validations = this.performValidations(metrics);
+    // 3. CALCULAR CALIDAD ESTRICTA
+    const quality = this.calculateStrictQuality(metrics);
     
-    // 4. CALCULAR CONFIANZA FINAL
-    const confidence = this.calculateConfidence(validations, baseQuality);
+    // 4. CALCULAR CONFIANZA ESTRICTA
+    const confidence = this.calculateStrictConfidence(validations, quality);
     
-    // 5. DECISIÓN FINAL CON HISTÉRESIS SIMPLE
-    const isDetected = this.makeDetectionDecision(confidence, baseQuality);
+    // 5. DECISIÓN FINAL MUY ESTRICTA
+    const isDetected = this.makeStrictDetectionDecision(confidence, quality, validations);
+    
+    // Actualizar historiales
+    this.redHistory.push(metrics.redIntensity);
+    if (this.redHistory.length > 10) {
+      this.redHistory.shift();
+    }
     
     return {
       isFingerDetected: isDetected,
       confidence,
-      quality: baseQuality,
+      quality,
       reasons: validations.reasons,
       metrics: {
         redIntensity: metrics.redIntensity,
@@ -75,18 +81,18 @@ export class RealFingerDetector {
   private extractBasicMetrics(imageData: ImageData) {
     const { data, width, height } = imageData;
     
-    // ROI central simple
+    // ROI central más pequeño y específico
     const centerX = width / 2;
     const centerY = height / 2;
-    const radius = Math.min(width, height) * 0.25;
+    const radius = Math.min(width, height) * 0.15; // Más pequeño
     
     let redSum = 0, greenSum = 0, blueSum = 0;
     let pixelCount = 0;
     const intensities: number[] = [];
     
-    // Muestreo simple y eficiente
-    for (let y = centerY - radius; y < centerY + radius; y += 3) {
-      for (let x = centerX - radius; x < centerX + radius; x += 3) {
+    // Muestreo más denso para mejor precisión
+    for (let y = centerY - radius; y < centerY + radius; y += 2) {
+      for (let x = centerX - radius; x < centerX + radius; x += 2) {
         if (x >= 0 && x < width && y >= 0 && y < height) {
           const distance = Math.sqrt((x - centerX) ** 2 + (y - centerY) ** 2);
           if (distance <= radius) {
@@ -112,124 +118,120 @@ export class RealFingerDetector {
     const avgRed = redSum / pixelCount;
     const avgGreen = greenSum / pixelCount;
     
-    // Calcular textura simple
+    // Calcular textura más estricta
     let textureScore = 0;
-    if (intensities.length > 10) {
+    if (intensities.length > 20) {
       const mean = intensities.reduce((a, b) => a + b, 0) / intensities.length;
       const variance = intensities.reduce((acc, val) => acc + Math.pow(val - mean, 2), 0) / intensities.length;
-      textureScore = Math.min(1.0, Math.sqrt(variance) / 50);
+      textureScore = Math.min(1.0, Math.sqrt(variance) / 30); // Más estricto
     }
     
     return {
       redIntensity: avgRed,
-      rgRatio: avgGreen > 5 ? avgRed / avgGreen : 1.0,
+      rgRatio: avgGreen > 10 ? avgRed / avgGreen : 0.5, // Más estricto
       textureScore
     };
   }
   
-  private calculateBaseQuality(metrics: any): number {
-    let quality = 0;
-    
-    // Calidad por intensidad roja (40 puntos)
-    if (metrics.redIntensity >= this.THRESHOLDS.MIN_RED && 
-        metrics.redIntensity <= this.THRESHOLDS.MAX_RED) {
-      quality += 40;
-    } else {
-      // Penalización gradual en lugar de rechazo total
-      const deviation = Math.min(
-        Math.abs(metrics.redIntensity - this.THRESHOLDS.MIN_RED),
-        Math.abs(metrics.redIntensity - this.THRESHOLDS.MAX_RED)
-      );
-      quality += Math.max(10, 40 - deviation / 2);
-    }
-    
-    // Calidad por ratio R/G (35 puntos)
-    if (metrics.rgRatio >= this.THRESHOLDS.MIN_RG_RATIO && 
-        metrics.rgRatio <= this.THRESHOLDS.MAX_RG_RATIO) {
-      quality += 35;
-    } else {
-      // Penalización gradual
-      quality += Math.max(5, 35 - Math.abs(metrics.rgRatio - 1.5) * 10);
-    }
-    
-    // Calidad por textura (25 puntos)
-    if (metrics.textureScore >= this.THRESHOLDS.MIN_TEXTURE) {
-      quality += 25;
-    } else {
-      quality += Math.max(5, metrics.textureScore * 500); // Muy permisivo
-    }
-    
-    return Math.min(90, quality);
-  }
-  
-  private performValidations(metrics: any) {
+  private performStrictValidations(metrics: any) {
     const reasons: string[] = [];
     let validationScore = 0;
     
-    // Validación 1: Intensidad roja básica
-    if (metrics.redIntensity >= this.THRESHOLDS.MIN_RED) {
+    // Validación 1: Intensidad roja ESTRICTA
+    if (metrics.redIntensity >= this.THRESHOLDS.MIN_RED && 
+        metrics.redIntensity <= this.THRESHOLDS.MAX_RED) {
       validationScore += 0.4;
-      reasons.push(`Rojo OK: ${metrics.redIntensity.toFixed(1)}`);
+      reasons.push(`Rojo válido: ${metrics.redIntensity.toFixed(1)}`);
     } else {
-      reasons.push(`Rojo bajo: ${metrics.redIntensity.toFixed(1)}`);
+      reasons.push(`Rojo inválido: ${metrics.redIntensity.toFixed(1)} (req: ${this.THRESHOLDS.MIN_RED}-${this.THRESHOLDS.MAX_RED})`);
     }
     
-    // Validación 2: Ratio de piel humana
-    if (metrics.rgRatio >= this.THRESHOLDS.MIN_RG_RATIO) {
+    // Validación 2: Ratio ESTRICTO para piel humana
+    if (metrics.rgRatio >= this.THRESHOLDS.MIN_RG_RATIO && 
+        metrics.rgRatio <= this.THRESHOLDS.MAX_RG_RATIO) {
       validationScore += 0.4;
-      reasons.push(`Ratio piel OK: ${metrics.rgRatio.toFixed(2)}`);
+      reasons.push(`Ratio piel válido: ${metrics.rgRatio.toFixed(2)}`);
     } else {
-      reasons.push(`Ratio bajo: ${metrics.rgRatio.toFixed(2)}`);
+      reasons.push(`Ratio inválido: ${metrics.rgRatio.toFixed(2)} (req: ${this.THRESHOLDS.MIN_RG_RATIO}-${this.THRESHOLDS.MAX_RG_RATIO})`);
     }
     
-    // Validación 3: Textura básica
+    // Validación 3: Textura ESTRICTA
     if (metrics.textureScore >= this.THRESHOLDS.MIN_TEXTURE) {
       validationScore += 0.2;
-      reasons.push(`Textura OK: ${metrics.textureScore.toFixed(3)}`);
+      reasons.push(`Textura válida: ${metrics.textureScore.toFixed(3)}`);
     } else {
-      reasons.push(`Textura baja: ${metrics.textureScore.toFixed(3)}`);
+      reasons.push(`Textura insuficiente: ${metrics.textureScore.toFixed(3)} (req: >${this.THRESHOLDS.MIN_TEXTURE})`);
     }
     
     return { score: validationScore, reasons };
   }
   
-  private calculateConfidence(validations: any, quality: number): number {
-    // Confianza basada en validaciones y calidad
-    const baseConfidence = validations.score;
-    const qualityBonus = (quality - 30) / 60; // Normalizar calidad
+  private calculateStrictQuality(metrics: any): number {
+    let quality = 0;
     
-    return Math.max(0, Math.min(1, baseConfidence + qualityBonus * 0.3));
+    // Solo otorgar puntos si cumple TODOS los criterios estrictos
+    if (metrics.redIntensity >= this.THRESHOLDS.MIN_RED && 
+        metrics.redIntensity <= this.THRESHOLDS.MAX_RED) {
+      quality += 40;
+    }
+    
+    if (metrics.rgRatio >= this.THRESHOLDS.MIN_RG_RATIO && 
+        metrics.rgRatio <= this.THRESHOLDS.MAX_RG_RATIO) {
+      quality += 40;
+    }
+    
+    if (metrics.textureScore >= this.THRESHOLDS.MIN_TEXTURE) {
+      quality += 20;
+    }
+    
+    return quality;
   }
   
-  private makeDetectionDecision(confidence: number, quality: number): boolean {
-    // Agregar a historia
-    const detected = confidence > 0.4 && quality > this.THRESHOLDS.MIN_QUALITY;
-    this.detectionHistory.push(detected);
-    this.qualityHistory.push(quality);
+  private calculateStrictConfidence(validations: any, quality: number): number {
+    // Confianza solo si TODAS las validaciones pasan
+    if (validations.score < 1.0) return 0; // Fallo automático
     
-    // Mantener ventana pequeña
+    const qualityFactor = quality / 100;
+    const stabilityFactor = this.calculateStability();
+    
+    return Math.min(1.0, qualityFactor * stabilityFactor);
+  }
+  
+  private makeStrictDetectionDecision(confidence: number, quality: number, validations: any): boolean {
+    // Decisión MUY estricta - TODOS los criterios deben cumplirse
+    const passesValidations = validations.score >= 1.0;
+    const passesQuality = quality >= this.THRESHOLDS.MIN_QUALITY;
+    const passesConfidence = confidence >= 0.8;
+    const passesStability = this.calculateStability() >= this.THRESHOLDS.MIN_STABILITY;
+    
+    const detected = passesValidations && passesQuality && passesConfidence && passesStability;
+    
+    // Agregar a historia para histéresis
+    this.detectionHistory.push(detected);
     if (this.detectionHistory.length > 5) {
       this.detectionHistory.shift();
-      this.qualityHistory.shift();
     }
     
-    // Histéresis simple: mayoría en ventana
-    if (this.detectionHistory.length >= 3) {
+    // Histéresis estricta: requiere detecciones consistentes
+    if (this.detectionHistory.length >= 5) {
       const recentDetections = this.detectionHistory.filter(d => d).length;
-      return recentDetections >= Math.ceil(this.detectionHistory.length / 2);
+      return recentDetections >= 4; // 4 de 5 deben ser positivas
     }
     
-    return detected;
+    return false; // No detectar hasta tener suficiente historia
   }
   
   private calculateStability(): number {
-    if (this.redHistory.length < 5) return 0.5;
+    if (this.redHistory.length < 5) return 0.0;
     
     const recent = this.redHistory.slice(-5);
     const mean = recent.reduce((a, b) => a + b, 0) / recent.length;
     const variance = recent.reduce((acc, val) => acc + Math.pow(val - mean, 2), 0) / recent.length;
     
-    return Math.max(0.2, Math.min(1.0, 1 - Math.sqrt(variance) / mean));
+    if (mean === 0) return 0.0;
+    
+    const cv = Math.sqrt(variance) / mean;
+    return Math.max(0.0, Math.min(1.0, 1 - cv));
   }
   
   reset(): void {

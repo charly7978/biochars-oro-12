@@ -1,5 +1,6 @@
+
 import { ProcessedSignal, ProcessingError, SignalProcessor as SignalProcessorInterface } from '../../types/signal';
-import { FingerDetectionCore, FingerDetectionResult } from './FingerDetectionCore';
+import { FingerDetectionCore, FingerDetectionCoreResult } from './FingerDetectionCore';
 import { SignalProcessingCore, ProcessedSignalData } from './SignalProcessingCore';
 import { QualityCalculator } from './QualityCalculator';
 
@@ -115,7 +116,7 @@ export class PPGSignalProcessor implements SignalProcessorInterface {
       const shouldLog = this.frameCount % 30 === 0;
 
       // 1. DETECCIÓN DE DEDO REAL
-      const detectionResult: FingerDetectionResult = this.fingerDetector.detectFinger(imageData);
+      const detectionResult: FingerDetectionCoreResult = this.fingerDetector.detectFinger(imageData);
       
       // 2. EXTRACCIÓN DE SEÑAL REAL
       const rawSignalValue = this.extractRealSignal(imageData);
