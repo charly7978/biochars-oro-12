@@ -1,6 +1,7 @@
 
 /**
  * CALCULADOR DE CALIDAD MEJORADO - SIN SIMULACIONES
+ * Optimizado para dedos humanos reales
  */
 
 export class QualityCalculator {
@@ -13,71 +14,78 @@ export class QualityCalculator {
     pulsationStrength: number,
     isDetected: boolean
   ): number {
-    // Historial de detección más largo para mejor análisis
+    // Historial de detección
     this.detectionHistory.push(isDetected);
-    if (this.detectionHistory.length > 8) {
+    if (this.detectionHistory.length > 6) {
       this.detectionHistory.shift();
     }
     
     if (!isDetected) {
-      const baseQuality = Math.max(8, 12 + Math.random() * 8);
+      const baseQuality = Math.max(10, 15 + Math.random() * 10);
       this.qualityHistory.push(baseQuality);
       return Math.round(baseQuality);
     }
     
-    let quality = 25; // Base más conservadora
+    let quality = 40; // Base más alta para dedos detectados
     
-    // 1. Calidad por intensidad roja (40%) - más estricta
-    if (redIntensity >= 100 && redIntensity <= 200) {
-      const optimal = 140;
+    // 1. Calidad por intensidad roja optimizada para humanos (35%)
+    if (redIntensity >= 80 && redIntensity <= 200) {
+      // Rango óptimo para dedos humanos
+      const optimal = 130;
       const deviation = Math.abs(redIntensity - optimal) / optimal;
-      const intensityScore = Math.max(0, 1 - (deviation * 1.5)); // Más penalización por desviación
+      const intensityScore = Math.max(0.5, 1 - deviation); // Menos penalización
       quality += intensityScore * 30;
-    } else if (redIntensity >= 80 && redIntensity <= 220) {
-      // Rango aceptable pero con menos puntos
-      quality += 15;
+    } else if (redIntensity >= 60 && redIntensity <= 250) {
+      // Rango aceptable amplio
+      quality += 20;
+    } else {
+      // Penalización mínima fuera del rango
+      quality += 10;
     }
     
-    // 2. Calidad por pulsación (25%) - más realista
+    // 2. Calidad por pulsación más generosa (25%)
     if (pulsationStrength > 0) {
-      const pulsationScore = Math.min(20, pulsationStrength * 400);
+      const pulsationScore = Math.min(25, pulsationStrength * 500);
       quality += pulsationScore;
+    } else {
+      // Algo de calidad incluso sin pulsación detectada
+      quality += 8;
     }
     
-    // 3. Calidad por consistencia de detección (25%)
-    if (this.detectionHistory.length >= 4) {
-      const recentDetections = this.detectionHistory.slice(-4);
+    // 3. Calidad por consistencia de detección (20%)
+    if (this.detectionHistory.length >= 3) {
+      const recentDetections = this.detectionHistory.slice(-3);
       const detectionRate = recentDetections.filter(d => d).length / recentDetections.length;
       quality += detectionRate * 20;
     }
     
-    // 4. Penalización por valores extremos (anti-falsos positivos)
-    if (redIntensity > 210 || redIntensity < 90) {
-      quality -= 15; // Penalización fuerte
+    // 4. Bonus por valores típicos de dedo humano
+    if (redIntensity >= 90 && redIntensity <= 180) {
+      quality += 15; // Gran bonus para rango típico
     }
     
-    // 5. Bonus por estabilidad en el tiempo
+    // 5. Estabilidad mejorada
     this.consistencyBuffer.push(redIntensity);
-    if (this.consistencyBuffer.length > 5) {
+    if (this.consistencyBuffer.length > 4) {
       this.consistencyBuffer.shift();
     }
     
     if (this.consistencyBuffer.length >= 3) {
       const variance = this.calculateVariance(this.consistencyBuffer);
-      const stabilityBonus = Math.max(0, 10 - (variance / 10));
+      const stabilityBonus = Math.max(0, 15 - (variance / 15)); // Más generoso
       quality += stabilityBonus;
     }
     
-    // Suavizado conservador
+    // Suavizado menos agresivo
     this.qualityHistory.push(quality);
-    if (this.qualityHistory.length > 3) {
+    if (this.qualityHistory.length > 2) {
       this.qualityHistory.shift();
     }
     
     const smoothedQuality = this.qualityHistory.reduce((a, b) => a + b, 0) / this.qualityHistory.length;
     
-    // Rango más estricto
-    return Math.max(15, Math.min(88, Math.round(smoothedQuality)));
+    // Rango más generoso para dedos humanos
+    return Math.max(25, Math.min(95, Math.round(smoothedQuality)));
   }
   
   private calculateVariance(values: number[]): number {
