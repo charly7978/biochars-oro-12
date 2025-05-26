@@ -4,16 +4,16 @@
  */
 export class RobustBinaryValidator {
   private readonly VALIDATION_RULES = {
-    MIN_SIGNAL_STRENGTH: 22, // Reducido de 25 a 22 - MÁS SENSIBLE para dedo humano
-    MAX_SIGNAL_STRENGTH: 200, // Aumentado para más tolerancia
-    MIN_RED_DOMINANCE: 1.02, // Reducido de 1.03 a 1.02 - MÁS SENSIBLE para piel humana
-    MAX_RED_DOMINANCE: 2.8, // Reducido de 3.0 a 2.8 - MÁS ESTRICTO contra falsos positivos
-    MIN_HEMOGLOBIN_RATIO: 1.01, // Reducido de 1.02 a 1.01 - MÁS SENSIBLE
-    MAX_HEMOGLOBIN_RATIO: 2.3, // Reducido de 2.5 a 2.3 - MÁS ESTRICTO contra artificiales
-    MIN_STABILITY_THRESHOLD: 0.2, // Reducido para ser más permisivo
-    MIN_TEXTURE_SCORE: 0.03, // Reducido para ser más permisivo
-    MAX_BRIGHTNESS_UNIFORMITY: 0.92, // Reducido de 0.95 a 0.92 - MÁS ESTRICTO contra luz uniforme
-    MIN_TEMPORAL_CONSISTENCY: 0.1 // Muy permisivo inicialmente
+    MIN_SIGNAL_STRENGTH: 18, // Más sensible para dedo humano real
+    MAX_SIGNAL_STRENGTH: 180, // Más estricto para rechazar falsos positivos
+    MIN_RED_DOMINANCE: 1.01, // Muy sensible para piel humana
+    MAX_RED_DOMINANCE: 2.5, // Más estricto contra artificiales
+    MIN_HEMOGLOBIN_RATIO: 1.005, // Ultra sensible para hemoglobina real
+    MAX_HEMOGLOBIN_RATIO: 2.2, // Más estricto contra artificiales
+    MIN_STABILITY_THRESHOLD: 0.15, // Más permisivo para dedo humano
+    MIN_TEXTURE_SCORE: 0.025, // Más permisivo para textura de piel
+    MAX_BRIGHTNESS_UNIFORMITY: 0.88, // Más estricto contra luz uniforme artificial
+    MIN_TEMPORAL_CONSISTENCY: 0.08 // Muy permisivo inicialmente
   };
   
   private validationHistory: boolean[] = [];
@@ -47,62 +47,62 @@ export class RobustBinaryValidator {
       return { isValid: false, failedRules };
     }
     
-    // REGLA 2: Rango de intensidad biológica válida - más permisivo
+    // REGLA 2: Rango de intensidad biológica válida - optimizado para dedo humano
     if (redValue < this.VALIDATION_RULES.MIN_SIGNAL_STRENGTH || 
         redValue > this.VALIDATION_RULES.MAX_SIGNAL_STRENGTH) {
-      failedRules.push(`Intensidad de señal fuera del rango biológico (${redValue})`);
+      failedRules.push(`Intensidad fuera del rango biológico humano (${redValue})`);
     }
     
-    // REGLA 3: Dominancia roja característica de piel - más estricto en el máximo
+    // REGLA 3: Dominancia roja característica de piel humana
     const redDominance = redValue / Math.max(avgGreen, avgBlue, 1);
     if (redDominance < this.VALIDATION_RULES.MIN_RED_DOMINANCE || 
         redDominance > this.VALIDATION_RULES.MAX_RED_DOMINANCE) {
-      failedRules.push(`Dominancia de canal rojo no característica (${redDominance.toFixed(2)})`);
+      failedRules.push(`Dominancia roja no humana (${redDominance.toFixed(2)})`);
     }
     
-    // REGLA 4: Ratio hemoglobina válido (CRÍTICO) - más estricto en el máximo
+    // REGLA 4: Ratio hemoglobina válido (CRÍTICO) - más específico para humanos
     const hemoglobinRatio = redValue / Math.max(avgGreen, 1);
     if (hemoglobinRatio < this.VALIDATION_RULES.MIN_HEMOGLOBIN_RATIO || 
         hemoglobinRatio > this.VALIDATION_RULES.MAX_HEMOGLOBIN_RATIO) {
-      failedRules.push(`CRÍTICO: Ratio hemoglobina inválido (${hemoglobinRatio.toFixed(2)})`);
+      failedRules.push(`CRÍTICO: Hemoglobina no humana (${hemoglobinRatio.toFixed(2)})`);
     }
     
-    // REGLA 5: Firma espectral de hemoglobina (VETO) - Solo después de varios frames
-    if (!hasValidHemoglobin && this.validationHistory.length > 10) {
-      failedRules.push("VETO: Firma espectral de hemoglobina inválida");
+    // REGLA 5: Firma espectral de hemoglobina (VETO) - Más estricto después de calibración
+    if (!hasValidHemoglobin && this.validationHistory.length > 8) {
+      failedRules.push("VETO: Firma hemoglobina inválida");
       return { isValid: false, failedRules };
     }
     
-    // REGLA 6: Textura de piel humana (VETO) - Solo después de varios frames
-    if (!hasValidSkinTexture && this.validationHistory.length > 10) {
-      failedRules.push("VETO: Textura no corresponde a piel humana");
+    // REGLA 6: Textura de piel humana (VETO) - Más estricto después de calibración
+    if (!hasValidSkinTexture && this.validationHistory.length > 8) {
+      failedRules.push("VETO: Textura no humana");
       return { isValid: false, failedRules };
     }
     
-    // REGLA 7: No debe ser fuente artificial (VETO) - Solo después de varios frames
-    if (!isNotArtificial && this.validationHistory.length > 8) {
-      failedRules.push("VETO: Detectada fuente artificial");
+    // REGLA 7: No debe ser fuente artificial (VETO) - Más estricto
+    if (!isNotArtificial && this.validationHistory.length > 6) {
+      failedRules.push("VETO: Fuente artificial detectada");
       return { isValid: false, failedRules };
     }
     
-    // REGLA 8: Estabilidad mínima requerida - más permisivo
+    // REGLA 8: Estabilidad mínima requerida
     if (stability < this.VALIDATION_RULES.MIN_STABILITY_THRESHOLD) {
       failedRules.push(`Estabilidad insuficiente (${stability.toFixed(2)})`);
     }
     
-    // REGLA 9: Textura mínima requerida - más permisivo
+    // REGLA 9: Textura mínima requerida
     if (textureScore < this.VALIDATION_RULES.MIN_TEXTURE_SCORE) {
       failedRules.push(`Textura insuficiente (${textureScore.toFixed(3)})`);
     }
     
-    // REGLA 10: No debe ser uniformemente brillante (artificial) - más estricto
+    // REGLA 10: No debe ser uniformemente brillante (artificial) - Más estricto
     const brightness = (redValue + avgGreen + avgBlue) / 3;
     const uniformity = 1 - (Math.abs(redValue - avgGreen) + Math.abs(avgGreen - avgBlue)) / (2 * brightness);
     if (uniformity > this.VALIDATION_RULES.MAX_BRIGHTNESS_UNIFORMITY) {
-      failedRules.push(`Uniformidad excesiva - fuente artificial (${uniformity.toFixed(2)})`);
+      failedRules.push(`Uniformidad artificial (${uniformity.toFixed(2)})`);
     }
     
-    // REGLA 11: Consistencia temporal - muy permisivo inicialmente
+    // REGLA 11: Consistencia temporal
     if (temporalConsistency < this.VALIDATION_RULES.MIN_TEMPORAL_CONSISTENCY) {
       failedRules.push(`Inconsistencia temporal (${temporalConsistency.toFixed(2)})`);
     }
@@ -115,17 +115,13 @@ export class RobustBinaryValidator {
       this.validationHistory.shift();
     }
     
-    console.log("RobustBinaryValidator:", {
+    console.log("RobustBinaryValidator OPTIMIZADO:", {
       isValid,
-      failedRules: failedRules.length > 0 ? failedRules[0] : "TODAS LAS VALIDACIONES PASARON",
+      failedRules: failedRules.length > 0 ? failedRules[0] : "✅ DEDO HUMANO VALIDADO",
       redValue,
       hemoglobinRatio: hemoglobinRatio.toFixed(2),
       redDominance: redDominance.toFixed(2),
-      stability: stability.toFixed(2),
-      textureScore: textureScore.toFixed(3),
-      temporalConsistency: temporalConsistency.toFixed(2),
-      uniformity: uniformity.toFixed(2),
-      historyLength: this.validationHistory.length
+      uniformity: uniformity.toFixed(2)
     });
     
     return { isValid, failedRules };
