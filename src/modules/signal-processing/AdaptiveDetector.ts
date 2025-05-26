@@ -1,11 +1,12 @@
+
 import { DETECTOR_CONFIG } from './DetectorConfig';
 import { ArtificialSourceDetector } from './ArtificialSourceDetector';
 import { BiologicalValidator } from './BiologicalValidator';
 import { SignalVariabilityAnalyzer } from './SignalVariabilityAnalyzer';
 
 /**
- * Detector adaptativo con validación SENSIBLE para dedo humano real
- * Rechaza fuentes de luz, objetos y superficies artificiales
+ * Detector adaptativo EQUILIBRADO para dedo humano real
+ * Rechaza fuentes de luz, objetos y ruido de fondo
  */
 export class AdaptiveDetector {
   private detectionHistory: boolean[] = [];
@@ -16,6 +17,8 @@ export class AdaptiveDetector {
   private stabilityHistory: number[] = [];
   private lastValidSignal = 0;
   private framesSinceBaseline = 0;
+  private backgroundNoise = 0;
+  private noiseHistory: number[] = [];
   
   // Component instances
   private artificialSourceDetector = new ArtificialSourceDetector();
@@ -23,7 +26,7 @@ export class AdaptiveDetector {
   private signalVariabilityAnalyzer = new SignalVariabilityAnalyzer();
   
   /**
-   * Detección SENSIBLE para dedo humano - más permisiva pero rechaza artificiales
+   * Detección EQUILIBRADA para dedo humano - rechaza ruido y artificiales
    */
   public detectFingerMultiModal(frameData: {
     redValue: number;
@@ -38,7 +41,21 @@ export class AdaptiveDetector {
     const { redValue, avgGreen, avgBlue, textureScore, rToGRatio, rToBRatio, stability } = frameData;
     this.framesSinceBaseline++;
     
-    // 1. RECHAZAR FUENTES DE LUZ Y OBJETOS ARTIFICIALES PRIMERO
+    // Actualizar estimación de ruido de fondo
+    this.updateBackgroundNoise(redValue);
+    
+    // 1. RECHAZAR RUIDO DE FONDO PRIMERO
+    if (redValue <= this.backgroundNoise * 1.5 || redValue < 40) {
+      this.consecutiveNonDetections++;
+      this.consecutiveDetections = 0;
+      return { 
+        detected: false, 
+        confidence: 0, 
+        reasons: ['background_noise_detected'] 
+      };
+    }
+    
+    // 2. RECHAZAR FUENTES DE LUZ Y OBJETOS ARTIFICIALES
     if (this.artificialSourceDetector.isArtificialSource(redValue, avgGreen, avgBlue, stability, rToGRatio)) {
       this.consecutiveNonDetections++;
       this.consecutiveDetections = 0;
@@ -52,39 +69,46 @@ export class AdaptiveDetector {
     const reasons: string[] = [];
     let score = 0;
     
-    // 2. VALIDACIÓN BIOLÓGICA MÁS PERMISIVA PARA DEDO HUMANO
+    // 3. VALIDACIÓN BIOLÓGICA EQUILIBRADA
     
-    // Test de rango rojo biológico
-    if (this.biologicalValidator.isInBiologicalRedRange(redValue)) {
-      score += 0.25;
-      reasons.push('red_range_biological');
+    // Usar validación comprehensiva
+    const isValidFinger = this.biologicalValidator.validateFingerPresence(
+      redValue, avgGreen, avgBlue, textureScore, stability
+    );
+    
+    if (isValidFinger) {
+      score += 0.4; // Base score alta solo si pasa todas las validaciones
+      reasons.push('comprehensive_finger_validation_passed');
     } else {
-      // Ser más permisivo - no rechazar inmediatamente
-      score += 0.1;
-      reasons.push('red_range_marginal');
+      // Si no pasa la validación comprehensiva, verificar componentes individuales
+      if (this.biologicalValidator.isInBiologicalRedRange(redValue)) {
+        score += 0.1;
+        reasons.push('red_range_ok');
+      }
+      
+      if (this.biologicalValidator.hasValidHemoglobinRatio(rToGRatio)) {
+        score += 0.1;
+        reasons.push('ratio_ok');
+      }
+      
+      if (this.biologicalValidator.hasBiologicalTexture(textureScore)) {
+        score += 0.1;
+        reasons.push('texture_ok');
+      }
+      
+      // Si no pasa validaciones básicas, score muy bajo
+      if (score < 0.25) {
+        this.consecutiveNonDetections++;
+        this.consecutiveDetections = 0;
+        return { 
+          detected: false, 
+          confidence: score, 
+          reasons: ['insufficient_biological_markers'] 
+        };
+      }
     }
     
-    // Test de ratio rojo/verde PERMISIVO (hemoglobina)
-    if (this.biologicalValidator.hasValidHemoglobinRatio(rToGRatio)) {
-      score += 0.25;
-      reasons.push('hemoglobin_ratio_valid');
-    } else if (rToGRatio >= 0.9 && rToGRatio <= 2.8) {
-      // Rango ampliado para casos límite
-      score += 0.15;
-      reasons.push('hemoglobin_ratio_marginal');
-    }
-    
-    // Test de textura biológica PERMISIVO
-    if (this.biologicalValidator.hasBiologicalTexture(textureScore)) {
-      score += 0.2;
-      reasons.push('biological_texture');
-    } else if (textureScore >= 0.05) {
-      // Más permisivo para textura
-      score += 0.12;
-      reasons.push('texture_marginal');
-    }
-    
-    // Test de estabilidad biológica
+    // 4. Test de estabilidad con historia
     this.stabilityHistory.push(stability);
     if (this.stabilityHistory.length > 8) {
       this.stabilityHistory.shift();
@@ -93,33 +117,25 @@ export class AdaptiveDetector {
     const avgStability = this.stabilityHistory.reduce((a, b) => a + b, 0) / this.stabilityHistory.length;
     if (this.biologicalValidator.hasBiologicalStability(avgStability)) {
       score += 0.15;
-      reasons.push('biological_stability');
-    } else if (avgStability >= 0.2) {
-      // Más permisivo para estabilidad
-      score += 0.08;
-      reasons.push('stability_marginal');
+      reasons.push('stable_signal');
     }
     
-    // Test de perfusión biológica
-    if (this.biologicalValidator.hasBiologicalPerfusion(redValue, avgGreen, avgBlue)) {
+    // 5. Bonus por valores óptimos
+    if (redValue >= 90 && redValue <= 140 && rToGRatio >= 1.3 && rToGRatio <= 1.8) {
       score += 0.15;
-      reasons.push('biological_perfusion');
-    } else {
-      // Ser más permisivo - dar puntuación parcial
-      score += 0.05;
-      reasons.push('perfusion_marginal');
+      reasons.push('optimal_finger_values');
     }
     
-    // Bonus por valores en rango óptimo para dedo
-    if (redValue >= 80 && redValue <= 150 && rToGRatio >= 1.2 && rToGRatio <= 2.0) {
-      score += 0.1;
-      reasons.push('optimal_finger_values');
+    // 6. Penalización por señales inconsistentes
+    if (Math.abs(redValue - this.lastValidSignal) > 50 && this.lastValidSignal > 0) {
+      score *= 0.7; // Penalización por cambios abruptos
+      reasons.push('signal_inconsistency_penalty');
     }
     
     const confidence = Math.min(1.0, score);
     const rawDetected = confidence >= DETECTOR_CONFIG.CONFIDENCE_THRESHOLD;
     
-    // LÓGICA DE DETECCIONES CONSECUTIVAS MÁS PERMISIVA
+    // LÓGICA DE DETECCIONES CONSECUTIVAS MÁS ESTRICTA
     if (rawDetected) {
       this.consecutiveDetections++;
       this.consecutiveNonDetections = 0;
@@ -129,7 +145,7 @@ export class AdaptiveDetector {
       this.consecutiveDetections = 0;
     }
     
-    // DECISIÓN FINAL CON HISTERESIS PERMISIVA
+    // DECISIÓN FINAL CON HISTERESIS EQUILIBRADA
     const finalDetected = this.consecutiveDetections >= DETECTOR_CONFIG.MIN_CONSECUTIVE_DETECTIONS;
     
     // Actualizar historial
@@ -138,9 +154,9 @@ export class AdaptiveDetector {
       this.detectionHistory.shift();
     }
     
-    console.log("AdaptiveDetector: Detección SENSIBLE para dedo humano", {
+    console.log("AdaptiveDetector: Detección EQUILIBRADA", {
       detected: finalDetected,
-      confidence: finalDetected ? confidence : confidence * 0.7,
+      confidence: finalDetected ? confidence : confidence * 0.6,
       consecutiveDetections: this.consecutiveDetections,
       requiredConsecutive: DETECTOR_CONFIG.MIN_CONSECUTIVE_DETECTIONS,
       reasons,
@@ -149,38 +165,56 @@ export class AdaptiveDetector {
       avgStability,
       textureScore,
       score,
+      backgroundNoise: this.backgroundNoise,
       threshold: DETECTOR_CONFIG.CONFIDENCE_THRESHOLD
     });
     
     return {
       detected: finalDetected,
-      confidence: finalDetected ? confidence : confidence * 0.7,
+      confidence: finalDetected ? confidence : confidence * 0.6,
       reasons
     };
+  }
+  
+  /**
+   * Actualizar estimación de ruido de fondo
+   */
+  private updateBackgroundNoise(currentValue: number): void {
+    this.noiseHistory.push(currentValue);
+    if (this.noiseHistory.length > 30) {
+      this.noiseHistory.shift();
+    }
+    
+    // Calcular ruido como el percentil 25 de los últimos valores
+    if (this.noiseHistory.length >= 10) {
+      const sorted = [...this.noiseHistory].sort((a, b) => a - b);
+      const index = Math.floor(sorted.length * 0.25);
+      this.backgroundNoise = sorted[index];
+    }
   }
   
   /**
    * Adaptación conservadora de umbrales
    */
   public adaptThresholds(recentValues: number[]): void {
-    if (recentValues.length < 8) return;
+    if (recentValues.length < 10) return;
     
     const validValues = recentValues.filter(v => 
       v >= DETECTOR_CONFIG.BIOLOGICAL_RED_MIN && v <= DETECTOR_CONFIG.BIOLOGICAL_RED_MAX
     );
     
-    if (validValues.length < 6) return;
+    if (validValues.length < 8) return;
     
     const avg = validValues.reduce((a, b) => a + b, 0) / validValues.length;
     const stdDev = Math.sqrt(
       validValues.reduce((acc, val) => acc + Math.pow(val - avg, 2), 0) / validValues.length
     );
     
-    // Ajustar umbrales de forma conservadora
-    this.adaptiveThresholds.min = Math.max(DETECTOR_CONFIG.BIOLOGICAL_RED_MIN, avg - stdDev * 0.6);
-    this.adaptiveThresholds.max = Math.min(DETECTOR_CONFIG.BIOLOGICAL_RED_MAX, avg + stdDev * 0.6);
+    // Ajustar umbrales de forma muy conservadora
+    this.adaptiveThresholds.min = Math.max(DETECTOR_CONFIG.BIOLOGICAL_RED_MIN, avg - stdDev * 0.5);
+    this.adaptiveThresholds.max = Math.min(DETECTOR_CONFIG.BIOLOGICAL_RED_MAX, avg + stdDev * 0.5);
     
-    console.log("AdaptiveDetector: Umbrales conservadores ajustados:", this.adaptiveThresholds);
+    console.log("AdaptiveDetector: Umbrales ajustados:", this.adaptiveThresholds);
   }
   
   public reset(): void {
@@ -192,6 +226,8 @@ export class AdaptiveDetector {
     this.stabilityHistory = [];
     this.lastValidSignal = 0;
     this.framesSinceBaseline = 0;
+    this.backgroundNoise = 0;
+    this.noiseHistory = [];
     this.signalVariabilityAnalyzer.reset();
   }
 }
