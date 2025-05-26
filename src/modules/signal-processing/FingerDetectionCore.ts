@@ -153,56 +153,66 @@ export class FingerDetectionCore {
   private validateRealFinger(metrics: any) {
     const reasons: string[] = [];
     let confidence = 0;
-    const MIN_HEMOGLOBIN_SCORE = 0.45;
+    const MIN_HEMOGLOBIN_SCORE = 0.35; // MUY permisivo temporalmente
 
     // 0. Hemoglobin signature (most important for human finger)
     if (metrics.hemoglobinScore < MIN_HEMOGLOBIN_SCORE) {
       reasons.push(`Firma de hemoglobina baja: ${metrics.hemoglobinScore.toFixed(2)} (Min: ${MIN_HEMOGLOBIN_SCORE})`);
-      return { detected: false, confidence: metrics.hemoglobinScore * 0.5, reasons };
-    }
-    confidence += metrics.hemoglobinScore * 0.5;
-
-    // 1. Intensidad roja debe estar en rango fisiológico
-    if (metrics.redIntensity < 50 || metrics.redIntensity > 220) {
-      reasons.push(`Intensidad roja fuera de rango: ${metrics.redIntensity.toFixed(1)}`);
-      return { detected: false, confidence: confidence * 0.7, reasons };
-    }
-    const redOptimalRange = [100, 180];
-    if (metrics.redIntensity >= redOptimalRange[0] && metrics.redIntensity <= redOptimalRange[1]) {
-        confidence += 0.2;
+      // No retornamos inmediatamente, solo bajamos mucho la confianza
+      confidence = metrics.hemoglobinScore * 0.2; // Poca confianza si falla
     } else {
-        confidence += 0.1;
+      confidence += metrics.hemoglobinScore * 0.7; // Hemoglobina da hasta 0.7 de confianza
     }
 
-    // 2. Ratio rojo/verde debe indicar presencia de sangre
-    if (metrics.redToGreenRatio < 0.5 || metrics.redToGreenRatio > 4.0) {
-      reasons.push(`Ratio R/G no fisiológico: ${metrics.redToGreenRatio.toFixed(2)}`);
-      return { detected: false, confidence: confidence * 0.8, reasons };
-    }
-    confidence += 0.15;
+    // El resto de las validaciones se harán mucho más permisivas o se desactivarán temporalmente
 
-    // 3. Debe haber algo de textura (no superficie lisa)
-    if (metrics.textureScore < 0.08) {
-      reasons.push(`Textura de piel baja: ${metrics.textureScore.toFixed(2)}`);
-      return { detected: false, confidence: confidence * 0.9, reasons };
+    // 1. Intensidad roja: rango muy amplio temporalmente
+    if (metrics.redIntensity < 30 || metrics.redIntensity > 240) { // Rango muy amplio
+      reasons.push(`Intensidad roja MUY fuera de rango: ${metrics.redIntensity.toFixed(1)}`);
+      confidence *= 0.5; // Penalización si está muy fuera
+    } else {
+      confidence += 0.1; // Pequeño bonus si está en rango laxo
     }
-    confidence += 0.1;
 
-    // 4. Estabilidad moderada (no demasiado estable ni inestable)
-    if (metrics.stability < 0.2 || metrics.stability > 0.95) {
-      reasons.push(`Estabilidad fuera de rango: ${metrics.stability.toFixed(2)}`);
+    // 2. Ratio rojo/verde: rango muy amplio temporalmente
+    if (metrics.redToGreenRatio < 0.3 || metrics.redToGreenRatio > 5.0) { // Rango muy amplio
+      reasons.push(`Ratio R/G MUY fuera de rango: ${metrics.redToGreenRatio.toFixed(2)}`);
+      confidence *= 0.8; // Penalización menor
+    } else {
+      confidence += 0.05;
+    }
+
+    // 3. Textura: temporalmente menos restrictivo
+    if (metrics.textureScore < 0.03) { // Umbral muy bajo
+      reasons.push(`Textura de piel MUY baja: ${metrics.textureScore.toFixed(2)}`);
+      confidence *= 0.9; // Penalización menor
+    } else {
+      confidence += 0.05;
+    }
+
+    // 4. Estabilidad: temporalmente menos restrictivo
+    if (metrics.stability < 0.1 || metrics.stability > 0.98) { // Rango muy amplio
+      reasons.push(`Estabilidad MUY fuera de rango: ${metrics.stability.toFixed(2)}`);
       confidence *= 0.9; 
     } else {
       confidence += 0.05;
     }
     
-    const finalConfidence = Math.min(1.0, confidence);
+    // La pulsación sigue siendo importante, pero la evaluamos después de la confianza base
+    const pulsationDetected = this.detectPulsation();
+    if (!pulsationDetected) {
+        reasons.unshift('No se detectó pulsación');
+        confidence *= 0.3; // Penalización fuerte si no hay pulso
+    }
 
-    if (finalConfidence > 0.65) {
-        reasons.push("Dedo humano detectado correctamente");
+    const finalConfidence = Math.min(1.0, Math.max(0, confidence)); // Asegurar que esté entre 0 y 1
+
+    // Umbral de detección temporalmente más bajo para pruebas
+    if (finalConfidence > 0.40) { 
+        reasons.push("Detección de dedo (modo prueba simplificado)");
         return { detected: true, confidence: finalConfidence, reasons };
     } else {
-        reasons.push("Confianza de detección baja");
+        reasons.push("Confianza de detección baja (modo prueba simplificado)");
         return { detected: false, confidence: finalConfidence, reasons };
     }
   }
