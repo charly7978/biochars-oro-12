@@ -6,7 +6,7 @@ export class NoiseDetector {
   private backgroundHistogram: number[] = [];
   private environmentalNoise: number = 0;
   private calibrationFrames: number = 0;
-  private readonly CALIBRATION_REQUIRED = 10; // Reducido aún más para calibración más rápida
+  private readonly CALIBRATION_REQUIRED = 8; // Reducido de 10 a 8 para calibración más rápida
   private readonly HISTOGRAM_BINS = 256;
   private readonly NOISE_PERCENTILE = 5; // Más permisivo durante calibración inicial
   
@@ -69,19 +69,21 @@ export class NoiseDetector {
    */
   public isAboveNoiseFloor(redValue: number): boolean {
     if (this.calibrationFrames < this.CALIBRATION_REQUIRED) {
-      // Durante calibración inicial, ser más permisivo para dedos humanos
-      const initialThreshold = 18; // Reducido de 20 a 18 - SOLO para dedos humanos
-      console.log(`NoiseDetector: Calibrando (${this.calibrationFrames}/${this.CALIBRATION_REQUIRED}) - Umbral temporal: ${initialThreshold}, Valor: ${redValue}`);
-      return redValue > initialThreshold;
+      // Durante calibración inicial, ser más permisivo para dedos humanos pero rechazar extremos
+      const initialThreshold = 16; // Reducido de 18 a 16 - MÁS SENSIBLE para dedos humanos
+      const maxThreshold = 180; // Añadido límite superior para rechazar luz muy brillante
+      console.log(`NoiseDetector: Calibrando (${this.calibrationFrames}/${this.CALIBRATION_REQUIRED}) - Umbral: ${initialThreshold}-${maxThreshold}, Valor: ${redValue}`);
+      return redValue > initialThreshold && redValue < maxThreshold;
     }
     
-    const noiseThreshold = this.environmentalNoise * 1.3; // Reducido de 1.5x a 1.3x - MÁS SENSIBLE
-    const minimumSignal = 22; // Reducido de 25 a 22 - MÁS SENSIBLE para dedos humanos
+    const noiseThreshold = this.environmentalNoise * 1.25; // Reducido de 1.3x a 1.25x - MÁS SENSIBLE
+    const minimumSignal = 20; // Reducido de 22 a 20 - MÁS SENSIBLE para dedos humanos
+    const maximumSignal = 170; // Añadido límite superior para rechazar fuentes muy brillantes
     const threshold = Math.max(noiseThreshold, minimumSignal);
     
-    console.log(`NoiseDetector: Calibrado - Ruido: ${this.environmentalNoise}, Umbral: ${threshold}, Valor: ${redValue}, Pasa: ${redValue > threshold}`);
+    console.log(`NoiseDetector: Calibrado - Ruido: ${this.environmentalNoise}, Umbral: ${threshold}-${maximumSignal}, Valor: ${redValue}, Pasa: ${redValue > threshold && redValue < maximumSignal}`);
     
-    return redValue > threshold;
+    return redValue > threshold && redValue < maximumSignal;
   }
   
   /**

@@ -1,19 +1,18 @@
-
 /**
  * Sistema de validación binario robusto
  * Implementa validaciones pass/fail estrictas con sistema de veto
  */
 export class RobustBinaryValidator {
   private readonly VALIDATION_RULES = {
-    MIN_SIGNAL_STRENGTH: 25, // Reducido de 30 a 25 - MÁS SENSIBLE
+    MIN_SIGNAL_STRENGTH: 22, // Reducido de 25 a 22 - MÁS SENSIBLE para dedo humano
     MAX_SIGNAL_STRENGTH: 200, // Aumentado para más tolerancia
-    MIN_RED_DOMINANCE: 1.03, // Reducido de 1.05 a 1.03 - MÁS SENSIBLE
-    MAX_RED_DOMINANCE: 3.0, // Aumentado para más tolerancia
+    MIN_RED_DOMINANCE: 1.02, // Reducido de 1.03 a 1.02 - MÁS SENSIBLE para piel humana
+    MAX_RED_DOMINANCE: 2.8, // Reducido de 3.0 a 2.8 - MÁS ESTRICTO contra falsos positivos
     MIN_HEMOGLOBIN_RATIO: 1.01, // Reducido de 1.02 a 1.01 - MÁS SENSIBLE
-    MAX_HEMOGLOBIN_RATIO: 2.5, // Aumentado para más tolerancia
+    MAX_HEMOGLOBIN_RATIO: 2.3, // Reducido de 2.5 a 2.3 - MÁS ESTRICTO contra artificiales
     MIN_STABILITY_THRESHOLD: 0.2, // Reducido para ser más permisivo
     MIN_TEXTURE_SCORE: 0.03, // Reducido para ser más permisivo
-    MAX_BRIGHTNESS_UNIFORMITY: 0.95, // Más permisivo
+    MAX_BRIGHTNESS_UNIFORMITY: 0.92, // Reducido de 0.95 a 0.92 - MÁS ESTRICTO contra luz uniforme
     MIN_TEMPORAL_CONSISTENCY: 0.1 // Muy permisivo inicialmente
   };
   
@@ -54,14 +53,14 @@ export class RobustBinaryValidator {
       failedRules.push(`Intensidad de señal fuera del rango biológico (${redValue})`);
     }
     
-    // REGLA 3: Dominancia roja característica de piel - más permisivo
+    // REGLA 3: Dominancia roja característica de piel - más estricto en el máximo
     const redDominance = redValue / Math.max(avgGreen, avgBlue, 1);
     if (redDominance < this.VALIDATION_RULES.MIN_RED_DOMINANCE || 
         redDominance > this.VALIDATION_RULES.MAX_RED_DOMINANCE) {
       failedRules.push(`Dominancia de canal rojo no característica (${redDominance.toFixed(2)})`);
     }
     
-    // REGLA 4: Ratio hemoglobina válido (CRÍTICO) - más permisivo
+    // REGLA 4: Ratio hemoglobina válido (CRÍTICO) - más estricto en el máximo
     const hemoglobinRatio = redValue / Math.max(avgGreen, 1);
     if (hemoglobinRatio < this.VALIDATION_RULES.MIN_HEMOGLOBIN_RATIO || 
         hemoglobinRatio > this.VALIDATION_RULES.MAX_HEMOGLOBIN_RATIO) {
@@ -96,11 +95,11 @@ export class RobustBinaryValidator {
       failedRules.push(`Textura insuficiente (${textureScore.toFixed(3)})`);
     }
     
-    // REGLA 10: No debe ser uniformemente brillante (artificial) - más permisivo
+    // REGLA 10: No debe ser uniformemente brillante (artificial) - más estricto
     const brightness = (redValue + avgGreen + avgBlue) / 3;
     const uniformity = 1 - (Math.abs(redValue - avgGreen) + Math.abs(avgGreen - avgBlue)) / (2 * brightness);
     if (uniformity > this.VALIDATION_RULES.MAX_BRIGHTNESS_UNIFORMITY) {
-      failedRules.push(`Uniformidad excesiva (${uniformity.toFixed(2)})`);
+      failedRules.push(`Uniformidad excesiva - fuente artificial (${uniformity.toFixed(2)})`);
     }
     
     // REGLA 11: Consistencia temporal - muy permisivo inicialmente
@@ -125,6 +124,7 @@ export class RobustBinaryValidator {
       stability: stability.toFixed(2),
       textureScore: textureScore.toFixed(3),
       temporalConsistency: temporalConsistency.toFixed(2),
+      uniformity: uniformity.toFixed(2),
       historyLength: this.validationHistory.length
     });
     
