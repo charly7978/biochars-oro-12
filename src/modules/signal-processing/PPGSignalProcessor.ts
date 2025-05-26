@@ -13,7 +13,7 @@ import { SignalAnalyzer } from './SignalAnalyzer';
 import { SignalProcessorConfig } from './types';
 
 /**
- * Procesador de señal PPG con mejoras médicas y optimización de rendimiento
+ * Procesador de señal PPG con validación ESTRICTA de calidad
  */
 export class PPGSignalProcessor implements SignalProcessorInterface {
   public isProcessing: boolean = false;
@@ -32,31 +32,28 @@ export class PPGSignalProcessor implements SignalProcessorInterface {
   public isCalibrating: boolean = false;
   public frameProcessedCount = 0;
   
-  // Configuración optimizada para rendimiento médico
+  // Configuración ESTRICTA para calidad real
   public readonly CONFIG: SignalProcessorConfig = {
-    BUFFER_SIZE: 10, // Reducido para respuesta más rápida
-    MIN_RED_THRESHOLD: 20, // Más sensible
-    MAX_RED_THRESHOLD: 250,
-    STABILITY_WINDOW: 6,
-    MIN_STABILITY_COUNT: 2,
-    HYSTERESIS: 1.5,
-    MIN_CONSECUTIVE_DETECTIONS: 1, // Detección inmediata
-    MAX_CONSECUTIVE_NO_DETECTIONS: 8,
-    QUALITY_LEVELS: 25,
-    QUALITY_HISTORY_SIZE: 8,
-    CALIBRATION_SAMPLES: 8,
+    BUFFER_SIZE: 12,
+    MIN_RED_THRESHOLD: 80, // Más estricto
+    MAX_RED_THRESHOLD: 170, // Más estricto
+    STABILITY_WINDOW: 8,
+    MIN_STABILITY_COUNT: 4, // Más estricto
+    HYSTERESIS: 2.0,
+    MIN_CONSECUTIVE_DETECTIONS: 3, // Más estricto
+    MAX_CONSECUTIVE_NO_DETECTIONS: 6,
+    QUALITY_LEVELS: 20,
+    QUALITY_HISTORY_SIZE: 10,
+    CALIBRATION_SAMPLES: 12,
     TEXTURE_GRID_SIZE: 8,
-    ROI_SIZE_FACTOR: 0.6
+    ROI_SIZE_FACTOR: 0.4
   };
   
   constructor(
     public onSignalReady?: (signal: ProcessedSignal) => void,
     public onError?: (error: ProcessingError) => void
   ) {
-    console.log("[DIAG] PPGSignalProcessor: Constructor médico mejorado", {
-      hasSignalReadyCallback: !!onSignalReady,
-      hasErrorCallback: !!onError
-    });
+    console.log("[DIAG] PPGSignalProcessor: Constructor con validación ESTRICTA de calidad");
     
     // Inicializar componentes médicos mejorados
     this.optimizedKalmanFilter = new OptimizedKalmanFilter();
@@ -80,7 +77,7 @@ export class PPGSignalProcessor implements SignalProcessorInterface {
       MAX_CONSECUTIVE_NO_DETECTIONS: this.CONFIG.MAX_CONSECUTIVE_NO_DETECTIONS
     });
     
-    console.log("PPGSignalProcessor: Instancia médica creada con optimizaciones de rendimiento");
+    console.log("PPGSignalProcessor: Instancia con validación ESTRICTA de calidad creada");
   }
 
   async initialize(): Promise<void> {
@@ -149,24 +146,22 @@ export class PPGSignalProcessor implements SignalProcessorInterface {
     if (!this.isProcessing) return;
 
     try {
-      // Gestión de rendimiento
       this.performanceManager.startFrame();
       
-      // Verificar si debe procesar este frame
       if (!this.performanceManager.shouldProcessFrame()) {
         this.performanceManager.endFrame();
         return;
       }
 
       this.frameProcessedCount++;
-      const shouldLog = this.frameProcessedCount % 30 === 0; // Log cada segundo aprox
+      const shouldLog = this.frameProcessedCount % 30 === 0;
 
       if (!this.onSignalReady) {
-        console.error("PPGSignalProcessor médico: onSignalReady callback no disponible");
+        console.error("PPGSignalProcessor: onSignalReady callback no disponible");
         return;
       }
 
-      // 1. Extracción mejorada de datos del frame
+      // 1. Extracción ESTRICTA de datos del frame
       const extractionResult = this.enhancedFrameProcessor.extractEnhancedFrameData(imageData);
       const { redValue, textureScore, rToGRatio, rToBRatio, roi, stability } = extractionResult;
 
@@ -176,8 +171,8 @@ export class PPGSignalProcessor implements SignalProcessorInterface {
           redValue,
           avgGreen: extractionResult.avgGreen,
           avgBlue: extractionResult.avgBlue,
-          quality: 0, // Se calculará después
-          fingerDetected: false // Se determinará después
+          quality: 0,
+          fingerDetected: false
         });
         
         if (calibrationResult.isComplete) {
@@ -186,7 +181,7 @@ export class PPGSignalProcessor implements SignalProcessorInterface {
         }
       }
 
-      // 3. Detección adaptativa multi-modal con umbrales más sensibles
+      // 3. Detección ESTRICTA multi-modal
       const detectionResult = this.adaptiveDetector.detectFingerMultiModal({
         redValue,
         avgGreen: extractionResult.avgGreen,
@@ -198,7 +193,7 @@ export class PPGSignalProcessor implements SignalProcessorInterface {
       });
 
       if (shouldLog || detectionResult.detected) {
-        console.log("PPGSignalProcessor médico: Resultado de detección", {
+        console.log("PPGSignalProcessor: Resultado de detección ESTRICTA", {
           detected: detectionResult.detected,
           confidence: detectionResult.confidence,
           reasons: detectionResult.reasons,
@@ -206,7 +201,7 @@ export class PPGSignalProcessor implements SignalProcessorInterface {
         });
       }
 
-      // 4. Procesamiento de señal con filtros optimizados
+      // 4. Procesamiento de señal
       const performanceConfig = this.performanceManager.getProcessingConfig();
       let filteredValue = redValue;
       
@@ -218,11 +213,11 @@ export class PPGSignalProcessor implements SignalProcessorInterface {
         filteredValue = this.sgFilter.filter(filteredValue);
       }
       
-      // Amplificación adaptativa
-      const amplificationFactor = detectionResult.confidence > 0.7 ? 15 : 25;
+      // Amplificación conservadora
+      const amplificationFactor = detectionResult.confidence > 0.8 ? 12 : 20;
       filteredValue = filteredValue * amplificationFactor;
 
-      // 5. Análisis FFT médico (solo si el rendimiento lo permite)
+      // 5. Análisis FFT médico
       if (performanceConfig.enabledFeatures.fftAnalysis) {
         this.medicalFFTAnalyzer.addSample(filteredValue);
       }
@@ -230,8 +225,8 @@ export class PPGSignalProcessor implements SignalProcessorInterface {
       // 6. Análisis de tendencia
       const trendResult = this.trendAnalyzer.analyzeTrend(filteredValue);
 
-      // 7. Validación biofísica más permisiva durante calibración
-      if (trendResult === "non_physiological" && !this.isCalibrating && this.frameProcessedCount > 50) {
+      // 7. Validación biofísica ESTRICTA
+      if (trendResult === "non_physiological" && !this.isCalibrating && this.frameProcessedCount > 60) {
         const rejectSignal: ProcessedSignal = {
           timestamp: Date.now(),
           rawValue: redValue,
@@ -246,40 +241,71 @@ export class PPGSignalProcessor implements SignalProcessorInterface {
         return;
       }
 
-      // 8. Cálculo de calidad médico mejorado
+      // 8. Cálculo de calidad REALISTA Y ESTRICTO
       let quality = 0;
       if (detectionResult.detected) {
-        quality = Math.round(detectionResult.confidence * 85); // Base médica más alta
+        // Base de calidad realista (no inflada)
+        quality = Math.round(detectionResult.confidence * 60); // Base más baja y realista
         
-        // Bonus por estabilidad
-        quality += Math.round(stability * 12);
-        
-        // Bonus por señal fuerte
-        if (redValue > 40) {
+        // Evaluación estricta de estabilidad
+        if (stability > 0.7) {
+          quality += 15;
+        } else if (stability > 0.5) {
           quality += 8;
+        } else if (stability > 0.3) {
+          quality += 3;
         }
         
-        // Bonus por análisis FFT médico
+        // Evaluación estricta de señal
+        if (redValue > 120 && redValue < 150) {
+          quality += 12; // Rango óptimo
+        } else if (redValue > 100 && redValue < 160) {
+          quality += 6; // Rango bueno
+        } else if (redValue > 80 && redValue < 170) {
+          quality += 2; // Rango aceptable
+        }
+        
+        // Evaluación estricta de ratio biológico
+        if (rToGRatio >= 1.3 && rToGRatio <= 1.8) {
+          quality += 8; // Ratio óptimo
+        } else if (rToGRatio >= 1.2 && rToGRatio <= 2.0) {
+          quality += 3; // Ratio aceptable
+        }
+        
+        // Evaluación estricta de textura
+        if (textureScore > 0.4) {
+          quality += 5;
+        } else if (textureScore > 0.25) {
+          quality += 2;
+        }
+        
+        // Penalización por valores extremos o artificiales
+        if (redValue > 160 || redValue < 90) {
+          quality = Math.max(0, quality - 20);
+        }
+        
+        // Análisis FFT para calidad adicional
         if (performanceConfig.enabledFeatures.fftAnalysis) {
           const fftResult = this.medicalFFTAnalyzer.analyzeBPM();
-          if (fftResult && fftResult.isValid && fftResult.confidence > 0.4) {
-            quality += Math.round(fftResult.confidence * 12);
+          if (fftResult && fftResult.isValid && fftResult.confidence > 0.5) {
+            quality += Math.round(fftResult.confidence * 8);
           }
         }
         
-        quality = Math.min(100, Math.max(30, quality)); // Mínimo médico 30 si hay detección
+        // Limitar calidad a rangos realistas
+        quality = Math.min(95, Math.max(10, quality)); // Máximo 95, mínimo 10 si hay detección
       }
 
-      // 9. Adaptación de umbrales
-      if (detectionResult.detected) {
+      // 9. Adaptación de umbrales conservadora
+      if (detectionResult.detected && quality > 30) {
         this.lastValues.push(redValue);
-        if (this.lastValues.length > 12) { // Buffer médico optimizado
+        if (this.lastValues.length > 15) {
           this.lastValues.shift();
           this.adaptiveDetector.adaptThresholds(this.lastValues);
         }
       }
 
-      // 10. Crear señal procesada médica
+      // 10. Crear señal procesada con calidad realista
       const processedSignal: ProcessedSignal = {
         timestamp: Date.now(),
         rawValue: redValue,
@@ -287,30 +313,30 @@ export class PPGSignalProcessor implements SignalProcessorInterface {
         quality: quality,
         fingerDetected: detectionResult.detected,
         roi: roi,
-        perfusionIndex: detectionResult.detected && quality > 35 ? 
-                       Math.max(0, (Math.log(redValue + 1) * 0.65 - 1.1)) : 0
+        perfusionIndex: detectionResult.detected && quality > 40 ? 
+                       Math.max(0, (Math.log(redValue + 1) * 0.5 - 1.5)) : 0
       };
 
       if (shouldLog || detectionResult.detected) {
-        console.log("PPGSignalProcessor médico: Señal final", {
+        console.log("PPGSignalProcessor: Señal final con calidad REALISTA", {
           fingerDetected: detectionResult.detected,
           confidence: detectionResult.confidence,
           quality,
           rawValue: redValue,
           filteredValue: filteredValue,
           perfusionIndex: processedSignal.perfusionIndex,
-          performanceLevel: this.performanceManager.getPerformanceStats().performanceLevel
+          stability,
+          rToGRatio,
+          textureScore
         });
       }
 
       this.onSignalReady(processedSignal);
-      
-      // Finalizar medición de rendimiento
       this.performanceManager.endFrame();
       
     } catch (error) {
-      console.error("PPGSignalProcessor médico: Error procesando frame", error);
-      this.handleError("PROCESSING_ERROR", "Error en procesamiento médico");
+      console.error("PPGSignalProcessor: Error procesando frame", error);
+      this.handleError("PROCESSING_ERROR", "Error en procesamiento ESTRICTO");
       this.performanceManager.endFrame();
     }
   }
