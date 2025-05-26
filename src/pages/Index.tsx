@@ -14,6 +14,7 @@ const Index = () => {
   const [isCameraOn, setIsCameraOn] = useState(false);
   const [signalQuality, setSignalQuality] = useState(0);
   const [vitalSigns, setVitalSigns] = useState<VitalSignsResult>({
+    heartRate: 0,
     spo2: 0,
     pressure: "--/--",
     arrhythmiaStatus: "--",
@@ -385,6 +386,7 @@ const Index = () => {
     setHeartbeatSignal(0);
     setBeatMarker(0);
     setVitalSigns({ 
+      heartRate: 0,
       spo2: 0,
       pressure: "--/--",
       arrhythmiaStatus: "--",

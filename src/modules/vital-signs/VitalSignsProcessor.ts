@@ -1,4 +1,3 @@
-
 /**
  * PROCESADOR DE SIGNOS VITALES 100% REAL
  * Cálculos basados únicamente en mediciones físicas reales del PPG
@@ -15,6 +14,23 @@ export interface VitalSignsResult {
   };
   hemoglobin: number;
   arrhythmiaStatus: string;
+  lastArrhythmiaData?: {
+    timestamp: number;
+    rmssd: number;
+    rrVariation: number;
+  };
+  calibration?: {
+    isCalibrating: boolean;
+    progress: {
+      heartRate: number;
+      spo2: number;
+      pressure: number;
+      arrhythmia: number;
+      glucose: number;
+      lipids: number;
+      hemoglobin: number;
+    };
+  };
 }
 
 export class VitalSignsProcessor {
@@ -102,7 +118,20 @@ export class VitalSignsProcessor {
       glucose,
       lipids,
       hemoglobin,
-      arrhythmiaStatus: "NORMAL"
+      arrhythmiaStatus: "NORMAL",
+      lastArrhythmiaData: null,
+      calibration: {
+        isCalibrating: this.isCurrentlyCalibrating(),
+        progress: {
+          heartRate: this.getCalibrationProgress(),
+          spo2: this.getCalibrationProgress(),
+          pressure: this.getCalibrationProgress(),
+          arrhythmia: this.getCalibrationProgress(),
+          glucose: this.getCalibrationProgress(),
+          lipids: this.getCalibrationProgress(),
+          hemoglobin: this.getCalibrationProgress()
+        }
+      }
     };
 
     // Guardar solo resultados válidos
