@@ -1,12 +1,12 @@
 /**
- * Procesador de frames con calibración precisa y lógica humana firme pero más sensible
+ * Procesador de frames optimizado para detectar específicamente dedos humanos
  */
 export class EnhancedFrameProcessor {
   private deviceType: 'android' | 'ios' | 'desktop';
   private exposureOptimized: boolean = false;
   private baselineRed: number | null = null;
   private frameCount: number = 0;
-  private readonly CALIBRATION_FRAMES = 20; // Calibración más rápida
+  private readonly CALIBRATION_FRAMES = 15;
   
   constructor() {
     this.deviceType = this.detectDeviceType();
@@ -15,12 +15,12 @@ export class EnhancedFrameProcessor {
   private detectDeviceType(): 'android' | 'ios' | 'desktop' {
     const userAgent = navigator.userAgent.toLowerCase();
     if (userAgent.includes('android')) return 'android';
-    if (/ipad|iphone|ipod/.test(userAgent)) return 'ios';
+    if (/ipad|iphone|ipod/.test(userAgent)) return 'android';
     return 'desktop';
   }
   
   /**
-   * Configuración de cámara optimizada por dispositivo
+   * Configuración de cámara optimizada para detección de dedo
    */
   public getOptimalCameraConstraints(): MediaTrackConstraints {
     const baseConstraints: MediaTrackConstraints = {
@@ -85,7 +85,7 @@ export class EnhancedFrameProcessor {
   }
   
   /**
-   * Detección de ROI con calibración más sensible
+   * Detección de ROI específica para dedo humano
    */
   public detectEnhancedROI(imageData: ImageData): {
     x: number;
@@ -98,17 +98,17 @@ export class EnhancedFrameProcessor {
     const centerX = Math.floor(width / 2);
     const centerY = Math.floor(height / 2);
     
-    // ROI más amplio para mejor detección
+    // ROI conservador para enfocarse en el centro donde debe estar el dedo
     let roiSize: number;
     switch (this.deviceType) {
       case 'android':
-        roiSize = Math.min(width, height) * 0.6; // Aumentado
+        roiSize = Math.min(width, height) * 0.45; // Más conservador
         break;
       case 'ios':
-        roiSize = Math.min(width, height) * 0.55; // Aumentado
+        roiSize = Math.min(width, height) * 0.40; // Más conservador
         break;
       default:
-        roiSize = Math.min(width, height) * 0.65; // Aumentado
+        roiSize = Math.min(width, height) * 0.50; // Más conservador
     }
     
     const roiX = Math.max(0, centerX - roiSize / 2);
@@ -116,22 +116,22 @@ export class EnhancedFrameProcessor {
     const roiWidth = Math.min(roiSize, width - roiX);
     const roiHeight = Math.min(roiSize, height - roiY);
     
-    // Calcular estabilidad con algoritmo más permisivo
+    // Calcular estabilidad con criterios biológicos
     let totalIntensity = 0;
     let pixelCount = 0;
     const intensities: number[] = [];
     
-    // Sampling más denso para mejor análisis
-    for (let y = roiY; y < roiY + roiHeight; y += 2) { // Reducido de 3 a 2
-      for (let x = roiX; x < roiX + roiWidth; x += 2) { // Reducido de 3 a 2
+    // Sampling específico para detectar características del dedo
+    for (let y = roiY; y < roiY + roiHeight; y += 3) {
+      for (let x = roiX; x < roiX + roiWidth; x += 3) {
         const index = (y * width + x) * 4;
         const r = data[index];
         const g = data[index + 1];
         const b = data[index + 2];
         
-        // Criterios más permisivos para píxeles válidos
-        if (r > 20 && g > 10 && b > 8) { // Más permisivo
-          const intensity = (r * 0.5 + g * 0.3 + b * 0.2);
+        // Criterios específicos para píxeles de dedo humano
+        if (this.isFingerPixel(r, g, b)) {
+          const intensity = (r * 0.6 + g * 0.3 + b * 0.1); // Peso hacia rojo
           intensities.push(intensity);
           totalIntensity += intensity;
           pixelCount++;
@@ -139,21 +139,23 @@ export class EnhancedFrameProcessor {
       }
     }
     
-    let stability = 0.2; // Valor base más alto
-    if (pixelCount > 15 && intensities.length > 15) { // Menos píxeles requeridos
+    let stability = 0.1; // Base muy baja
+    if (pixelCount > 25 && intensities.length > 25) {
       const avgIntensity = totalIntensity / pixelCount;
       const variance = intensities.reduce((acc, val) => acc + Math.pow(val - avgIntensity, 2), 0) / pixelCount;
       const cv = Math.sqrt(variance) / avgIntensity;
       
-      // Estabilidad más permisiva
-      if (cv < 0.20) {
-        stability = 0.9; // Muy estable
+      // Estabilidad específica para tejido biológico
+      if (cv < 0.12) {
+        stability = 0.95; // Muy estable biológicamente
+      } else if (cv < 0.18) {
+        stability = 0.8; // Moderadamente estable
+      } else if (cv < 0.25) {
+        stability = 0.6; // Poco estable pero aceptable
       } else if (cv < 0.35) {
-        stability = 0.7; // Moderadamente estable
-      } else if (cv < 0.50) {
-        stability = 0.5; // Poco estable pero aceptable
+        stability = 0.3; // Inestable
       } else {
-        stability = 0.2; // Inestable pero algo
+        stability = 0.1; // No es dedo
       }
     }
     
@@ -167,7 +169,26 @@ export class EnhancedFrameProcessor {
   }
   
   /**
-   * Extracción de datos con criterios más permisivos
+   * Determinar si un píxel pertenece a un dedo humano
+   */
+  private isFingerPixel(r: number, g: number, b: number): boolean {
+    // Rangos específicos para piel humana con hemoglobina
+    const redRange = r >= 70 && r <= 180;
+    const greenRange = g >= 25 && g <= 140;
+    const blueRange = b >= 15 && b <= 120;
+    
+    // Ratios típicos de hemoglobina
+    const rToGRatio = g > 0 ? r / g : 0;
+    const validRatio = rToGRatio >= 1.1 && rToGRatio <= 2.2;
+    
+    // No debe ser demasiado brillante (luz directa)
+    const notToobrright = r < 200 && g < 180 && b < 160;
+    
+    return redRange && greenRange && blueRange && validRatio && notToobrright;
+  }
+  
+  /**
+   * Extracción de datos específica para dedo humano
    */
   public extractEnhancedFrameData(imageData: ImageData) {
     this.frameCount++;
@@ -182,7 +203,7 @@ export class EnhancedFrameProcessor {
     const greenValues: number[] = [];
     const blueValues: number[] = [];
     
-    // Extracción con validación más permisiva
+    // Extracción con validación específica para dedo
     for (let y = roi.y; y < roi.y + roi.height; y += 2) {
       for (let x = roi.x; x < roi.x + roi.width; x += 2) {
         const index = (y * width + x) * 4;
@@ -190,8 +211,8 @@ export class EnhancedFrameProcessor {
         const g = data[index + 1];
         const b = data[index + 2];
         
-        // Validación más permisiva para PPG
-        if (r >= 25 && r <= 250 && g >= 15 && g <= 220 && b >= 10 && b <= 200) { // Más amplio
+        // Solo procesar píxeles que parezcan dedo humano
+        if (this.isFingerPixel(r, g, b)) {
           redSum += r;
           greenSum += g;
           blueSum += b;
@@ -207,17 +228,17 @@ export class EnhancedFrameProcessor {
       }
     }
     
-    // Menos píxeles requeridos para considerar válido
-    if (validPixelCount < 30) { // Reducido de 50
-      console.log("EnhancedFrameProcessor: Pocos píxeles válidos, pero intentando detección");
+    // Requerir mínimo de píxeles válidos para considerar que hay dedo
+    if (validPixelCount < 40) {
+      console.log("EnhancedFrameProcessor: Insuficientes píxeles de dedo detectados");
       return {
-        redValue: 30, // Valor que puede ser considerado
-        avgRed: 30,
-        avgGreen: 25,
-        avgBlue: 22,
-        textureScore: 0.15,
-        rToGRatio: 1.2,
-        rToBRatio: 1.4,
+        redValue: 20, // Valor que será rechazado
+        avgRed: 20,
+        avgGreen: 15,
+        avgBlue: 12,
+        textureScore: 0.05,
+        rToGRatio: 0.8,
+        rToBRatio: 1.0,
         roi,
         stability: roi.stability
       };
@@ -228,38 +249,35 @@ export class EnhancedFrameProcessor {
     const avgGreen = greenSum / validPixelCount;
     const avgBlue = blueSum / validPixelCount;
     
-    // Calcular textura con tolerancia
+    // Calcular textura biológica
     const avgIntensity = intensities.reduce((a, b) => a + b, 0) / intensities.length;
     textureVariance = intensities.reduce((acc, val) => acc + Math.pow(val - avgIntensity, 2), 0) / intensities.length;
-    const textureScore = Math.min(1.0, Math.sqrt(textureVariance) / 160); // Más permisivo
+    const textureScore = Math.min(1.0, Math.sqrt(textureVariance) / 140);
     
-    // Usar valores robustos
+    // Usar percentiles para valores robustos (característico de tejido)
     redValues.sort((a, b) => a - b);
-    greenValues.sort((a, b) => a - b);
-    blueValues.sort((a, b) => a - b);
-    
     const medianRed = redValues[Math.floor(redValues.length / 2)];
     const p75Red = redValues[Math.floor(redValues.length * 0.75)];
     const p25Red = redValues[Math.floor(redValues.length * 0.25)];
     
     const robustRedValue = (medianRed + p75Red + p25Red) / 3;
     
-    // Establecer baseline durante calibración más permisivo
-    if (this.frameCount <= this.CALIBRATION_FRAMES && robustRedValue >= 40 && robustRedValue <= 200) { // Más amplio
+    // Establecer baseline más conservador
+    if (this.frameCount <= this.CALIBRATION_FRAMES && robustRedValue >= 80 && robustRedValue <= 160) {
       if (this.baselineRed === null) {
         this.baselineRed = robustRedValue;
       } else {
-        this.baselineRed = this.baselineRed * 0.85 + robustRedValue * 0.15; // Más adaptativo
+        this.baselineRed = this.baselineRed * 0.9 + robustRedValue * 0.1;
       }
     }
     
     const finalRedValue = Math.max(avgRed, robustRedValue);
     
-    // Calcular ratios con mayor tolerancia
-    const rToGRatio = avgGreen > 10 ? finalRedValue / avgGreen : 1.0; // Más permisivo
-    const rToBRatio = avgBlue > 8 ? finalRedValue / avgBlue : 1.2; // Más permisivo
+    // Calcular ratios biológicos
+    const rToGRatio = avgGreen > 15 ? finalRedValue / avgGreen : 1.0;
+    const rToBRatio = avgBlue > 10 ? finalRedValue / avgBlue : 1.2;
     
-    console.log("EnhancedFrameProcessor: Datos extraídos con mayor sensibilidad", {
+    console.log("EnhancedFrameProcessor: Datos específicos para dedo", {
       finalRedValue: finalRedValue.toFixed(1),
       avgRed: avgRed.toFixed(1),
       avgGreen: avgGreen.toFixed(1),

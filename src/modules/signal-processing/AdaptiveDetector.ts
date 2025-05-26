@@ -1,35 +1,36 @@
 /**
- * Detector adaptativo con lógica humana firme para eliminación de falsos positivos
- * Implementa detección precisa distinguiendo claramente entre "dedo presente" y "sin dedo"
+ * Detector adaptativo con lógica específica para dedo humano
+ * Enfocado en características biológicas reales del dedo
  */
 export class AdaptiveDetector {
   private detectionHistory: boolean[] = [];
-  private readonly HISTORY_SIZE = 10;
-  private readonly CONFIDENCE_THRESHOLD = 0.55; // Reducido para ser más sensible (era 0.75)
+  private readonly HISTORY_SIZE = 8;
+  private readonly CONFIDENCE_THRESHOLD = 0.70; // Más estricto para evitar falsos positivos
   private baselineValues: { red: number; green: number; blue: number } | null = null;
-  private adaptiveThresholds: { min: number; max: number } = { min: 70, max: 180 }; // Rango más amplio
+  private adaptiveThresholds: { min: number; max: number } = { min: 80, max: 160 }; // Rango específico para dedo
   private consecutiveDetections = 0;
   private consecutiveNonDetections = 0;
-  private readonly MIN_CONSECUTIVE_DETECTIONS = 3; // Reducido (era 5)
-  private readonly MAX_CONSECUTIVE_NON_DETECTIONS = 4; // Aumentado para mantener detección
+  private readonly MIN_CONSECUTIVE_DETECTIONS = 4; // Más conservador
+  private readonly MAX_CONSECUTIVE_NON_DETECTIONS = 3;
   private stabilityHistory: number[] = [];
   private signalConsistencyHistory: number[] = [];
   private lastValidSignal = 0;
-  private readonly MIN_SIGNAL_STRENGTH = 45; // Reducido para mayor sensibilidad (era 60)
-  private readonly MAX_SIGNAL_STRENGTH = 230; // Aumentado para mayor rango
+  private readonly MIN_SIGNAL_STRENGTH = 70; // Más específico para dedo
+  private readonly MAX_SIGNAL_STRENGTH = 180; // Evitar luz directa
   private framesSinceBaseline = 0;
-  private readonly BASELINE_RECALIBRATION_FRAMES = 80; // Más frecuente
+  private readonly BASELINE_RECALIBRATION_FRAMES = 60;
   
-  // Parámetros más permisivos para lógica humana
-  private readonly PHYSIOLOGICAL_RED_MIN = 60; // Reducido (era 80)
-  private readonly PHYSIOLOGICAL_RED_MAX = 200; // Aumentado (era 190)
-  private readonly MIN_RED_TO_GREEN_RATIO = 0.9; // Más permisivo (era 1.1)
-  private readonly MAX_RED_TO_GREEN_RATIO = 2.5; // Más amplio (era 2.2)
-  private readonly MIN_TEXTURE_FOR_FINGER = 0.15; // Más permisivo (era 0.25)
-  private readonly MIN_STABILITY_FOR_FINGER = 0.25; // Más permisivo (era 0.35)
+  // Parámetros específicos para características biológicas del dedo
+  private readonly BIOLOGICAL_RED_MIN = 85; // Hemoglobina mínima visible
+  private readonly BIOLOGICAL_RED_MAX = 165; // Evitar saturación por luz directa
+  private readonly RED_TO_GREEN_RATIO_MIN = 1.15; // Dedo tiene más rojo que verde
+  private readonly RED_TO_GREEN_RATIO_MAX = 2.0; // Pero no demasiado
+  private readonly MIN_TEXTURE_FOR_BIOLOGICAL = 0.20; // Textura mínima para tejido
+  private readonly MIN_STABILITY_FOR_BIOLOGICAL = 0.35; // Estabilidad mínima
+  private readonly MAX_BRIGHTNESS_VARIATION = 0.25; // Evitar luz directa variable
   
   /**
-   * Detección con lógica humana firme pero más sensible
+   * Detección específica para dedo humano con validación biológica estricta
    */
   public detectFingerMultiModal(frameData: {
     redValue: number;
@@ -44,120 +45,81 @@ export class AdaptiveDetector {
     const { redValue, avgGreen, avgBlue, textureScore, rToGRatio, rToBRatio, stability } = frameData;
     this.framesSinceBaseline++;
     
-    // 1. VALIDACIÓN FISIOLÓGICA MÁS PERMISIVA
-    if (!this.isPhysiologicallyValid(redValue, avgGreen, avgBlue, rToGRatio, rToBRatio)) {
+    // 1. VALIDACIÓN BIOLÓGICA ESTRICTA PRIMERA
+    if (!this.isBiologicallyValidFinger(redValue, avgGreen, avgBlue, rToGRatio, rToBRatio)) {
       this.consecutiveNonDetections++;
       this.consecutiveDetections = 0;
-      return { detected: false, confidence: 0, reasons: ['physiological_validation_failed'] };
+      return { 
+        detected: false, 
+        confidence: 0, 
+        reasons: ['not_biological_finger'] 
+      };
     }
     
-    // 2. ESTABLECER BASELINE CON CRITERIOS MÁS AMPLIOS
-    if (!this.baselineValues || this.framesSinceBaseline > this.BASELINE_RECALIBRATION_FRAMES) {
-      if (this.isValidBaselineCandidate(redValue, avgGreen, avgBlue, stability, textureScore)) {
-        this.establishBaseline(redValue, avgGreen, avgBlue);
-        this.framesSinceBaseline = 0;
-      }
+    // 2. RECHAZAR LUZ DIRECTA O FUENTES BRILLANTES
+    if (this.isDirectLightSource(redValue, avgGreen, avgBlue, stability)) {
+      this.consecutiveNonDetections++;
+      this.consecutiveDetections = 0;
+      return { 
+        detected: false, 
+        confidence: 0, 
+        reasons: ['direct_light_source_detected'] 
+      };
     }
     
     const reasons: string[] = [];
     let score = 0;
     
-    // 3. TEST DE INTENSIDAD ROJA MÁS GENEROSO
-    const redIntensityScore = this.evaluateRedIntensity(redValue);
-    if (redIntensityScore > 0) {
-      score += redIntensityScore * 0.35; // Incrementado peso
-      reasons.push('red_intensity_valid');
+    // 3. TEST DE HEMOGLOBINA (canal rojo específico para sangre)
+    const hemoglobinScore = this.evaluateHemoglobinSignature(redValue, avgGreen);
+    if (hemoglobinScore > 0.6) {
+      score += hemoglobinScore * 0.35;
+      reasons.push('hemoglobin_signature_detected');
     } else {
-      // Dar una segunda oportunidad si está cerca del rango
-      if (redValue >= 40 && redValue <= 240) {
-        score += 0.15; // Puntuación parcial
-        reasons.push('red_intensity_marginal');
-      } else {
-        this.consecutiveNonDetections++;
-        this.consecutiveDetections = 0;
-        return { detected: false, confidence: 0, reasons: ['red_intensity_insufficient'] };
-      }
+      return { detected: false, confidence: 0, reasons: ['insufficient_hemoglobin'] };
     }
     
-    // 4. TEST DE RATIOS DE COLOR MÁS FLEXIBLE
-    const colorRatioScore = this.evaluateColorRatios(rToGRatio, rToBRatio);
-    if (colorRatioScore > 0) {
-      score += colorRatioScore * 0.25;
-      reasons.push('color_ratios_physiological');
+    // 4. TEST DE TEXTURA BIOLÓGICA OBLIGATORIO
+    if (textureScore >= this.MIN_TEXTURE_FOR_BIOLOGICAL) {
+      score += Math.min(0.25, textureScore * 1.2);
+      reasons.push('biological_texture_present');
     } else {
-      // Más tolerante con ratios de color
-      if (rToGRatio >= 0.7 && rToGRatio <= 3.0) {
-        score += 0.1; // Puntuación parcial
-        reasons.push('color_ratios_marginal');
-      } else {
-        score *= 0.7; // Penalización menor
-        reasons.push('color_ratios_poor');
-      }
+      // Sin textura biológica = no es dedo
+      return { detected: false, confidence: 0, reasons: ['no_biological_texture'] };
     }
     
-    // 5. TEST DE TEXTURA MÁS FLEXIBLE
-    if (textureScore >= this.MIN_TEXTURE_FOR_FINGER) {
-      score += Math.min(0.2, textureScore * 0.9);
-      reasons.push('texture_indicates_finger');
-    } else if (textureScore >= 0.08) {
-      score += textureScore * 0.5; // Puntuación parcial para texturas bajas
-      reasons.push('texture_low_but_acceptable');
-    } else {
-      score *= 0.6; // Penalización menor
-      reasons.push('texture_insufficient');
-    }
-    
-    // 6. TEST DE ESTABILIDAD TEMPORAL MÁS PERMISIVO
+    // 5. TEST DE ESTABILIDAD TEMPORAL OBLIGATORIO
     this.stabilityHistory.push(stability);
-    if (this.stabilityHistory.length > 8) { // Ventana más pequeña
+    if (this.stabilityHistory.length > 6) {
       this.stabilityHistory.shift();
     }
     
     const avgStability = this.stabilityHistory.reduce((a, b) => a + b, 0) / this.stabilityHistory.length;
-    if (avgStability >= this.MIN_STABILITY_FOR_FINGER) {
-      score += Math.min(0.15, avgStability * 0.5);
-      reasons.push('stability_good');
-    } else if (avgStability >= 0.15) {
-      score += avgStability * 0.3; // Puntuación parcial
-      reasons.push('stability_marginal');
+    if (avgStability >= this.MIN_STABILITY_FOR_BIOLOGICAL) {
+      score += Math.min(0.2, avgStability * 0.6);
+      reasons.push('stable_biological_signal');
     } else {
-      score *= 0.7; // Penalización menor
-      reasons.push('stability_poor');
+      return { detected: false, confidence: 0, reasons: ['unstable_signal'] };
     }
     
-    // 7. TEST DE CONSISTENCIA DE SEÑAL MÁS GENEROSO
+    // 6. TEST DE PERFUSIÓN (variación controlada típica del flujo sanguíneo)
     this.signalConsistencyHistory.push(redValue);
-    if (this.signalConsistencyHistory.length > 6) { // Ventana más pequeña
+    if (this.signalConsistencyHistory.length > 8) {
       this.signalConsistencyHistory.shift();
     }
     
-    if (this.signalConsistencyHistory.length >= 4) {
-      const consistencyScore = this.evaluateSignalConsistency();
-      if (consistencyScore > 0) {
-        score += consistencyScore * 0.15; // Incrementado peso
-        reasons.push('signal_consistent');
-      } else {
-        score *= 0.8; // Penalización menor
-        reasons.push('signal_inconsistent');
+    if (this.signalConsistencyHistory.length >= 6) {
+      const perfusionScore = this.evaluatePerfusionPattern();
+      if (perfusionScore > 0.3) {
+        score += perfusionScore * 0.2;
+        reasons.push('perfusion_pattern_detected');
       }
-    }
-    
-    // 8. BONUS POR BASELINE VÁLIDO MÁS GENEROSO
-    if (this.baselineValues && this.isSignalMatchingBaseline(redValue)) {
-      score += 0.15; // Incrementado bonus
-      reasons.push('baseline_match');
-    }
-    
-    // 9. BONUS POR VALORES EN RANGO ESPERADO
-    if (redValue >= 70 && redValue <= 180) {
-      score += 0.1;
-      reasons.push('value_in_expected_range');
     }
     
     const confidence = Math.min(1.0, score);
     const rawDetected = confidence >= this.CONFIDENCE_THRESHOLD;
     
-    // 10. APLICAR LÓGICA DE DETECCIONES CONSECUTIVAS MÁS SENSIBLE
+    // 7. APLICAR LÓGICA DE DETECCIONES CONSECUTIVAS ESTRICTA
     if (rawDetected) {
       this.consecutiveDetections++;
       this.consecutiveNonDetections = 0;
@@ -167,7 +129,7 @@ export class AdaptiveDetector {
       this.consecutiveDetections = 0;
     }
     
-    // 11. DECISIÓN FINAL CON LÓGICA HUMANA MÁS SENSIBLE
+    // 8. DECISIÓN FINAL CON HISTERESIS ESTRICTA
     const finalDetected = this.consecutiveDetections >= this.MIN_CONSECUTIVE_DETECTIONS;
     
     // Actualizar historial
@@ -176,169 +138,142 @@ export class AdaptiveDetector {
       this.detectionHistory.shift();
     }
     
-    console.log("AdaptiveDetector: Detección mejorada con mayor sensibilidad", {
+    console.log("AdaptiveDetector: Detección específica para dedo humano", {
       detected: finalDetected,
-      confidence: finalDetected ? confidence : Math.max(0.1, confidence * 0.6),
+      confidence: finalDetected ? confidence : confidence * 0.5,
       consecutiveDetections: this.consecutiveDetections,
       requiredConsecutive: this.MIN_CONSECUTIVE_DETECTIONS,
       reasons,
       redValue,
       avgStability,
+      hemoglobinScore,
       score,
       threshold: this.CONFIDENCE_THRESHOLD
     });
     
     return {
       detected: finalDetected,
-      confidence: finalDetected ? confidence : Math.max(0.1, confidence * 0.6),
+      confidence: finalDetected ? confidence : confidence * 0.5,
       reasons
     };
   }
   
   /**
-   * Validación fisiológica más permisiva
+   * Validación biológica estricta para dedo humano
    */
-  private isPhysiologicallyValid(red: number, green: number, blue: number, rToG: number, rToB: number): boolean {
-    return red >= this.PHYSIOLOGICAL_RED_MIN && 
-           red <= this.PHYSIOLOGICAL_RED_MAX &&
-           green >= 15 && green <= 180 && // Más amplio
-           blue >= 10 && blue <= 160 && // Más amplio
-           rToG >= this.MIN_RED_TO_GREEN_RATIO &&
-           rToG <= this.MAX_RED_TO_GREEN_RATIO &&
-           rToB >= 0.8 && rToB <= 3.0; // Más amplio
+  private isBiologicallyValidFinger(red: number, green: number, blue: number, rToG: number, rToB: number): boolean {
+    // Rango específico para hemoglobina en dedo
+    const redInRange = red >= this.BIOLOGICAL_RED_MIN && red <= this.BIOLOGICAL_RED_MAX;
+    
+    // Verde debe estar presente pero menor que rojo (característica de hemoglobina)
+    const greenInRange = green >= 25 && green <= 140;
+    
+    // Azul debe estar presente pero menor (característica de tejido vascularizado)
+    const blueInRange = blue >= 15 && blue <= 120;
+    
+    // Ratio específico para hemoglobina
+    const validRedGreenRatio = rToG >= this.RED_TO_GREEN_RATIO_MIN && rToG <= this.RED_TO_GREEN_RATIO_MAX;
+    
+    // Ratio rojo/azul para tejido
+    const validRedBlueRatio = rToB >= 1.2 && rToB <= 2.5;
+    
+    return redInRange && greenInRange && blueInRange && validRedGreenRatio && validRedBlueRatio;
   }
   
   /**
-   * Evaluación de intensidad roja más generosa
+   * Detectar fuentes de luz directa (no dedo)
    */
-  private evaluateRedIntensity(redValue: number): number {
-    if (redValue < this.MIN_SIGNAL_STRENGTH || redValue > this.MAX_SIGNAL_STRENGTH) {
+  private isDirectLightSource(red: number, green: number, blue: number, stability: number): boolean {
+    // Luz directa tiende a ser muy brillante y balanceada
+    const toobrRight = red > 200 || green > 180 || blue > 160;
+    
+    // Luz directa tiende a tener ratios balanceados (no como hemoglobina)
+    const tooBalanced = Math.abs(red - green) < 15 && Math.abs(red - blue) < 25;
+    
+    // Luz directa es muy estable (demasiado para ser biológica)
+    const tooStable = stability > 0.95;
+    
+    // Variación de brillo típica de luz artificial
+    const artificialPattern = red > 180 && green > 150 && blue > 130 && stability > 0.8;
+    
+    return toobrRight || (tooBalanced && tooStable) || artificialPattern;
+  }
+  
+  /**
+   * Evaluar firma específica de hemoglobina
+   */
+  private evaluateHemoglobinSignature(redValue: number, greenValue: number): number {
+    // La hemoglobina absorbe más verde que rojo, creando un patrón específico
+    if (redValue < this.BIOLOGICAL_RED_MIN || redValue > this.BIOLOGICAL_RED_MAX) {
       return 0;
     }
     
-    // Puntuación más generosa
-    if (redValue >= this.PHYSIOLOGICAL_RED_MIN && redValue <= this.PHYSIOLOGICAL_RED_MAX) {
-      const center = (this.PHYSIOLOGICAL_RED_MIN + this.PHYSIOLOGICAL_RED_MAX) / 2;
-      const distance = Math.abs(redValue - center);
-      const maxDistance = (this.PHYSIOLOGICAL_RED_MAX - this.PHYSIOLOGICAL_RED_MIN) / 2;
-      return 1.0 - (distance / maxDistance) * 0.2; // Mínimo 0.8 en el rango
+    // Ratio típico de hemoglobina oxigenada
+    const redGreenRatio = greenValue > 0 ? redValue / greenValue : 0;
+    
+    if (redGreenRatio >= 1.2 && redGreenRatio <= 1.8) {
+      // Ratio óptimo para hemoglobina
+      const centerRatio = 1.5;
+      const distance = Math.abs(redGreenRatio - centerRatio);
+      return Math.max(0, 1.0 - (distance / 0.3));
     }
     
-    return 0.5; // Puntuación media si está cerca del rango
+    return 0;
   }
   
   /**
-   * Evaluación de ratios de color más flexible
+   * Evaluar patrón de perfusión típico del flujo sanguíneo
    */
-  private evaluateColorRatios(rToG: number, rToB: number): number {
-    let score = 0;
+  private evaluatePerfusionPattern(): number {
+    if (this.signalConsistencyHistory.length < 6) return 0;
     
-    // Evaluar ratio rojo/verde más permisivo
-    if (rToG >= this.MIN_RED_TO_GREEN_RATIO && rToG <= this.MAX_RED_TO_GREEN_RATIO) {
-      if (rToG >= 1.1 && rToG <= 2.0) {
-        score += 0.6;
-      } else {
-        score += 0.4;
-      }
-    } else if (rToG >= 0.7 && rToG <= 3.0) {
-      score += 0.2; // Puntuación parcial para ratios marginales
-    }
-    
-    // Evaluar ratio rojo/azul más permisivo
-    if (rToB >= 0.8 && rToB <= 3.0) {
-      if (rToB >= 1.0 && rToB <= 2.5) {
-        score += 0.4;
-      } else {
-        score += 0.2;
-      }
-    }
-    
-    return Math.min(1.0, score);
-  }
-  
-  /**
-   * Evaluación de consistencia de señal más permisiva
-   */
-  private evaluateSignalConsistency(): number {
-    if (this.signalConsistencyHistory.length < 4) return 0; // Reducido
-    
-    const recent = this.signalConsistencyHistory.slice(-4);
+    const recent = this.signalConsistencyHistory.slice(-6);
     const avg = recent.reduce((a, b) => a + b, 0) / recent.length;
-    const maxDev = Math.max(...recent.map(s => Math.abs(s - avg)));
-    const consistencyRatio = maxDev / avg;
+    const variations = recent.map(v => Math.abs(v - avg));
+    const maxVariation = Math.max(...variations);
+    const avgVariation = variations.reduce((a, b) => a + b, 0) / variations.length;
     
-    if (consistencyRatio < 0.15) return 1.0; // Muy consistente
-    if (consistencyRatio < 0.25) return 0.8; // Moderadamente consistente
-    if (consistencyRatio < 0.35) return 0.5; // Poco consistente
-    if (consistencyRatio < 0.45) return 0.2; // Muy inconsistente pero algo
-    return 0; // Completamente inconsistente
+    // Perfusión tiene variación controlada (no demasiado estable, no demasiado caótica)
+    const variationRatio = avgVariation / avg;
+    
+    if (variationRatio >= 0.02 && variationRatio <= 0.15) {
+      // Variación típica de perfusión
+      if (maxVariation / avg <= this.MAX_BRIGHTNESS_VARIATION) {
+        return Math.min(1.0, 1.0 - Math.abs(variationRatio - 0.08) / 0.07);
+      }
+    }
+    
+    return 0;
   }
   
   /**
-   * Verificar si la señal actual coincide con el baseline establecido
-   */
-  private isSignalMatchingBaseline(redValue: number): boolean {
-    if (!this.baselineValues) return false;
-    
-    const deviation = Math.abs(redValue - this.baselineValues.red) / this.baselineValues.red;
-    return deviation <= 0.35; // 35% de tolerancia (era 25%)
-  }
-  
-  /**
-   * Candidato válido para baseline con criterios más permisivos
-   */
-  private isValidBaselineCandidate(red: number, green: number, blue: number, stability: number, texture: number): boolean {
-    return this.isPhysiologicallyValid(red, green, blue, red/green, red/blue) &&
-           stability >= 0.25 && // Más permisivo (era 0.4)
-           texture >= 0.12 && // Más permisivo (era 0.2)
-           red >= this.PHYSIOLOGICAL_RED_MIN + 5 && // Menos estricto
-           red <= this.PHYSIOLOGICAL_RED_MAX - 5;
-  }
-  
-  /**
-   * Establecer baseline con los valores actuales
-   */
-  private establishBaseline(red: number, green: number, blue: number): void {
-    this.baselineValues = { red, green, blue };
-    
-    // Umbrales adaptativos basados en el baseline más amplios
-    this.adaptiveThresholds.min = Math.max(this.PHYSIOLOGICAL_RED_MIN, red * 0.65); // Más amplio
-    this.adaptiveThresholds.max = Math.min(this.PHYSIOLOGICAL_RED_MAX, red * 1.45); // Más amplio
-    
-    console.log("AdaptiveDetector: Baseline más permisivo establecido", {
-      baseline: this.baselineValues,
-      thresholds: this.adaptiveThresholds
-    });
-  }
-  
-  /**
-   * Adaptación más permisiva de umbrales
+   * Adaptación más estricta de umbrales
    */
   public adaptThresholds(recentValues: number[]): void {
-    if (recentValues.length < 8) return; // Menos muestras requeridas
+    if (recentValues.length < 6) return;
     
     const validValues = recentValues.filter(v => 
-      v >= this.PHYSIOLOGICAL_RED_MIN && v <= this.PHYSIOLOGICAL_RED_MAX
+      v >= this.BIOLOGICAL_RED_MIN && v <= this.BIOLOGICAL_RED_MAX
     );
     
-    if (validValues.length < 6) return; // Menos validaciones requeridas
+    if (validValues.length < 4) return;
     
     const avg = validValues.reduce((a, b) => a + b, 0) / validValues.length;
     const stdDev = Math.sqrt(
       validValues.reduce((acc, val) => acc + Math.pow(val - avg, 2), 0) / validValues.length
     );
     
-    // Ajustar umbrales de forma más permisiva
-    this.adaptiveThresholds.min = Math.max(this.PHYSIOLOGICAL_RED_MIN, avg - stdDev * 1.0); // Más amplio
-    this.adaptiveThresholds.max = Math.min(this.PHYSIOLOGICAL_RED_MAX, avg + stdDev * 1.0); // Más amplio
+    // Ajustar umbrales manteniendo rango biológico
+    this.adaptiveThresholds.min = Math.max(this.BIOLOGICAL_RED_MIN, avg - stdDev * 0.8);
+    this.adaptiveThresholds.max = Math.min(this.BIOLOGICAL_RED_MAX, avg + stdDev * 0.8);
     
-    console.log("AdaptiveDetector: Umbrales adaptados más permisivos:", this.adaptiveThresholds);
+    console.log("AdaptiveDetector: Umbrales biológicos ajustados:", this.adaptiveThresholds);
   }
   
   public reset(): void {
     this.detectionHistory = [];
     this.baselineValues = null;
-    this.adaptiveThresholds = { min: 70, max: 180 }; // Rango más amplio
+    this.adaptiveThresholds = { min: 80, max: 160 };
     this.consecutiveDetections = 0;
     this.consecutiveNonDetections = 0;
     this.stabilityHistory = [];
