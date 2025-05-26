@@ -1,9 +1,7 @@
-
 /**
  * PROCESADOR DE FRAMES UNIFICADO
  * Corregido para extraer correctamente los valores RGB y detectar dedos reales
  */
-import { UNIFIED_PPG_CONFIG } from './UnifiedConfig';
 
 export class UnifiedFrameProcessor {
   private frameCount: number = 0;
