@@ -29,7 +29,12 @@ export class FingerDetectionCore {
   private realDetector: RealFingerDetector;
   private hemoglobinValidator: HemoglobinValidator;
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
   private frameCount = 0;
+=======
+  private realQualityAnalyzer: RealSignalQualityAnalyzer;
+  private recentRedHistory: { value: number; timestamp: number }[] = [];
+>>>>>>> Stashed changes
 =======
   private realQualityAnalyzer: RealSignalQualityAnalyzer;
   private recentRedHistory: { value: number; timestamp: number }[] = [];
@@ -47,6 +52,7 @@ export class FingerDetectionCore {
   detectFinger(imageData: ImageData): FingerDetectionResult {
     this.frameCount++;
     
+<<<<<<< Updated upstream
 <<<<<<< Updated upstream
     // Usar el detector real robusto
     const detectionMetrics = this.realDetector.detectRealFinger(imageData);
@@ -70,6 +76,8 @@ export class FingerDetectionCore {
         perfusion: detectionMetrics.perfusionDetected,
         pulse: detectionMetrics.pulsationDetected
 =======
+=======
+>>>>>>> Stashed changes
     const { metrics, roi } = this.extractBasicMetrics(imageData);
     
     this.recentRedHistory.push({ value: metrics.redIntensity, timestamp: Date.now() });
@@ -115,6 +123,9 @@ export class FingerDetectionCore {
           stability: metrics.stability.toFixed(2),
           texture: metrics.textureScore.toFixed(2)
         }
+<<<<<<< Updated upstream
+>>>>>>> Stashed changes
+=======
 >>>>>>> Stashed changes
       });
     }
@@ -131,6 +142,9 @@ export class FingerDetectionCore {
 =======
         ...metrics,
         pulsationStrength: pulsationScore
+<<<<<<< Updated upstream
+>>>>>>> Stashed changes
+=======
 >>>>>>> Stashed changes
       },
       roi: { x: 0, y: 0, width: imageData.width, height: imageData.height }
@@ -140,6 +154,7 @@ export class FingerDetectionCore {
   private extractBasicMetrics(imageData: ImageData) {
     const { data, width, height } = imageData;
     
+<<<<<<< Updated upstream
 <<<<<<< Updated upstream
     // Área central para análisis
     const centerX = width / 2;
@@ -161,6 +176,8 @@ export class FingerDetectionCore {
             pixelCount++;
           }
 =======
+=======
+>>>>>>> Stashed changes
     const roiSizeFactor = 0.35;
     const roiWidth = Math.min(width, height) * roiSizeFactor;
     const roiHeight = roiWidth;
@@ -380,6 +397,9 @@ export class FingerDetectionCore {
         return Math.max(0.3, 1 - Math.abs(cv - optimalCV) / 0.025); 
     }
     return 0.1;
+<<<<<<< Updated upstream
+>>>>>>> Stashed changes
+=======
 >>>>>>> Stashed changes
   }
   
@@ -391,6 +411,9 @@ export class FingerDetectionCore {
 =======
     this.recentRedHistory = [];
     this.realQualityAnalyzer.reset();
+<<<<<<< Updated upstream
+>>>>>>> Stashed changes
+=======
 >>>>>>> Stashed changes
   }
 }
