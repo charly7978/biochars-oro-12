@@ -1,3 +1,4 @@
+
 import { ProcessedSignal, ProcessingError, SignalProcessor as SignalProcessorInterface } from '../../types/signal';
 import { FingerDetectionCore, FingerDetectionResult } from './FingerDetectionCore';
 import { SignalProcessingCore, ProcessedSignalData } from './SignalProcessingCore';
@@ -21,6 +22,7 @@ export class PPGSignalProcessor implements SignalProcessorInterface {
   private detectionHistory: boolean[] = [];
   private signalBuffer: number[] = [];
   private noiseBuffer: number[] = [];
+  private qualityHistory: number[] = [];
   
   constructor(
     public onSignalReady?: (signal: ProcessedSignal) => void,
@@ -42,6 +44,7 @@ export class PPGSignalProcessor implements SignalProcessorInterface {
       this.detectionHistory = [];
       this.signalBuffer = [];
       this.noiseBuffer = [];
+      this.qualityHistory = [];
       
       // Reset de componentes
       this.fingerDetector.reset();
@@ -78,6 +81,7 @@ export class PPGSignalProcessor implements SignalProcessorInterface {
     this.detectionHistory = [];
     this.signalBuffer = [];
     this.noiseBuffer = [];
+    this.qualityHistory = [];
     
     console.log("PPGSignalProcessor REAL: Sistema detenido");
   }
@@ -148,6 +152,12 @@ export class PPGSignalProcessor implements SignalProcessorInterface {
         realNoiseLevel,
         detectionResult
       );
+
+      // Almacenar calidad real medida
+      this.qualityHistory.push(realQuality);
+      if (this.qualityHistory.length > 100) {
+        this.qualityHistory.shift();
+      }
 
       // 5. APLICAR HISTÉRESIS REAL PARA ESTABILIDAD
       const finalDetected = this.applyRealHysteresis(detectionResult.detected);
