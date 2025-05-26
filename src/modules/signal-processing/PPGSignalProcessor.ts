@@ -1,8 +1,7 @@
-
 import { ProcessedSignal, ProcessingError, SignalProcessor as SignalProcessorInterface } from '../../types/signal';
 import { FingerDetectionCore, FingerDetectionResult } from './FingerDetectionCore';
 import { SignalProcessingCore, ProcessedSignalData } from './SignalProcessingCore';
-import { RealisticQualityCalculator } from './RealisticQualityCalculator';
+import { RealSignalQualityAnalyzer } from './RealSignalQualityAnalyzer';
 
 /**
  * PROCESADOR PPG 100% REAL SIN SIMULACIÓN
@@ -14,7 +13,7 @@ export class PPGSignalProcessor implements SignalProcessorInterface {
   // Componentes principales
   private fingerDetector: FingerDetectionCore;
   private signalProcessor: SignalProcessingCore;
-  private qualityCalculator: RealisticQualityCalculator;
+  private qualityAnalyzer: RealSignalQualityAnalyzer;
   
   // Estado del procesador
   private frameCount = 0;
@@ -32,7 +31,7 @@ export class PPGSignalProcessor implements SignalProcessorInterface {
     
     this.fingerDetector = new FingerDetectionCore();
     this.signalProcessor = new SignalProcessingCore();
-    this.qualityCalculator = new RealisticQualityCalculator();
+    this.qualityAnalyzer = new RealSignalQualityAnalyzer();
     
     console.log("PPGSignalProcessor REAL: Componentes inicializados");
   }
@@ -49,7 +48,7 @@ export class PPGSignalProcessor implements SignalProcessorInterface {
       // Reset de componentes
       this.fingerDetector.reset();
       this.signalProcessor.reset();
-      this.qualityCalculator.reset();
+      this.qualityAnalyzer.reset();
       
       console.log("PPGSignalProcessor REAL: Inicialización completada");
     } catch (error) {
@@ -75,7 +74,7 @@ export class PPGSignalProcessor implements SignalProcessorInterface {
     // Reset completo
     this.fingerDetector.reset();
     this.signalProcessor.reset();
-    this.qualityCalculator.reset();
+    this.qualityAnalyzer.reset();
     
     this.frameCount = 0;
     this.detectionHistory = [];
@@ -147,10 +146,12 @@ export class PPGSignalProcessor implements SignalProcessorInterface {
       }
 
       // 4. CÁLCULO DE CALIDAD REAL (SIN SIMULACIÓN)
-      const realQuality = this.calculateRealQuality(
+      const realQuality = this.qualityAnalyzer.calculateQuality(
         signalData.rawValue,
         realNoiseLevel,
-        detectionResult
+        detectionResult.metrics.hemoglobinScore,
+        detectionResult.metrics.pulsationStrength,
+        detectionResult.detected
       );
 
       // Almacenar calidad real medida
@@ -266,15 +267,13 @@ export class PPGSignalProcessor implements SignalProcessorInterface {
     // Calcular consistencia temporal real
     const realConsistency = this.calculateRealTemporalConsistency();
     
-    return this.qualityCalculator.calculateRealisticQuality({
+    return this.qualityAnalyzer.calculateQuality(
       signalValue,
       noiseLevel,
-      stability: realStability,
-      hemoglobinValidity: detectionResult.metrics.hemoglobinScore,
-      textureScore: detectionResult.metrics.textureScore,
-      temporalConsistency: realConsistency,
-      isFingerDetected: detectionResult.detected
-    });
+      detectionResult.metrics.hemoglobinScore,
+      detectionResult.metrics.pulsationStrength,
+      detectionResult.detected
+    );
   }
 
   /**
