@@ -171,23 +171,35 @@ export class RealFingerDetector {
     const reasons: string[] = [];
     let score = 0;
     
-    // Usar umbrales adaptativos si está calibrado
-    const thresholds = this.isCalibrated ? this.adaptiveThresholds : this.BASE_THRESHOLDS;
+    // Obtener umbrales correctos con acceso seguro a propiedades
+    let minRed: number, maxRed: number, minRgRatio: number, maxRgRatio: number;
+    
+    if (this.isCalibrated) {
+      minRed = this.adaptiveThresholds.minRed;
+      maxRed = this.adaptiveThresholds.maxRed;
+      minRgRatio = this.adaptiveThresholds.minRgRatio;
+      maxRgRatio = this.adaptiveThresholds.maxRgRatio;
+    } else {
+      minRed = this.BASE_THRESHOLDS.MIN_RED;
+      maxRed = this.BASE_THRESHOLDS.MAX_RED;
+      minRgRatio = this.BASE_THRESHOLDS.MIN_RG_RATIO;
+      maxRgRatio = this.BASE_THRESHOLDS.MAX_RG_RATIO;
+    }
     
     // Validación 1: Intensidad roja
-    if (metrics.redIntensity >= thresholds.minRed && metrics.redIntensity <= thresholds.maxRed) {
+    if (metrics.redIntensity >= minRed && metrics.redIntensity <= maxRed) {
       score += 0.4;
       reasons.push(`✓ Rojo válido: ${metrics.redIntensity.toFixed(1)}`);
     } else {
-      reasons.push(`✗ Rojo fuera de rango: ${metrics.redIntensity.toFixed(1)} (${thresholds.minRed}-${thresholds.maxRed})`);
+      reasons.push(`✗ Rojo fuera de rango: ${metrics.redIntensity.toFixed(1)} (${minRed}-${maxRed})`);
     }
     
     // Validación 2: Ratio R/G
-    if (metrics.rgRatio >= thresholds.minRgRatio && metrics.rgRatio <= thresholds.maxRgRatio) {
+    if (metrics.rgRatio >= minRgRatio && metrics.rgRatio <= maxRgRatio) {
       score += 0.4;
       reasons.push(`✓ Ratio válido: ${metrics.rgRatio.toFixed(2)}`);
     } else {
-      reasons.push(`✗ Ratio inválido: ${metrics.rgRatio.toFixed(2)} (${thresholds.minRgRatio}-${thresholds.maxRgRatio})`);
+      reasons.push(`✗ Ratio inválido: ${metrics.rgRatio.toFixed(2)} (${minRgRatio}-${maxRgRatio})`);
     }
     
     // Validación 3: Textura básica
