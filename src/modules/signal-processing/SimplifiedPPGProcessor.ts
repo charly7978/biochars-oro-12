@@ -4,21 +4,19 @@
  * Pipeline lineal: Detección → Validación → Procesamiento → Salida
  */
 
-import { RealFingerDetector, FingerDetectionMetrics } from './RealFingerDetector';
-import { HemoglobinValidator } from './HemoglobinValidator';
+import { FingerDetectionCore, FingerDetectionResult } from './FingerDetectionCore';
 
 export interface PPGResult {
   fingerDetected: boolean;
   signalQuality: number;
   rawValue: number;
   filteredValue: number;
-  metrics: FingerDetectionMetrics;
+  metrics: any;
   timestamp: number;
 }
 
 export class SimplifiedPPGProcessor {
-  private fingerDetector: RealFingerDetector;
-  private hemoglobinValidator: HemoglobinValidator;
+  private fingerDetector: FingerDetectionCore;
   private signalBuffer: number[] = [];
   private qualityHistory: number[] = [];
   private frameCount = 0;
@@ -28,8 +26,7 @@ export class SimplifiedPPGProcessor {
   private lastFilteredValue = 0;
   
   constructor() {
-    this.fingerDetector = new RealFingerDetector();
-    this.hemoglobinValidator = new HemoglobinValidator();
+    this.fingerDetector = new FingerDetectionCore();
   }
   
   /**
@@ -40,13 +37,13 @@ export class SimplifiedPPGProcessor {
     const timestamp = Date.now();
     
     // 1. DETECCIÓN DE DEDO REAL
-    const metrics = this.fingerDetector.detectRealFinger(imageData);
+    const detectionResult: FingerDetectionResult = this.fingerDetector.detectFinger(imageData);
     
     // 2. EXTRACCIÓN DE SEÑAL (solo si hay dedo)
     let rawValue = 0;
     let filteredValue = 0;
     
-    if (metrics.confidence > 0.4) { // Umbral mínimo para procesar
+    if (detectionResult.confidence > 0.4) { // Umbral mínimo para procesar
       rawValue = this.extractPPGSignal(imageData);
       filteredValue = this.applySimpleFilter(rawValue);
       
@@ -58,20 +55,18 @@ export class SimplifiedPPGProcessor {
     }
     
     // 3. CÁLCULO DE CALIDAD REALISTA
-    const signalQuality = this.calculateRealisticQuality(metrics, rawValue);
+    const signalQuality = this.calculateRealisticQuality(detectionResult, rawValue);
     
     // 4. DETERMINAR DETECCIÓN FINAL
-    const fingerDetected = metrics.confidence > 0.5 && signalQuality > 45;
+    const fingerDetected = detectionResult.confidence > 0.5 && signalQuality > 45;
     
     // Log cada 30 frames para debug
     if (this.frameCount % 30 === 0) {
       console.log("SimplifiedPPGProcessor:", {
         fingerDetected,
         quality: signalQuality.toFixed(1),
-        confidence: metrics.confidence.toFixed(2),
-        skinTone: metrics.skinToneValid,
-        perfusion: metrics.perfusionDetected,
-        pulse: metrics.pulsationDetected
+        confidence: detectionResult.confidence.toFixed(2),
+        reasons: detectionResult.reasons.slice(0, 2)
       });
     }
     
@@ -80,7 +75,7 @@ export class SimplifiedPPGProcessor {
       signalQuality,
       rawValue,
       filteredValue,
-      metrics,
+      metrics: detectionResult.metrics,
       timestamp
     };
   }
@@ -124,18 +119,14 @@ export class SimplifiedPPGProcessor {
     return this.lastFilteredValue;
   }
   
-  private calculateRealisticQuality(metrics: FingerDetectionMetrics, rawValue: number): number {
+  private calculateRealisticQuality(detectionResult: FingerDetectionResult, rawValue: number): number {
     let baseQuality = 0;
     
     // Calidad base según detección real
-    if (metrics.skinToneValid) baseQuality += 20;
-    if (metrics.perfusionDetected) baseQuality += 25;
-    if (metrics.pulsationDetected) baseQuality += 20;
-    if (metrics.textureValid) baseQuality += 15;
-    if (metrics.antiSpoofingPassed) baseQuality += 10;
+    baseQuality += detectionResult.quality * 0.8; // Usar la calidad calculada del detector
     
     // Factor de confianza
-    baseQuality *= metrics.confidence;
+    baseQuality *= detectionResult.confidence;
     
     // Variabilidad realista de condiciones de medición
     const variabilityFactor = this.calculateNaturalVariability();
@@ -187,7 +178,6 @@ export class SimplifiedPPGProcessor {
     
     // Reset de detectores
     this.fingerDetector.reset();
-    this.hemoglobinValidator.reset();
     
     console.log("SimplifiedPPGProcessor: Calibración completada");
   }
