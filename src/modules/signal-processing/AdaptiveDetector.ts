@@ -1,11 +1,10 @@
-
 import { DETECTOR_CONFIG } from './DetectorConfig';
 import { ArtificialSourceDetector } from './ArtificialSourceDetector';
 import { BiologicalValidator } from './BiologicalValidator';
 import { SignalVariabilityAnalyzer } from './SignalVariabilityAnalyzer';
 
 /**
- * Detector adaptativo con validación ESTRICTA para dedo humano real
+ * Detector adaptativo con validación SENSIBLE para dedo humano real
  * Rechaza fuentes de luz, objetos y superficies artificiales
  */
 export class AdaptiveDetector {
@@ -24,7 +23,7 @@ export class AdaptiveDetector {
   private signalVariabilityAnalyzer = new SignalVariabilityAnalyzer();
   
   /**
-   * Detección ULTRA ESTRICTA para dedo humano - rechaza todo lo demás
+   * Detección SENSIBLE para dedo humano - más permisiva pero rechaza artificiales
    */
   public detectFingerMultiModal(frameData: {
     redValue: number;
@@ -53,30 +52,36 @@ export class AdaptiveDetector {
     const reasons: string[] = [];
     let score = 0;
     
-    // 2. VALIDACIÓN BIOLÓGICA ESTRICTA - TODOS LOS TESTS DEBEN PASAR
+    // 2. VALIDACIÓN BIOLÓGICA MÁS PERMISIVA PARA DEDO HUMANO
     
     // Test de rango rojo biológico
     if (this.biologicalValidator.isInBiologicalRedRange(redValue)) {
-      score += 0.2;
+      score += 0.25;
       reasons.push('red_range_biological');
     } else {
-      return { detected: false, confidence: 0, reasons: ['red_not_biological'] };
+      // Ser más permisivo - no rechazar inmediatamente
+      score += 0.1;
+      reasons.push('red_range_marginal');
     }
     
-    // Test de ratio rojo/verde ESTRICTO (hemoglobina)
+    // Test de ratio rojo/verde PERMISIVO (hemoglobina)
     if (this.biologicalValidator.hasValidHemoglobinRatio(rToGRatio)) {
       score += 0.25;
       reasons.push('hemoglobin_ratio_valid');
-    } else {
-      return { detected: false, confidence: 0, reasons: ['hemoglobin_ratio_invalid'] };
+    } else if (rToGRatio >= 0.9 && rToGRatio <= 2.8) {
+      // Rango ampliado para casos límite
+      score += 0.15;
+      reasons.push('hemoglobin_ratio_marginal');
     }
     
-    // Test de textura biológica OBLIGATORIO
+    // Test de textura biológica PERMISIVO
     if (this.biologicalValidator.hasBiologicalTexture(textureScore)) {
       score += 0.2;
       reasons.push('biological_texture');
-    } else {
-      return { detected: false, confidence: 0, reasons: ['no_biological_texture'] };
+    } else if (textureScore >= 0.05) {
+      // Más permisivo para textura
+      score += 0.12;
+      reasons.push('texture_marginal');
     }
     
     // Test de estabilidad biológica
@@ -89,8 +94,10 @@ export class AdaptiveDetector {
     if (this.biologicalValidator.hasBiologicalStability(avgStability)) {
       score += 0.15;
       reasons.push('biological_stability');
-    } else {
-      return { detected: false, confidence: 0, reasons: ['unstable_signal'] };
+    } else if (avgStability >= 0.2) {
+      // Más permisivo para estabilidad
+      score += 0.08;
+      reasons.push('stability_marginal');
     }
     
     // Test de perfusión biológica
@@ -98,19 +105,21 @@ export class AdaptiveDetector {
       score += 0.15;
       reasons.push('biological_perfusion');
     } else {
-      return { detected: false, confidence: 0, reasons: ['no_biological_perfusion'] };
+      // Ser más permisivo - dar puntuación parcial
+      score += 0.05;
+      reasons.push('perfusion_marginal');
     }
     
-    // Test de variabilidad natural
-    if (this.signalVariabilityAnalyzer.hasNaturalVariability(redValue)) {
-      score += 0.05;
-      reasons.push('natural_variability');
+    // Bonus por valores en rango óptimo para dedo
+    if (redValue >= 80 && redValue <= 150 && rToGRatio >= 1.2 && rToGRatio <= 2.0) {
+      score += 0.1;
+      reasons.push('optimal_finger_values');
     }
     
     const confidence = Math.min(1.0, score);
     const rawDetected = confidence >= DETECTOR_CONFIG.CONFIDENCE_THRESHOLD;
     
-    // LÓGICA DE DETECCIONES CONSECUTIVAS MÁS ESTRICTA
+    // LÓGICA DE DETECCIONES CONSECUTIVAS MÁS PERMISIVA
     if (rawDetected) {
       this.consecutiveDetections++;
       this.consecutiveNonDetections = 0;
@@ -120,7 +129,7 @@ export class AdaptiveDetector {
       this.consecutiveDetections = 0;
     }
     
-    // DECISIÓN FINAL CON HISTERESIS ESTRICTA
+    // DECISIÓN FINAL CON HISTERESIS PERMISIVA
     const finalDetected = this.consecutiveDetections >= DETECTOR_CONFIG.MIN_CONSECUTIVE_DETECTIONS;
     
     // Actualizar historial
@@ -129,9 +138,9 @@ export class AdaptiveDetector {
       this.detectionHistory.shift();
     }
     
-    console.log("AdaptiveDetector: Detección SENSIBLE para dedo real", {
+    console.log("AdaptiveDetector: Detección SENSIBLE para dedo humano", {
       detected: finalDetected,
-      confidence: finalDetected ? confidence : confidence * 0.5,
+      confidence: finalDetected ? confidence : confidence * 0.7,
       consecutiveDetections: this.consecutiveDetections,
       requiredConsecutive: DETECTOR_CONFIG.MIN_CONSECUTIVE_DETECTIONS,
       reasons,
@@ -145,7 +154,7 @@ export class AdaptiveDetector {
     
     return {
       detected: finalDetected,
-      confidence: finalDetected ? confidence : confidence * 0.5,
+      confidence: finalDetected ? confidence : confidence * 0.7,
       reasons
     };
   }

@@ -9,14 +9,14 @@ export class BiologicalValidator {
    * Verify biological perfusion pattern specific to human skin
    */
   public hasBiologicalPerfusion(red: number, green: number, blue: number): boolean {
-    // Typical human skin pattern with circulation
-    const skinTone = red > green && red > blue;
-    const moderateIntensity = red >= 80 && red <= 160;
-    const greenBalance = green >= 40 && green <= 110;
-    const blueBalance = blue >= 25 && blue <= 90;
+    // Patrón más permisivo para piel humana con circulación
+    const skinTone = red >= green; // Más permisivo
+    const moderateIntensity = red >= 65 && red <= 180; // Más amplio
+    const greenBalance = green >= 25 && green <= 120; // Más amplio
+    const blueBalance = blue >= 15 && blue <= 100; // Más amplio
     
-    // Verify not too bright (artificial)
-    const notTooBright = !(red > 170 && green > 140 && blue > 120);
+    // Verificar que no sea demasiado brillante (artificial)
+    const notTooBright = !(red > 180 && green > 150 && blue > 130);
     
     return skinTone && moderateIntensity && greenBalance && blueBalance && notTooBright;
   }
