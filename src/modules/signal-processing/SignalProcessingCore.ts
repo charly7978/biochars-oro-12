@@ -1,4 +1,3 @@
-
 /**
  * NÚCLEO DE PROCESAMIENTO DE SEÑALES SIMPLIFICADO
  * Responsable solo del procesamiento de la señal PPG
@@ -46,11 +45,11 @@ export class SignalProcessingCore {
     // Normalización respecto al baseline
     const normalized = sgFiltered - this.baseline;
     
-    // Amplificación basada en calidad
-    const amplificationFactor = this.calculateAmplification(quality);
+    // Amplificación dinámica basada en la varianza de la señal reciente
+    const amplificationFactor = this.calculateDynamicAmplification();
     const amplified = normalized * amplificationFactor;
     
-    // Actualizar historial
+    // Actualizar historial de señal *amplificada*
     this.signalHistory.push(amplified);
     if (this.signalHistory.length > 100) {
       this.signalHistory.shift();
@@ -65,13 +64,52 @@ export class SignalProcessingCore {
   }
   
   /**
-   * Calcular factor de amplificación basado en calidad
+   * Calcular factor de amplificación dinámico
    */
-  private calculateAmplification(quality: number): number {
-    // Amplificación inversamente proporcional a la calidad
-    if (quality > 70) return 8;   // Señal buena, poca amplificación
-    if (quality > 50) return 15;  // Señal media, amplificación moderada
-    return 25;                    // Señal débil, alta amplificación
+  private calculateDynamicAmplification(): number {
+    if (this.signalHistory.length < 20) {
+      return 15; // Factor de amplificación inicial/por defecto moderado
+    }
+    // Usar el historial de la señal *ya procesada y amplificada* para estimar su rango dinámico
+    const recentProcessedSignal = this.signalHistory.slice(-20);
+    const minVal = Math.min(...recentProcessedSignal);
+    const maxVal = Math.max(...recentProcessedSignal);
+    const currentAmplitude = maxVal - minVal;
+
+    const TARGET_AMPLITUDE = 50; // Amplitud deseada para la señal procesada
+    const MIN_AMP_FACTOR = 5;
+    const MAX_AMP_FACTOR = 40;
+
+    if (currentAmplitude < 1e-6) return MAX_AMP_FACTOR; // Evitar división por cero, amplificar mucho
+
+    let factor = TARGET_AMPLITUDE / currentAmplitude;
+    
+    // Limitar el factor para evitar amplificación excesiva o insuficiente
+    factor = Math.max(MIN_AMP_FACTOR, Math.min(MAX_AMP_FACTOR, factor));
+    
+    // Suavizar el cambio del factor de amplificación
+    // Esto podría requerir un miembro de clase para `lastAmplificationFactor` si se quiere más suave
+    // Por ahora, lo dejamos directo pero limitado.
+
+    return factor;
+  }
+
+  /**
+   * Estimación de ruido (placeholder para futura implementación más robusta)
+   * Por ahora, se basa en la desviación estándar de la señal *cruda* reciente.
+   */
+  public getNoiseEstimate(rawRedValuesHistory: number[]): number {
+    if (rawRedValuesHistory.length < 10) return 5; // Valor por defecto si no hay suficientes datos
+    
+    const recentRaw = rawRedValuesHistory.slice(-10);
+    const mean = recentRaw.reduce((a,b) => a+b,0) / recentRaw.length;
+    const variance = recentRaw.reduce((acc, val) => acc + Math.pow(val - mean, 2),0) / recentRaw.length;
+    const stdDev = Math.sqrt(variance);
+    
+    // El ruido podría ser proporcional a la desviación estándar de la señal cruda
+    // o una fracción de ella si hay mucha variabilidad fisiológica.
+    // Esto es una estimación simple y necesita ser mejorada.
+    return Math.max(1, stdDev * 0.5); // Evitar ruido cero
   }
   
   /**

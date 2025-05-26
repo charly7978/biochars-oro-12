@@ -31,6 +31,7 @@ export class FingerDetectionCore {
   private hemoglobinValidator: HemoglobinValidator;
   private realQualityAnalyzer: RealSignalQualityAnalyzer;
   private recentRedHistory: { value: number; timestamp: number }[] = [];
+  private rawRedIntensityHistory: number[] = [];
 
   constructor() { 
     this.hemoglobinValidator = new HemoglobinValidator();
@@ -44,6 +45,11 @@ export class FingerDetectionCore {
     this.frameCount++;
 
     const { metrics, roi } = this.extractBasicMetrics(imageData);
+
+    this.rawRedIntensityHistory.push(metrics.redIntensity);
+    if (this.rawRedIntensityHistory.length > 30) {
+        this.rawRedIntensityHistory.shift();
+    }
 
     this.recentRedHistory.push({ value: metrics.redIntensity, timestamp: Date.now() });
     if (this.recentRedHistory.length > 120) { 
@@ -64,7 +70,14 @@ export class FingerDetectionCore {
       this.updateCalibration(metrics.redIntensity);
     }
     
-    const noiseEstimate = metrics.stability < 0.5 ? (1 - metrics.stability) * 50 : 10;
+    let noiseEstimate = 5; // Default bajo
+    if (this.rawRedIntensityHistory.length >= 10) {
+      const recentRaw = this.rawRedIntensityHistory.slice(-10);
+      const mean = recentRaw.reduce((a,b) => a+b,0) / recentRaw.length;
+      const variance = recentRaw.reduce((acc, val) => acc + Math.pow(val - mean, 2),0) / recentRaw.length;
+      const stdDev = Math.sqrt(variance);
+      noiseEstimate = Math.max(0.5, stdDev * 0.35); // Fracción de stdDev, con mínimo
+    }
     
     const quality = this.realQualityAnalyzer.calculateQuality(
       metrics.redIntensity,
@@ -283,6 +296,7 @@ export class FingerDetectionCore {
     this.calibrationData = null;
     this.hemoglobinValidator.reset();
     this.recentRedHistory = [];
+    this.rawRedIntensityHistory = [];
     if (this.realQualityAnalyzer) {
       this.realQualityAnalyzer.reset();
     }
