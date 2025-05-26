@@ -1,113 +1,75 @@
 
-import { MetricsExtractor, ExtractedMetrics } from './MetricsExtractor';
-import { PulsationDetector } from './PulsationDetector';
-import { FingerValidator } from './FingerValidator';
-import { QualityCalculator } from './QualityCalculator';
+import { RealFingerDetector, FingerDetectionResult } from './RealFingerDetector';
 
 /**
- * NÚCLEO DE DETECCIÓN DE DEDOS REAL - REFACTORIZADO
- * Sistema simplificado para detectar dedos humanos reales
+ * NÚCLEO DE DETECCIÓN SIMPLIFICADO - SIN REDUNDANCIAS
+ * Usa el detector real optimizado
  */
 
-export interface FingerDetectionResult {
+export interface FingerDetectionCoreResult {
   detected: boolean;
   confidence: number;
   quality: number;
   reasons: string[];
-  metrics: {
-    redIntensity: number;
-    greenIntensity: number;
-    blueIntensity: number;
-    redToGreenRatio: number;
-    textureScore: number;
-    stability: number;
-    hemoglobinScore: number;
-    pulsationStrength: number;
-    perfusionIndex: number;
-    skinConsistency: number;
-  };
-  roi: { x: number; y: number; width: number; height: number }; 
+  metrics: any;
+  roi: { x: number; y: number; width: number; height: number };
 }
 
 export class FingerDetectionCore {
+  private fingerDetector: RealFingerDetector;
   private frameCount = 0;
-  private metricsExtractor: MetricsExtractor;
-  private pulsationDetector: PulsationDetector;
-  private fingerValidator: FingerValidator;
-  private qualityCalculator: QualityCalculator;
 
-  constructor() { 
-    this.metricsExtractor = new MetricsExtractor();
-    this.pulsationDetector = new PulsationDetector();
-    this.fingerValidator = new FingerValidator();
-    this.qualityCalculator = new QualityCalculator();
+  constructor() {
+    this.fingerDetector = new RealFingerDetector();
   }
 
-  /**
-   * Detección principal simplificada para dedos humanos
-   */
-  detectFinger(imageData: ImageData): FingerDetectionResult {
+  detectFinger(imageData: ImageData): FingerDetectionCoreResult {
     this.frameCount++;
 
-    // Extraer métricas básicas
-    const extractedMetrics = this.metricsExtractor.extractMetrics(imageData);
+    // Usar el detector real optimizado
+    const result: FingerDetectionResult = this.fingerDetector.detectFinger(imageData);
     
-    // Detectar pulsación
-    const pulsationStrength = this.pulsationDetector.detectPulsation(extractedMetrics.redIntensity);
-    
-    // Validar dedo
-    const validation = this.fingerValidator.validateFinger(
-      extractedMetrics, 
-      pulsationStrength, 
-      this.frameCount
-    );
-    
-    // Calcular calidad
-    const quality = this.qualityCalculator.calculateQuality(
-      extractedMetrics.redIntensity,
-      pulsationStrength,
-      validation.detected
-    );
-    
-    // Debug cada 20 frames
-    if (this.frameCount % 20 === 0) {
-      console.log("[FingerDetectionCore REFACTORIZADO]", {
-        detected: validation.detected,
-        quality: quality,
-        confidence: validation.confidence.toFixed(3),
-        frameCount: this.frameCount,
-        reasons: validation.reasons.slice(0, 2).join(', '),
-        red: extractedMetrics.redIntensity.toFixed(1),
-        rgRatio: extractedMetrics.redToGreenRatio.toFixed(2),
-        pulsation: pulsationStrength.toFixed(3)
+    // ROI simple centrado
+    const roi = {
+      x: imageData.width / 2 - 80,
+      y: imageData.height / 2 - 80,
+      width: 160,
+      height: 160
+    };
+
+    // Log cada 30 frames
+    if (this.frameCount % 30 === 0) {
+      console.log("FingerDetectionCore:", {
+        detected: result.isFingerDetected,
+        confidence: result.confidence.toFixed(3),
+        quality: result.quality.toFixed(1),
+        reasons: result.reasons.slice(0, 2)
       });
     }
-    
+
     return {
-      detected: validation.detected,
-      confidence: validation.confidence,
-      quality,
-      reasons: validation.reasons,
+      detected: result.isFingerDetected,
+      confidence: result.confidence,
+      quality: result.quality,
+      reasons: result.reasons,
       metrics: {
-        redIntensity: extractedMetrics.redIntensity,
-        greenIntensity: extractedMetrics.greenIntensity,
-        blueIntensity: extractedMetrics.blueIntensity,
-        redToGreenRatio: extractedMetrics.redToGreenRatio,
-        textureScore: extractedMetrics.textureScore,
-        stability: 0.8, // Valor fijo para compatibilidad
-        hemoglobinScore: extractedMetrics.redToGreenRatio > 1.0 ? 0.7 : 0.3,
-        pulsationStrength,
-        perfusionIndex: pulsationStrength,
-        skinConsistency: extractedMetrics.textureScore
+        redIntensity: result.metrics.redIntensity,
+        greenIntensity: 0, // Simplificado
+        blueIntensity: 0,  // Simplificado
+        redToGreenRatio: result.metrics.rgRatio,
+        textureScore: result.metrics.textureScore,
+        stability: result.metrics.stability,
+        hemoglobinScore: result.metrics.rgRatio > 1.0 ? 0.7 : 0.3,
+        pulsationStrength: 0, // Se calculará separadamente
+        perfusionIndex: 0,
+        skinConsistency: result.metrics.textureScore
       },
-      roi: extractedMetrics.roi
+      roi
     };
   }
   
   reset(): void {
     this.frameCount = 0;
-    this.pulsationDetector.reset();
-    this.qualityCalculator.reset();
-    console.log("FingerDetectionCore: Reset completo");
+    this.fingerDetector.reset();
   }
 }
