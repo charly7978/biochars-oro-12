@@ -1,7 +1,7 @@
 
 /**
- * DETECTOR DE DEDOS REAL - SIN SIMULACIONES
- * Optimizado para detección real con cámara
+ * DETECTOR DE DEDOS REAL - OPTIMIZADO PARA HUMANOS
+ * Agresivo con dedos reales, estricto con falsos positivos
  */
 
 export interface FingerDetectionResult {
@@ -20,42 +20,57 @@ export interface FingerDetectionResult {
 export class RealFingerDetector {
   private detectionHistory: boolean[] = [];
   private redHistory: number[] = [];
+  private intensityHistory: number[] = [];
   private calibrationSamples: number[] = [];
   private isCalibrated = false;
   private baselineRed = 0;
+  private consecutiveFalsePositives = 0;
   
-  // UMBRALES AJUSTADOS PARA DEDOS HUMANOS REALES
-  private readonly REAL_THRESHOLDS = {
-    MIN_RED: 60,          // Más bajo para dedos reales
-    MAX_RED: 250,         // Más alto para permitir variación natural
-    MIN_RG_RATIO: 1.05,   // Más permisivo para dedos reales
-    MAX_RG_RATIO: 3.5,    // Mayor rango para condiciones variables
-    MIN_TEXTURE: 0.02,    // Más bajo para detectar piel suave
-    MIN_STABILITY: 0.08,  // Más permisivo para movimiento natural
-    CALIBRATION_SAMPLES: 10,
-    MIN_CONFIDENCE: 0.4   // Umbral más bajo para dedos reales
+  // UMBRALES OPTIMIZADOS PARA DEDOS HUMANOS VS FALSOS POSITIVOS
+  private readonly DETECTION_THRESHOLDS = {
+    // Rangos más específicos para dedos humanos
+    HUMAN_RED_MIN: 85,        // Mínimo para piel humana
+    HUMAN_RED_MAX: 180,       // Máximo típico para dedos
+    HUMAN_RED_OPTIMAL: 120,   // Valor óptimo
+    
+    // Ratios más estrictos
+    MIN_RG_RATIO: 1.15,       // Más estricto para piel
+    MAX_RG_RATIO: 2.2,        // Menos permisivo
+    OPTIMAL_RG_RATIO: 1.6,    // Ratio típico de piel
+    
+    // Textura y estabilidad
+    MIN_TEXTURE: 0.025,       // Ligeramente más alta
+    MAX_TEXTURE: 0.15,        // Límite superior para evitar objetos rugosos
+    MIN_STABILITY: 0.12,      // Más estricto
+    
+    // Control temporal
+    MIN_DETECTION_FRAMES: 3,  // Requiere más frames consecutivos
+    MAX_FALSE_POSITIVE_STREAK: 2,
+    
+    CALIBRATION_SAMPLES: 8,
+    BASE_CONFIDENCE: 0.5
   };
   
   detectFinger(imageData: ImageData): FingerDetectionResult {
-    // Extraer métricas básicas
-    const metrics = this.extractBasicMetrics(imageData);
+    // Extraer métricas con ROI optimizado
+    const metrics = this.extractOptimizedMetrics(imageData);
     
-    // Auto-calibración simple
+    // Calibración rápida
     if (!this.isCalibrated) {
-      this.performSimpleCalibration(metrics.redIntensity);
+      this.performQuickCalibration(metrics.redIntensity);
     }
     
-    // Validaciones mejoradas para dedos humanos
-    const validation = this.performHumanFingerValidation(metrics);
+    // Validación estricta multi-criterio
+    const validation = this.performStrictValidation(metrics);
     
-    // Decisión optimizada para dedos reales
-    const isDetected = this.makeHumanFingerDecision(validation, metrics);
+    // Decisión temporal mejorada
+    const isDetected = this.makeTemporalDecision(validation, metrics);
     
-    // Actualizar historial
-    this.updateHistory(metrics.redIntensity, isDetected);
+    // Actualizar historiales
+    this.updateHistories(metrics, isDetected);
     
-    // Calcular calidad optimizada para humanos
-    const quality = this.calculateHumanFingerQuality(metrics, isDetected, validation.confidence);
+    // Calcular calidad optimizada
+    const quality = this.calculateOptimizedQuality(metrics, isDetected, validation.confidence);
     
     return {
       isFingerDetected: isDetected,
@@ -71,20 +86,22 @@ export class RealFingerDetector {
     };
   }
   
-  private extractBasicMetrics(imageData: ImageData) {
+  private extractOptimizedMetrics(imageData: ImageData) {
     const { data, width, height } = imageData;
     
-    // Área central más grande para capturar mejor el dedo
+    // ROI más pequeño y centrado para mejor precisión
     const centerX = width / 2;
     const centerY = height / 2;
-    const radius = Math.min(width, height) * 0.25; // Área más grande
+    const radius = Math.min(width, height) * 0.18; // ROI más pequeño
     
     let redSum = 0, greenSum = 0, blueSum = 0;
     let pixelCount = 0;
     const intensities: number[] = [];
+    const redValues: number[] = [];
     
-    for (let y = centerY - radius; y < centerY + radius; y += 3) {
-      for (let x = centerX - radius; x < centerX + radius; x += 3) {
+    // Muestreo más denso en área central
+    for (let y = centerY - radius; y < centerY + radius; y += 2) {
+      for (let x = centerX - radius; x < centerX + radius; x += 2) {
         if (x >= 0 && x < width && y >= 0 && y < height) {
           const distance = Math.sqrt((x - centerX) ** 2 + (y - centerY) ** 2);
           if (distance <= radius) {
@@ -97,6 +114,7 @@ export class RealFingerDetector {
             greenSum += g;
             blueSum += b;
             intensities.push((r + g + b) / 3);
+            redValues.push(r);
             pixelCount++;
           }
         }
@@ -104,15 +122,19 @@ export class RealFingerDetector {
     }
     
     if (pixelCount === 0) {
-      return { redIntensity: 0, rgRatio: 1, textureScore: 0 };
+      return { redIntensity: 0, rgRatio: 1, textureScore: 0, redVariance: 0 };
     }
     
     const avgRed = redSum / pixelCount;
     const avgGreen = greenSum / pixelCount;
     
-    // Textura más permisiva para piel humana
+    // Calcular varianza del rojo (importante para detectar piel vs objetos)
+    const redMean = redValues.reduce((a, b) => a + b, 0) / redValues.length;
+    const redVariance = redValues.reduce((acc, val) => acc + Math.pow(val - redMean, 2), 0) / redValues.length;
+    
+    // Textura mejorada
     let textureScore = 0;
-    if (intensities.length > 10) {
+    if (intensities.length > 15) {
       const mean = intensities.reduce((a, b) => a + b, 0) / intensities.length;
       const variance = intensities.reduce((acc, val) => acc + Math.pow(val - mean, 2), 0) / intensities.length;
       textureScore = Math.sqrt(variance) / 255;
@@ -120,160 +142,202 @@ export class RealFingerDetector {
     
     return {
       redIntensity: avgRed,
-      rgRatio: avgGreen > 5 ? avgRed / avgGreen : 1.0,
-      textureScore: Math.min(1.0, textureScore)
+      rgRatio: avgGreen > 8 ? avgRed / avgGreen : 1.0,
+      textureScore: Math.min(1.0, textureScore),
+      redVariance: Math.sqrt(redVariance)
     };
   }
   
-  private performSimpleCalibration(redIntensity: number): void {
+  private performQuickCalibration(redIntensity: number): void {
     this.calibrationSamples.push(redIntensity);
     
-    if (this.calibrationSamples.length >= this.REAL_THRESHOLDS.CALIBRATION_SAMPLES) {
+    if (this.calibrationSamples.length >= this.DETECTION_THRESHOLDS.CALIBRATION_SAMPLES) {
       this.baselineRed = this.calibrationSamples.reduce((a, b) => a + b, 0) / this.calibrationSamples.length;
       this.isCalibrated = true;
       
-      console.log("RealFingerDetector: Calibración completada para dedos humanos", {
+      console.log("RealFingerDetector: Calibración completada", {
         baseline: this.baselineRed.toFixed(1),
         samples: this.calibrationSamples.length
       });
     }
   }
   
-  private performHumanFingerValidation(metrics: any) {
+  private performStrictValidation(metrics: any) {
     const reasons: string[] = [];
     let score = 0;
     
-    // 1. Validación de intensidad roja más permisiva (30%)
-    if (metrics.redIntensity >= this.REAL_THRESHOLDS.MIN_RED && 
-        metrics.redIntensity <= this.REAL_THRESHOLDS.MAX_RED) {
-      score += 0.30;
-      reasons.push(`✓ Rojo válido: ${metrics.redIntensity.toFixed(1)}`);
+    // 1. VALIDACIÓN ESTRICTA DE INTENSIDAD ROJA (40%)
+    if (metrics.redIntensity >= this.DETECTION_THRESHOLDS.HUMAN_RED_MIN && 
+        metrics.redIntensity <= this.DETECTION_THRESHOLDS.HUMAN_RED_MAX) {
       
-      // Bonus para rangos típicos de dedo humano
-      if (metrics.redIntensity >= 80 && metrics.redIntensity <= 200) {
+      // Puntuación basada en proximidad al valor óptimo
+      const deviation = Math.abs(metrics.redIntensity - this.DETECTION_THRESHOLDS.HUMAN_RED_OPTIMAL);
+      const normalizedDeviation = deviation / this.DETECTION_THRESHOLDS.HUMAN_RED_OPTIMAL;
+      const redScore = Math.max(0, 1 - (normalizedDeviation * 2));
+      
+      score += redScore * 0.40;
+      reasons.push(`✓ Rojo humano: ${metrics.redIntensity.toFixed(1)} (${(redScore*100).toFixed(0)}%)`);
+      
+      // Bonus extra para rango perfecto
+      if (metrics.redIntensity >= 100 && metrics.redIntensity <= 150) {
         score += 0.15;
-        reasons.push(`✓ Rango óptimo para dedo humano`);
+        reasons.push(`✓ Rango perfecto de piel humana`);
       }
     } else {
-      reasons.push(`✗ Rojo fuera de rango: ${metrics.redIntensity.toFixed(1)}`);
+      reasons.push(`✗ Rojo fuera de rango humano: ${metrics.redIntensity.toFixed(1)}`);
+      // Penalización severa para valores extremos (probables falsos positivos)
+      if (metrics.redIntensity > 200 || metrics.redIntensity < 60) {
+        score -= 0.2;
+        reasons.push(`✗ Valor extremo - probable falso positivo`);
+      }
     }
     
-    // 2. Validación del ratio R/G más permisiva (25%)
-    if (metrics.rgRatio >= this.REAL_THRESHOLDS.MIN_RG_RATIO && 
-        metrics.rgRatio <= this.REAL_THRESHOLDS.MAX_RG_RATIO) {
-      score += 0.25;
-      reasons.push(`✓ Ratio R/G: ${metrics.rgRatio.toFixed(2)}`);
+    // 2. VALIDACIÓN ESTRICTA DEL RATIO R/G (30%)
+    if (metrics.rgRatio >= this.DETECTION_THRESHOLDS.MIN_RG_RATIO && 
+        metrics.rgRatio <= this.DETECTION_THRESHOLDS.MAX_RG_RATIO) {
       
-      // Bonus para ratios típicos de piel
-      if (metrics.rgRatio >= 1.2 && metrics.rgRatio <= 2.0) {
-        score += 0.10;
-        reasons.push(`✓ Ratio típico de piel humana`);
-      }
+      const ratioDeviation = Math.abs(metrics.rgRatio - this.DETECTION_THRESHOLDS.OPTIMAL_RG_RATIO);
+      const ratioScore = Math.max(0, 1 - (ratioDeviation / this.DETECTION_THRESHOLDS.OPTIMAL_RG_RATIO));
+      
+      score += ratioScore * 0.30;
+      reasons.push(`✓ Ratio R/G piel: ${metrics.rgRatio.toFixed(2)} (${(ratioScore*100).toFixed(0)}%)`);
     } else {
       reasons.push(`✗ Ratio R/G anómalo: ${metrics.rgRatio.toFixed(2)}`);
+      // Penalizar ratios muy altos (objetos rojos no-piel)
+      if (metrics.rgRatio > 3.0) {
+        score -= 0.15;
+        reasons.push(`✗ Ratio muy alto - objeto no-piel`);
+      }
     }
     
-    // 3. Validación de textura permisiva (15%)
-    if (metrics.textureScore >= this.REAL_THRESHOLDS.MIN_TEXTURE) {
+    // 3. VALIDACIÓN DE TEXTURA BALANCEADA (15%)
+    if (metrics.textureScore >= this.DETECTION_THRESHOLDS.MIN_TEXTURE && 
+        metrics.textureScore <= this.DETECTION_THRESHOLDS.MAX_TEXTURE) {
       score += 0.15;
-      reasons.push(`✓ Textura: ${(metrics.textureScore * 100).toFixed(1)}%`);
+      reasons.push(`✓ Textura piel: ${(metrics.textureScore * 100).toFixed(1)}%`);
+    } else if (metrics.textureScore > this.DETECTION_THRESHOLDS.MAX_TEXTURE) {
+      // Penalizar texturas muy rugosas (objetos)
+      score -= 0.1;
+      reasons.push(`✗ Textura muy rugosa - objeto no-piel`);
     } else {
-      // No penalizar mucho la textura baja en dedos
-      score += 0.05;
-      reasons.push(`~ Textura baja pero aceptable: ${(metrics.textureScore * 100).toFixed(1)}%`);
+      reasons.push(`~ Textura baja: ${(metrics.textureScore * 100).toFixed(1)}%`);
     }
     
-    // 4. Validación de estabilidad permisiva (15%)
+    // 4. VALIDACIÓN DE ESTABILIDAD (15%)
     const stability = this.calculateStability();
-    if (stability >= this.REAL_THRESHOLDS.MIN_STABILITY) {
+    if (stability >= this.DETECTION_THRESHOLDS.MIN_STABILITY) {
       score += 0.15;
       reasons.push(`✓ Estabilidad: ${(stability * 100).toFixed(1)}%`);
     } else {
-      // Algo de puntaje incluso con baja estabilidad
-      score += 0.05;
       reasons.push(`~ Estabilidad baja: ${(stability * 100).toFixed(1)}%`);
     }
     
-    // Bonus por calibración y consistencia
+    // 5. BONUS POR CONSISTENCIA CON CALIBRACIÓN
     if (this.isCalibrated && this.baselineRed > 0) {
       const deviation = Math.abs(metrics.redIntensity - this.baselineRed) / this.baselineRed;
-      if (deviation < 0.5) { // Más permisivo
+      if (deviation < 0.3) {
         score += 0.10;
-        reasons.push(`✓ Consistente con calibración`);
+        reasons.push(`✓ Consistente con baseline`);
+      } else if (deviation > 0.8) {
+        score -= 0.1;
+        reasons.push(`✗ Muy diferente a baseline`);
       }
     }
     
     return {
-      score: Math.min(1.0, score),
+      score: Math.max(0, Math.min(1.0, score)),
       reasons,
-      confidence: Math.min(1.0, score)
+      confidence: Math.max(0, Math.min(1.0, score))
     };
   }
   
-  private makeHumanFingerDecision(validation: any, metrics: any): boolean {
-    // Umbral más bajo para dedos humanos
-    if (validation.confidence < this.REAL_THRESHOLDS.MIN_CONFIDENCE) {
-      return false;
-    }
+  private makeTemporalDecision(validation: any, metrics: any): boolean {
+    const baseDecision = validation.confidence >= this.DETECTION_THRESHOLDS.BASE_CONFIDENCE;
     
-    // Filtro temporal más permisivo
-    this.detectionHistory.push(validation.confidence >= this.REAL_THRESHOLDS.MIN_CONFIDENCE);
-    if (this.detectionHistory.length > 4) {
+    // Actualizar historial de decisiones
+    this.detectionHistory.push(baseDecision);
+    if (this.detectionHistory.length > 5) {
       this.detectionHistory.shift();
     }
     
-    // Permitir detección más rápida
-    if (this.detectionHistory.length >= 2) {
-      const recentDetections = this.detectionHistory.slice(-2);
-      const positiveCount = recentDetections.filter(d => d).length;
+    // Control de falsos positivos consecutivos
+    if (!baseDecision) {
+      this.consecutiveFalsePositives++;
+    } else {
+      this.consecutiveFalsePositives = 0;
+    }
+    
+    // Si hay muchos falsos positivos, ser más estricto
+    if (this.consecutiveFalsePositives > this.DETECTION_THRESHOLDS.MAX_FALSE_POSITIVE_STREAK) {
+      return false;
+    }
+    
+    // Requerir frames consecutivos para confirmación
+    if (this.detectionHistory.length >= this.DETECTION_THRESHOLDS.MIN_DETECTION_FRAMES) {
+      const recentFrames = this.detectionHistory.slice(-this.DETECTION_THRESHOLDS.MIN_DETECTION_FRAMES);
+      const positiveCount = recentFrames.filter(d => d).length;
       
-      // Solo necesita 1 de 2 detecciones positivas
-      return positiveCount >= 1;
+      // Necesita al menos 2 de 3 frames positivos
+      return positiveCount >= Math.ceil(this.DETECTION_THRESHOLDS.MIN_DETECTION_FRAMES * 0.67);
     }
     
-    // Para las primeras muestras, ser menos estricto
-    return validation.confidence >= 0.5;
+    // Para frames iniciales, ser conservador
+    return validation.confidence >= 0.7;
   }
   
-  private calculateHumanFingerQuality(metrics: any, isDetected: boolean, confidence: number): number {
+  private calculateOptimizedQuality(metrics: any, isDetected: boolean, confidence: number): number {
     if (!isDetected) {
-      return Math.max(8, Math.min(25, confidence * 25));
+      return Math.max(5, Math.min(20, confidence * 20));
     }
     
-    let quality = 30 + (confidence * 40); // Base más alta para dedos detectados
+    let quality = 40 + (confidence * 35);
     
-    // Bonus por métricas típicas de dedo humano
-    if (metrics.redIntensity >= 80 && metrics.redIntensity <= 200) {
-      quality += 25; // Gran bonus para rango humano típico
+    // Bonus por métricas óptimas
+    if (metrics.redIntensity >= 100 && metrics.redIntensity <= 150) {
+      quality += 20;
     }
     
-    if (metrics.rgRatio >= 1.2 && metrics.rgRatio <= 2.5) {
-      quality += 20; // Bonus para ratio típico de piel
+    if (metrics.rgRatio >= 1.3 && metrics.rgRatio <= 1.9) {
+      quality += 15;
     }
     
-    // Bonus moderado por textura y estabilidad
-    quality += metrics.textureScore * 10;
-    quality += this.calculateStability() * 8;
+    // Bonus por estabilidad
+    const stability = this.calculateStability();
+    quality += stability * 15;
     
-    // Penalización reducida para valores extremos
-    if (metrics.redIntensity > 240 || metrics.redIntensity < 50) {
-      quality -= 10; // Penalización menor
+    // Bonus por textura apropiada
+    if (metrics.textureScore >= 0.03 && metrics.textureScore <= 0.1) {
+      quality += 10;
     }
     
-    return Math.min(95, Math.max(20, Math.round(quality)));
+    // Penalización por valores extremos
+    if (metrics.redIntensity > 180 || metrics.redIntensity < 80) {
+      quality -= 15;
+    }
+    
+    if (metrics.rgRatio > 2.5 || metrics.rgRatio < 1.1) {
+      quality -= 10;
+    }
+    
+    return Math.min(95, Math.max(15, Math.round(quality)));
   }
   
-  private updateHistory(redIntensity: number, detected: boolean): void {
-    this.redHistory.push(redIntensity);
-    if (this.redHistory.length > 6) {
+  private updateHistories(metrics: any, detected: boolean): void {
+    this.redHistory.push(metrics.redIntensity);
+    this.intensityHistory.push(metrics.redIntensity);
+    
+    if (this.redHistory.length > 8) {
       this.redHistory.shift();
+    }
+    if (this.intensityHistory.length > 12) {
+      this.intensityHistory.shift();
     }
   }
   
   private calculateStability(): number {
-    if (this.redHistory.length < 2) return 0.5; // Valor neutral inicial
+    if (this.redHistory.length < 3) return 0.3;
     
-    const recent = this.redHistory.slice(-4);
+    const recent = this.redHistory.slice(-5);
     const mean = recent.reduce((a, b) => a + b, 0) / recent.length;
     
     if (mean === 0) return 0.0;
@@ -281,15 +345,17 @@ export class RealFingerDetector {
     const variance = recent.reduce((acc, val) => acc + Math.pow(val - mean, 2), 0) / recent.length;
     const cv = Math.sqrt(variance) / mean;
     
-    return Math.max(0.0, Math.min(1.0, 1 - (cv * 1.5))); // Menos sensible a variaciones
+    return Math.max(0.0, Math.min(1.0, 1 - (cv * 2.0)));
   }
   
   reset(): void {
     this.detectionHistory = [];
     this.redHistory = [];
+    this.intensityHistory = [];
     this.calibrationSamples = [];
     this.isCalibrated = false;
     this.baselineRed = 0;
+    this.consecutiveFalsePositives = 0;
   }
   
   getCalibrationStatus(): {
@@ -299,7 +365,7 @@ export class RealFingerDetector {
   } {
     return {
       isCalibrated: this.isCalibrated,
-      progress: Math.min(100, (this.calibrationSamples.length / this.REAL_THRESHOLDS.CALIBRATION_SAMPLES) * 100),
+      progress: Math.min(100, (this.calibrationSamples.length / this.DETECTION_THRESHOLDS.CALIBRATION_SAMPLES) * 100),
       baseline: this.baselineRed
     };
   }
