@@ -14,40 +14,26 @@ export class HemoglobinValidator {
    * Validar firma espectral de hemoglobina
    */
   public validateHemoglobinSignature(red: number, green: number, blue: number): number {
-    // Normalizar valores a rango 0-1
     const total = red + green + blue;
-    if (total < 150) return 0; // Señal demasiado débil, confianza cero
-    
+    if (total < 80) return 0;
+
     const redNorm = red / total;
     const greenNorm = green / total;
     const blueNorm = blue / total;
-    
-    let score = 0;
-    const maxScore = 4; // Número de checks
-    
-    // La hemoglobina oxigenada tiene características específicas:
-    // 1. Menor absorción en rojo (más reflectancia)
-    const redReflectance = 1 - redNorm;
-    
-    // 2. Mayor absorción en verde (menos reflectancia)
-    const greenAbsorption = greenNorm;
-    
-    // 3. Absorción moderada en azul
-    const blueAbsorption = blueNorm;
-    
-    // Verificar patrones de absorción característicos
-    if (redReflectance >= 0.35 && redReflectance <= 0.65) score++;
-    if (greenAbsorption >= 0.25 && greenAbsorption <= 0.45) score++;
-    if (blueAbsorption >= 0.15 && blueAbsorption <= 0.35) score++;
-    
-    // Verificar ratio característico de hemoglobina oxigenada
-    const oxygenationRatio = red / (green + blue + 1e-6); // Evitar división por cero
-    if (oxygenationRatio >= 0.8 && oxygenationRatio <= 1.8) score++;
-    
-    // Ponderar más el ratio de oxigenación
-    if (oxygenationRatio >= 1.0 && oxygenationRatio <= 1.5) score += 0.5;
-    
-    return score / (maxScore + 0.5) ; // Normalizar el score a un rango de 0 a 1
+
+    // Rangos óptimos (pero ahora ponderaremos gradualmente)
+    const redReflectance = 1 - redNorm; // 0 = todo rojo, 1 = nada rojo
+    const oxygenationRatio = red / (green + blue + 1e-6);
+
+    // Calculamos puntuaciones individuales de 0-1
+    const redScore = 1 - Math.min(1, Math.abs(redReflectance - 0.3) / 0.3); // óptimo en 0.3
+    const greenScore = 1 - Math.min(1, Math.abs(greenNorm - 0.15) / 0.15);     // óptimo en 0.15
+    const blueScore  = 1 - Math.min(1, Math.abs(blueNorm  - 0.05) / 0.05);     // óptimo en 0.05
+    const oxyScore   = 1 - Math.min(1, Math.abs(oxygenationRatio - 2.5) / 2.5); // óptimo alrededor de 2-3
+
+    // Ponderamos más el redScore y oxyScore
+    const finalScore = (redScore * 0.35) + (greenScore * 0.15) + (blueScore * 0.1) + (oxyScore * 0.4);
+    return Math.max(0, Math.min(1, finalScore));
   }
   
   /**

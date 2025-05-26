@@ -175,7 +175,7 @@ export class FingerDetectionCore {
     }
 
     // 2. Ratio rojo/verde debe indicar presencia de sangre
-    if (metrics.redToGreenRatio < 0.7 || metrics.redToGreenRatio > 2.0) {
+    if (metrics.redToGreenRatio < 0.5 || metrics.redToGreenRatio > 4.0) {
       reasons.push(`Ratio R/G no fisiológico: ${metrics.redToGreenRatio.toFixed(2)}`);
       return { detected: false, confidence: confidence * 0.8, reasons };
     }
