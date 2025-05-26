@@ -1,3 +1,4 @@
+
 /**
  * Real Signal Quality Analyzer
  * Calculates signal quality based on actual measured characteristics.
@@ -14,13 +15,9 @@ export interface RealQualityMetrics {
 }
 
 export class RealSignalQualityAnalyzer {
-  reset() {
-    throw new Error('Method not implemented.');
-  }
   private readonly HISTORY_SIZE = 30; // Samples for stability and trend analysis
   private valueHistory: number[] = [];
   private qualityHistory: number[] = [];
-
 
   constructor() {
     this.reset();
@@ -34,8 +31,8 @@ export class RealSignalQualityAnalyzer {
     isFingerActuallyDetected: boolean // Crucial input
   ): number {
     if (!isFingerActuallyDetected) {
-      // If no finger, quality is very low, but with some noise
-      return Math.max(0, Math.min(15, Math.random() * 20)); 
+      // If no finger, quality is very low, but with some natural variation
+      return Math.max(0, Math.min(15, 10 + (Math.random() - 0.5) * 5)); 
     }
 
     // 1. Signal-to-Noise Ratio (SNR)
@@ -76,25 +73,18 @@ export class RealSignalQualityAnalyzer {
       
     combinedQuality = combinedQuality * 100; // Scale to 0-100
 
-    // Introduce minor natural variability if signal is generally good
-    if (combinedQuality > 40) {
-        const variability = (Math.random() - 0.5) * 8; // +/- 4
-        combinedQuality += variability;
-    }
-    
     // Ensure final quality is within 0-100, but allow lower values if finger is detected
-    finalQuality = Math.max(5, Math.min(98, combinedQuality)); // Min quality 5 if finger detected
+    const finalQuality = Math.max(5, Math.min(98, combinedQuality)); // Min quality 5 if finger detected
 
-     // Smoothing the final quality
+    // Smoothing the final quality
     this.qualityHistory.push(finalQuality);
     if (this.qualityHistory.length > 5) { // Shorter window for responsiveness
       this.qualityHistory.shift();
     }
     const smoothedQuality = this.qualityHistory.reduce((a, b) => a + b, 0) / this.qualityHistory.length;
 
-
     if (this.valueHistory.length % 30 === 0) {
-        console.log(\"[RealSignalQualityAnalyzer]\", {
+        console.log("[RealSignalQualityAnalyzer]", {
             currentSignalValue: currentSignalValue.toFixed(2),
             noiseEstimate: noiseEstimate.toFixed(2),
             snr: snr.toFixed(2),
@@ -102,7 +92,7 @@ export class RealSignalQualityAnalyzer {
             stabilityScore: stabilityScore.toFixed(2),
             pulsationScore: pulsationScore.toFixed(2),
             hemoScore: hemoScore.toFixed(2),
-            combinedQuality_raw: (weightedQuality*100).toFixed(1),
+            combinedQuality_raw: combinedQuality.toFixed(1),
             finalQuality_before_smooth: finalQuality.toFixed(1),
             smoothedQuality: smoothedQuality.toFixed(1)
         });
@@ -116,4 +106,4 @@ export class RealSignalQualityAnalyzer {
     this.qualityHistory = [];
     console.log("RealSignalQualityAnalyzer: Reset");
   }
-} 
+}

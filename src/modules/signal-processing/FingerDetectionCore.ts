@@ -180,7 +180,7 @@ export class FingerDetectionCore {
   private validateRealFinger(metrics: any) {
     const reasons: string[] = [];
     let confidence = 0;
-    const MIN_HEMOGLOBIN_SCORE = 0.30;
+    const MIN_HEMOGLOBIN_SCORE = 0.25; // REDUCIDO de 0.30 para mayor sensibilidad
     const MIN_RED_INTENSITY = 50;
     const MAX_RED_INTENSITY = 220;
 
@@ -228,11 +228,11 @@ export class FingerDetectionCore {
 
     const finalConfidence = Math.min(1.0, Math.max(0, confidence));
 
-    if (finalConfidence > 0.45) { 
+    if (finalConfidence > 0.40) { // REDUCIDO de 0.45 para mayor sensibilidad
         reasons.push("Dedo humano detectado (lógica revisada)");
         return { detected: true, confidence: finalConfidence, reasons };
     } else {
-        reasons.push(`Confianza detección BAJA: ${finalConfidence.toFixed(2)} (Umbral: 0.45)`);
+        reasons.push(`Confianza detección BAJA: ${finalConfidence.toFixed(2)} (Umbral: 0.40)`);
         return { detected: false, confidence: finalConfidence, reasons };
     }
   }
