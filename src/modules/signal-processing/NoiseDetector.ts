@@ -1,4 +1,3 @@
-
 /**
  * Detector de ruido de fondo robusto
  * Determina el ambiente base antes de procesar cualquier señal
@@ -7,9 +6,9 @@ export class NoiseDetector {
   private backgroundHistogram: number[] = [];
   private environmentalNoise: number = 0;
   private calibrationFrames: number = 0;
-  private readonly CALIBRATION_REQUIRED = 6; // Reducido para calibración ultra-rápida
+  private readonly CALIBRATION_REQUIRED = 6;
   private readonly HISTOGRAM_BINS = 256;
-  private readonly NOISE_PERCENTILE = 3; // Más estricto para mejor baseline
+  private readonly NOISE_PERCENTILE = 3;
   
   /**
    * Actualizar histograma de fondo con nuevo frame
@@ -56,7 +55,7 @@ export class NoiseDetector {
     const index = Math.floor(this.backgroundHistogram.length * (this.NOISE_PERCENTILE / 100));
     this.environmentalNoise = this.backgroundHistogram[index];
     
-    console.log("NoiseDetector: Ruido ambiental calibrado OPTIMIZADO:", {
+    console.log("NoiseDetector: Ruido ambiental calibrado OPTIMIZADO para dedos:", {
       environmentalNoise: this.environmentalNoise,
       samples: this.backgroundHistogram.length,
       min: this.backgroundHistogram[0],
@@ -67,19 +66,20 @@ export class NoiseDetector {
   
   /**
    * Verificar si una señal supera significativamente el ruido de fondo
+   * OPTIMIZADO para dedos humanos reales
    */
   public isAboveNoiseFloor(redValue: number): boolean {
     if (this.calibrationFrames < this.CALIBRATION_REQUIRED) {
-      // Durante calibración inicial, ser específico para dedos humanos
-      const initialThreshold = 15; // Más sensible para dedo humano
-      const maxThreshold = 160; // Más estricto contra luz brillante
+      // Durante calibración inicial - MUY sensible para dedos humanos
+      const initialThreshold = 8; // MUY bajo para captar dedos débiles
+      const maxThreshold = 180; // Amplio pero excluye luz muy brillante
       console.log(`NoiseDetector: Calibrando (${this.calibrationFrames}/${this.CALIBRATION_REQUIRED}) - Umbral: ${initialThreshold}-${maxThreshold}, Valor: ${redValue}`);
       return redValue > initialThreshold && redValue < maxThreshold;
     }
     
-    const noiseThreshold = this.environmentalNoise * 1.4; // Más estricto contra falsos positivos
-    const minimumSignal = 18; // Más sensible para dedos humanos
-    const maximumSignal = 150; // Más estricto contra fuentes muy brillantes
+    const noiseThreshold = this.environmentalNoise * 1.2; // Menos estricto
+    const minimumSignal = 12; // MUY sensible para dedos humanos débiles
+    const maximumSignal = 180; // Amplio para diferentes tipos de piel
     const threshold = Math.max(noiseThreshold, minimumSignal);
     
     console.log(`NoiseDetector: Calibrado - Ruido: ${this.environmentalNoise}, Umbral: ${threshold}-${maximumSignal}, Valor: ${redValue}, Pasa: ${redValue > threshold && redValue < maximumSignal}`);
