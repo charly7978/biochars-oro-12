@@ -1,105 +1,92 @@
 
 import { ProcessedSignal, ProcessingError, SignalProcessor as SignalProcessorInterface } from '../../types/signal';
-import { FingerDetectionCore, FingerDetectionCoreResult } from './FingerDetectionCore';
-import { SignalProcessingCore, ProcessedSignalData } from './SignalProcessingCore';
+import { RealFingerDetector, FingerDetectionResult } from './RealFingerDetector';
 import { QualityCalculator } from './QualityCalculator';
 
 /**
- * PROCESADOR PPG CON ALGORITMOS MÉDICOS VALIDADOS Y CALIBRACIÓN AUTOMÁTICA
+ * PROCESADOR PPG SIMPLE - SIN SIMULACIONES
  */
 export class PPGSignalProcessor implements SignalProcessorInterface {
   public isProcessing: boolean = false;
   
-  // Componentes principales
-  private fingerDetector: FingerDetectionCore;
-  private signalProcessor: SignalProcessingCore;
+  // Componentes simplificados
+  private fingerDetector: RealFingerDetector;
   private qualityCalculator: QualityCalculator;
   
-  // Estado del procesador
+  // Estado simple
   private frameCount = 0;
-  private isCalibrating = false;
   private detectionHistory: boolean[] = [];
   private signalBuffer: number[] = [];
-  private qualityHistory: number[] = [];
   
   constructor(
     public onSignalReady?: (signal: ProcessedSignal) => void,
     public onError?: (error: ProcessingError) => void
   ) {
-    console.log("PPGSignalProcessor: Inicializando con algoritmos médicos validados");
+    console.log("PPGSignalProcessor: Inicializando procesador real");
     
-    this.fingerDetector = new FingerDetectionCore();
-    this.signalProcessor = new SignalProcessingCore();
+    this.fingerDetector = new RealFingerDetector();
     this.qualityCalculator = new QualityCalculator();
     
-    console.log("PPGSignalProcessor: Componentes médicos inicializados");
+    console.log("PPGSignalProcessor: Componentes reales inicializados");
   }
 
   async initialize(): Promise<void> {
-    console.log("PPGSignalProcessor: Inicializando sistema médico");
+    console.log("PPGSignalProcessor: Inicializando sistema real");
     try {
       this.frameCount = 0;
       this.detectionHistory = [];
       this.signalBuffer = [];
-      this.qualityHistory = [];
       
-      // Reset de componentes
+      // Reset componentes
       this.fingerDetector.reset();
-      this.signalProcessor.reset();
       this.qualityCalculator.reset();
       
-      console.log("PPGSignalProcessor: Sistema médico inicializado correctamente");
+      console.log("PPGSignalProcessor: Sistema real inicializado");
     } catch (error) {
       console.error("PPGSignalProcessor: Error en inicialización", error);
-      this.handleError("INIT_ERROR", "Error inicializando procesador médico");
+      this.handleError("INIT_ERROR", "Error inicializando procesador");
     }
   }
 
   start(): void {
-    console.log("PPGSignalProcessor: Iniciando medición médica");
+    console.log("PPGSignalProcessor: Iniciando medición real");
     if (this.isProcessing) return;
     
     this.isProcessing = true;
     this.initialize();
     
-    console.log("PPGSignalProcessor: Sistema médico activo");
+    console.log("PPGSignalProcessor: Sistema real activo");
   }
 
   stop(): void {
-    console.log("PPGSignalProcessor: Deteniendo medición médica");
+    console.log("PPGSignalProcessor: Deteniendo medición real");
     this.isProcessing = false;
     
     // Reset completo
     this.fingerDetector.reset();
-    this.signalProcessor.reset();
     this.qualityCalculator.reset();
     
     this.frameCount = 0;
     this.detectionHistory = [];
     this.signalBuffer = [];
-    this.qualityHistory = [];
     
-    console.log("PPGSignalProcessor: Sistema médico detenido");
+    console.log("PPGSignalProcessor: Sistema real detenido");
   }
 
   async calibrate(): Promise<boolean> {
     try {
-      console.log("PPGSignalProcessor: Iniciando calibración médica automática");
+      console.log("PPGSignalProcessor: Iniciando calibración real");
       await this.initialize();
       
-      this.isCalibrating = true;
-      
-      // La calibración es automática en los primeros 30 frames
+      // La calibración es automática en los primeros frames
       setTimeout(() => {
-        this.isCalibrating = false;
-        console.log("PPGSignalProcessor: Calibración médica completada");
-      }, 3000);
+        console.log("PPGSignalProcessor: Calibración real completada");
+      }, 2000);
       
       return true;
     } catch (error) {
-      console.error("PPGSignalProcessor: Error en calibración médica", error);
+      console.error("PPGSignalProcessor: Error en calibración", error);
       this.handleError("CALIBRATION_ERROR", "Error en calibración");
-      this.isCalibrating = false;
       return false;
     }
   }
@@ -111,104 +98,93 @@ export class PPGSignalProcessor implements SignalProcessorInterface {
       this.frameCount++;
       const shouldLog = this.frameCount % 60 === 0;
 
-      // 1. DETECCIÓN DE DEDO CON ALGORITMO MÉDICO
-      const detectionResult: FingerDetectionCoreResult = this.fingerDetector.detectFinger(imageData);
+      // 1. DETECCIÓN REAL DE DEDO
+      const detectionResult: FingerDetectionResult = this.fingerDetector.detectFinger(imageData);
       
-      // 2. EXTRACCIÓN DE SEÑAL PPG
-      const rawSignalValue = this.extractPPGSignal(imageData);
+      // 2. EXTRACCIÓN SIMPLE DE SEÑAL PPG
+      const rawSignalValue = this.extractSimplePPGSignal(imageData);
       
-      // Almacenar para análisis temporal
+      // Almacenar señal
       this.signalBuffer.push(rawSignalValue);
-      if (this.signalBuffer.length > 100) {
+      if (this.signalBuffer.length > 50) {
         this.signalBuffer.shift();
       }
       
-      // 3. PROCESAMIENTO DE SEÑAL
-      let signalData: ProcessedSignalData;
-      if (detectionResult.detected) {
-        signalData = this.signalProcessor.processSignal(
-          rawSignalValue, 
-          detectionResult.quality / 100
-        );
-      } else {
-        signalData = {
-          rawValue: rawSignalValue,
-          filteredValue: rawSignalValue,
-          amplifiedValue: 0,
-          timestamp: Date.now()
-        };
-      }
+      // 3. FILTRADO SIMPLE
+      const filteredValue = this.applySimpleFilter(rawSignalValue);
 
-      // 4. CÁLCULO DE CALIDAD MÉDICA
+      // 4. CÁLCULO DE CALIDAD REAL
+      const pulsationStrength = this.calculateSimplePulsation();
       const realQuality = this.qualityCalculator.calculateQuality(
-        signalData.rawValue,
-        this.calculatePulsationStrength(),
-        detectionResult.detected
+        rawSignalValue,
+        pulsationStrength,
+        detectionResult.isFingerDetected
       );
 
-      // Almacenar calidad
-      this.qualityHistory.push(realQuality);
-      if (this.qualityHistory.length > 50) {
-        this.qualityHistory.shift();
+      // 5. FILTRO TEMPORAL SIMPLE
+      this.detectionHistory.push(detectionResult.isFingerDetected);
+      if (this.detectionHistory.length > 3) {
+        this.detectionHistory.shift();
       }
+      
+      const finalDetected = this.detectionHistory.length >= 2 ? 
+        this.detectionHistory.slice(-2).filter(d => d).length >= 1 : 
+        detectionResult.isFingerDetected;
 
-      // 5. APLICAR FILTRO TEMPORAL SIMPLE
-      const finalDetected = this.applyTemporalFilter(detectionResult.detected);
-
-      // 6. CREAR SEÑAL PROCESADA FINAL
+      // 6. CREAR SEÑAL PROCESADA
       const processedSignal: ProcessedSignal = {
-        timestamp: signalData.timestamp,
-        rawValue: signalData.rawValue,
-        filteredValue: signalData.filteredValue,
+        timestamp: Date.now(),
+        rawValue: rawSignalValue,
+        filteredValue: filteredValue,
         quality: realQuality,
         fingerDetected: finalDetected,
-        roi: detectionResult.roi,
-        perfusionIndex: this.calculatePerfusionIndex()
+        roi: { x: 0, y: 0, width: imageData.width, height: imageData.height },
+        perfusionIndex: this.calculateSimplePerfusion()
       };
 
-      // 7. LOGGING MÉDICO
+      // 7. LOGGING REAL
       if (shouldLog || finalDetected) {
-        console.log("PPGSignalProcessor MÉDICO: Estado", {
+        console.log("PPGSignalProcessor REAL: Estado", {
           frameCount: this.frameCount,
           fingerDetected: finalDetected,
           quality: realQuality,
           rawSignal: rawSignalValue.toFixed(1),
           confidence: detectionResult.confidence.toFixed(2),
-          calibrationStatus: this.fingerDetector.reset ? "N/A" : "Activa"
+          calibrationProgress: this.fingerDetector.getCalibrationStatus().progress
         });
       }
 
-      // 8. ENVIAR SEÑAL PROCESADA
+      // 8. ENVIAR SEÑAL
       this.onSignalReady(processedSignal);
       
     } catch (error) {
-      console.error("PPGSignalProcessor: Error procesando frame médico", error);
-      this.handleError("PROCESSING_ERROR", "Error en procesamiento médico");
+      console.error("PPGSignalProcessor: Error procesando frame real", error);
+      this.handleError("PROCESSING_ERROR", "Error en procesamiento real");
     }
   }
 
   /**
-   * Extrae señal PPG optimizada para medición médica
+   * Extrae señal PPG simple del canal rojo
    */
-  private extractPPGSignal(imageData: ImageData): number {
+  private extractSimplePPGSignal(imageData: ImageData): number {
     const { data, width, height } = imageData;
     
-    // Área central optimizada para PPG médico
+    // Área central simple
     const centerX = width / 2;
     const centerY = height / 2;
-    const radius = Math.min(width, height) * 0.25;
+    const radius = Math.min(width, height) * 0.3;
     
     let redSum = 0;
     let pixelCount = 0;
     
-    // Muestreo optimizado para señales médicas
-    for (let y = centerY - radius; y < centerY + radius; y += 2) {
-      for (let x = centerX - radius; x < centerX + radius; x += 2) {
+    // Muestreo simple
+    for (let y = centerY - radius; y < centerY + radius; y += 4) {
+      for (let x = centerX - radius; x < centerX + radius; x += 4) {
         if (x >= 0 && x < width && y >= 0 && y < height) {
           const distance = Math.sqrt((x - centerX) ** 2 + (y - centerY) ** 2);
           if (distance <= radius) {
             const index = (Math.floor(y) * width + Math.floor(x)) * 4;
-            redSum += data[index]; // Canal rojo para hemoglobina
+            redSum += data[index]; // Solo canal rojo
             pixelCount++;
           }
         }
@@ -219,56 +195,47 @@ export class PPGSignalProcessor implements SignalProcessorInterface {
   }
 
   /**
-   * Calcula fuerza de pulsación basada en variabilidad de señal
+   * Filtro simple de señal
    */
-  private calculatePulsationStrength(): number {
-    if (this.signalBuffer.length < 10) return 0;
+  private applySimpleFilter(currentValue: number): number {
+    if (this.signalBuffer.length < 3) return currentValue;
     
-    const recent = this.signalBuffer.slice(-10);
+    // Filtro promedio móvil simple
+    const recent = this.signalBuffer.slice(-3);
+    return recent.reduce((a, b) => a + b, 0) / recent.length;
+  }
+
+  /**
+   * Calcula pulsación simple
+   */
+  private calculateSimplePulsation(): number {
+    if (this.signalBuffer.length < 5) return 0;
+    
+    const recent = this.signalBuffer.slice(-5);
     const max = Math.max(...recent);
     const min = Math.min(...recent);
     const mean = recent.reduce((a, b) => a + b, 0) / recent.length;
     
-    if (mean === 0) return 0;
-    
-    const amplitude = (max - min) / 2;
-    return amplitude / mean;
+    return mean > 0 ? (max - min) / mean : 0;
   }
 
   /**
-   * Aplica filtro temporal simple para estabilizar detección
+   * Calcula perfusión simple
    */
-  private applyTemporalFilter(currentDetection: boolean): boolean {
-    this.detectionHistory.push(currentDetection);
-    if (this.detectionHistory.length > 5) {
-      this.detectionHistory.shift();
-    }
+  private calculateSimplePerfusion(): number {
+    if (this.signalBuffer.length < 10) return 1.0;
     
-    if (this.detectionHistory.length < 3) return currentDetection;
-    
-    // Requiere al menos 2 de los últimos 3 para confirmar detección
-    const recentDetections = this.detectionHistory.slice(-3).filter(d => d).length;
-    return recentDetections >= 2;
-  }
-
-  /**
-   * Calcula índice de perfusión médico
-   */
-  private calculatePerfusionIndex(): number {
-    if (this.signalBuffer.length < 15) return 0.5;
-    
-    const recent = this.signalBuffer.slice(-15);
+    const recent = this.signalBuffer.slice(-10);
     const max = Math.max(...recent);
     const min = Math.min(...recent);
     const dc = recent.reduce((a, b) => a + b, 0) / recent.length;
     
-    if (dc === 0) return 0;
+    if (dc === 0) return 1.0;
     
-    // Índice de perfusión médico: (AC / DC) * 100
     const ac = (max - min) / 2;
-    const perfusionIndex = (ac / dc) * 100;
+    const perfusion = (ac / dc) * 100;
     
-    return Math.max(0.1, Math.min(15.0, perfusionIndex));
+    return Math.max(0.5, Math.min(10.0, perfusion));
   }
 
   private handleError(code: string, message: string): void {
@@ -285,10 +252,9 @@ export class PPGSignalProcessor implements SignalProcessorInterface {
   public getPerformanceStats() {
     return {
       frameCount: this.frameCount,
-      isCalibrating: this.isCalibrating,
       detectionRate: this.detectionHistory.filter(d => d).length / Math.max(1, this.detectionHistory.length),
-      avgQuality: this.qualityHistory.length > 0 ? 
-        this.qualityHistory.reduce((a, b) => a + b, 0) / this.qualityHistory.length : 0
+      avgSignal: this.signalBuffer.length > 0 ? 
+        this.signalBuffer.reduce((a, b) => a + b, 0) / this.signalBuffer.length : 0
     };
   }
   
