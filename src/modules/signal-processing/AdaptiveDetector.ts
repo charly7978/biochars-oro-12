@@ -1,33 +1,27 @@
+
+import { DETECTOR_CONFIG } from './DetectorConfig';
+import { ArtificialSourceDetector } from './ArtificialSourceDetector';
+import { BiologicalValidator } from './BiologicalValidator';
+import { SignalVariabilityAnalyzer } from './SignalVariabilityAnalyzer';
+
 /**
  * Detector adaptativo con validación ESTRICTA para dedo humano real
  * Rechaza fuentes de luz, objetos y superficies artificiales
  */
 export class AdaptiveDetector {
   private detectionHistory: boolean[] = [];
-  private readonly HISTORY_SIZE = 10;
-  private readonly CONFIDENCE_THRESHOLD = 0.35; // MÁS SENSIBLE para dedo humano (era 0.45)
   private baselineValues: { red: number; green: number; blue: number } | null = null;
-  private adaptiveThresholds: { min: number; max: number } = { min: 60, max: 180 };
+  private adaptiveThresholds: { min: number; max: number } = { ...DETECTOR_CONFIG.DEFAULT_ADAPTIVE_THRESHOLDS };
   private consecutiveDetections = 0;
   private consecutiveNonDetections = 0;
-  private readonly MIN_CONSECUTIVE_DETECTIONS = 2;
-  private readonly MAX_CONSECUTIVE_NON_DETECTIONS = 3;
   private stabilityHistory: number[] = [];
-  private signalConsistencyHistory: number[] = [];
   private lastValidSignal = 0;
-  private readonly MIN_SIGNAL_STRENGTH = 70;
-  private readonly MAX_SIGNAL_STRENGTH = 170;
   private framesSinceBaseline = 0;
-  private readonly BASELINE_RECALIBRATION_FRAMES = 60;
   
-  // Parámetros AJUSTADOS para favorecer dedo humano
-  private readonly BIOLOGICAL_RED_MIN = 75; // MÁS PERMISIVO para dedo (era 85)
-  private readonly BIOLOGICAL_RED_MAX = 175; // MÁS PERMISIVO para dedo (era 165)
-  private readonly RED_TO_GREEN_RATIO_MIN = 1.1; // MÁS FLEXIBLE para dedo humano (era 1.2)
-  private readonly RED_TO_GREEN_RATIO_MAX = 2.2; // MÁS FLEXIBLE para dedo humano (era 2.0)
-  private readonly MIN_TEXTURE_FOR_BIOLOGICAL = 0.15; // MÁS SENSIBLE para textura de dedo (era 0.25)
-  private readonly MIN_STABILITY_FOR_BIOLOGICAL = 0.4;
-  private readonly MAX_BRIGHTNESS_VARIATION = 0.25;
+  // Component instances
+  private artificialSourceDetector = new ArtificialSourceDetector();
+  private biologicalValidator = new BiologicalValidator();
+  private signalVariabilityAnalyzer = new SignalVariabilityAnalyzer();
   
   /**
    * Detección ULTRA ESTRICTA para dedo humano - rechaza todo lo demás
@@ -46,7 +40,7 @@ export class AdaptiveDetector {
     this.framesSinceBaseline++;
     
     // 1. RECHAZAR FUENTES DE LUZ Y OBJETOS ARTIFICIALES PRIMERO
-    if (this.isArtificialSource(redValue, avgGreen, avgBlue, stability, rToGRatio)) {
+    if (this.artificialSourceDetector.isArtificialSource(redValue, avgGreen, avgBlue, stability, rToGRatio)) {
       this.consecutiveNonDetections++;
       this.consecutiveDetections = 0;
       return { 
@@ -62,7 +56,7 @@ export class AdaptiveDetector {
     // 2. VALIDACIÓN BIOLÓGICA ESTRICTA - TODOS LOS TESTS DEBEN PASAR
     
     // Test de rango rojo biológico
-    if (redValue >= this.BIOLOGICAL_RED_MIN && redValue <= this.BIOLOGICAL_RED_MAX) {
+    if (this.biologicalValidator.isInBiologicalRedRange(redValue)) {
       score += 0.2;
       reasons.push('red_range_biological');
     } else {
@@ -70,7 +64,7 @@ export class AdaptiveDetector {
     }
     
     // Test de ratio rojo/verde ESTRICTO (hemoglobina)
-    if (rToGRatio >= this.RED_TO_GREEN_RATIO_MIN && rToGRatio <= this.RED_TO_GREEN_RATIO_MAX) {
+    if (this.biologicalValidator.hasValidHemoglobinRatio(rToGRatio)) {
       score += 0.25;
       reasons.push('hemoglobin_ratio_valid');
     } else {
@@ -78,7 +72,7 @@ export class AdaptiveDetector {
     }
     
     // Test de textura biológica OBLIGATORIO
-    if (textureScore >= this.MIN_TEXTURE_FOR_BIOLOGICAL) {
+    if (this.biologicalValidator.hasBiologicalTexture(textureScore)) {
       score += 0.2;
       reasons.push('biological_texture');
     } else {
@@ -92,7 +86,7 @@ export class AdaptiveDetector {
     }
     
     const avgStability = this.stabilityHistory.reduce((a, b) => a + b, 0) / this.stabilityHistory.length;
-    if (avgStability >= this.MIN_STABILITY_FOR_BIOLOGICAL) {
+    if (this.biologicalValidator.hasBiologicalStability(avgStability)) {
       score += 0.15;
       reasons.push('biological_stability');
     } else {
@@ -100,7 +94,7 @@ export class AdaptiveDetector {
     }
     
     // Test de perfusión biológica
-    if (this.hasBiologicalPerfusion(redValue, avgGreen, avgBlue)) {
+    if (this.biologicalValidator.hasBiologicalPerfusion(redValue, avgGreen, avgBlue)) {
       score += 0.15;
       reasons.push('biological_perfusion');
     } else {
@@ -108,13 +102,13 @@ export class AdaptiveDetector {
     }
     
     // Test de variabilidad natural
-    if (this.hasNaturalVariability(redValue)) {
+    if (this.signalVariabilityAnalyzer.hasNaturalVariability(redValue)) {
       score += 0.05;
       reasons.push('natural_variability');
     }
     
     const confidence = Math.min(1.0, score);
-    const rawDetected = confidence >= this.CONFIDENCE_THRESHOLD;
+    const rawDetected = confidence >= DETECTOR_CONFIG.CONFIDENCE_THRESHOLD;
     
     // LÓGICA DE DETECCIONES CONSECUTIVAS MÁS ESTRICTA
     if (rawDetected) {
@@ -127,11 +121,11 @@ export class AdaptiveDetector {
     }
     
     // DECISIÓN FINAL CON HISTERESIS ESTRICTA
-    const finalDetected = this.consecutiveDetections >= this.MIN_CONSECUTIVE_DETECTIONS;
+    const finalDetected = this.consecutiveDetections >= DETECTOR_CONFIG.MIN_CONSECUTIVE_DETECTIONS;
     
     // Actualizar historial
     this.detectionHistory.push(finalDetected);
-    if (this.detectionHistory.length > this.HISTORY_SIZE) {
+    if (this.detectionHistory.length > DETECTOR_CONFIG.HISTORY_SIZE) {
       this.detectionHistory.shift();
     }
     
@@ -139,14 +133,14 @@ export class AdaptiveDetector {
       detected: finalDetected,
       confidence: finalDetected ? confidence : confidence * 0.5,
       consecutiveDetections: this.consecutiveDetections,
-      requiredConsecutive: this.MIN_CONSECUTIVE_DETECTIONS,
+      requiredConsecutive: DETECTOR_CONFIG.MIN_CONSECUTIVE_DETECTIONS,
       reasons,
       redValue,
       rToGRatio,
       avgStability,
       textureScore,
       score,
-      threshold: this.CONFIDENCE_THRESHOLD
+      threshold: DETECTOR_CONFIG.CONFIDENCE_THRESHOLD
     });
     
     return {
@@ -157,77 +151,13 @@ export class AdaptiveDetector {
   }
   
   /**
-   * Detectar fuentes artificiales (luz, objetos, superficies)
-   */
-  private isArtificialSource(red: number, green: number, blue: number, stability: number, rToGRatio: number): boolean {
-    // Luz directa: muy brillante y balanceada
-    const isDirectLight = red > 170 && green > 150 && blue > 130;
-    
-    // Superficie artificial: demasiado balanceada (no como piel)
-    const tooBalanced = Math.abs(red - green) < 15 && Math.abs(green - blue) < 15;
-    
-    // Estabilidad artificial: demasiado estable para ser biológica
-    const unnaturallyStable = stability > 0.85 && red > 140;
-    
-    // Ratio no biológico: muy bajo o muy alto
-    const nonBiologicalRatio = rToGRatio < 1.1 || rToGRatio > 2.2;
-    
-    // Objeto brillante: muy intenso sin características biológicas
-    const brightObject = red > 180 && (tooBalanced || nonBiologicalRatio);
-    
-    // Superficie reflectante
-    const reflectiveSurface = red > 160 && green > 140 && blue > 120 && stability > 0.8;
-    
-    return isDirectLight || brightObject || reflectiveSurface || 
-           (unnaturallyStable && tooBalanced) || 
-           (red > 150 && nonBiologicalRatio);
-  }
-  
-  /**
-   * Verificar perfusión biológica específica
-   */
-  private hasBiologicalPerfusion(red: number, green: number, blue: number): boolean {
-    // Patrón típico de piel humana con circulación
-    const skinTone = red > green && red > blue; // Piel tiene dominancia roja
-    const moderateIntensity = red >= 80 && red <= 160; // Intensidad biológica
-    const greenBalance = green >= 40 && green <= 110; // Verde en rango biológico
-    const blueBalance = blue >= 25 && blue <= 90; // Azul en rango biological
-    
-    // Verificar que no sea demasiado brillante (artificial)
-    const notToobrright = !(red > 170 && green > 140 && blue > 120);
-    
-    return skinTone && moderateIntensity && greenBalance && blueBalance && notToobrright;
-  }
-  
-  /**
-   * Verificar variabilidad natural del pulso sanguíneo
-   */
-  private hasNaturalVariability(redValue: number): boolean {
-    this.signalConsistencyHistory.push(redValue);
-    if (this.signalConsistencyHistory.length > 10) {
-      this.signalConsistencyHistory.shift();
-    }
-    
-    if (this.signalConsistencyHistory.length < 6) return false;
-    
-    const recent = this.signalConsistencyHistory.slice(-6);
-    const avg = recent.reduce((a, b) => a + b, 0) / recent.length;
-    const variations = recent.map(v => Math.abs(v - avg));
-    const avgVariation = variations.reduce((a, b) => a + b, 0) / variations.length;
-    
-    // Variabilidad natural: ni demasiado estable ni demasiado caótica
-    const variationRatio = avgVariation / avg;
-    return variationRatio >= 0.03 && variationRatio <= 0.12;
-  }
-  
-  /**
    * Adaptación conservadora de umbrales
    */
   public adaptThresholds(recentValues: number[]): void {
     if (recentValues.length < 8) return;
     
     const validValues = recentValues.filter(v => 
-      v >= this.BIOLOGICAL_RED_MIN && v <= this.BIOLOGICAL_RED_MAX
+      v >= DETECTOR_CONFIG.BIOLOGICAL_RED_MIN && v <= DETECTOR_CONFIG.BIOLOGICAL_RED_MAX
     );
     
     if (validValues.length < 6) return;
@@ -238,8 +168,8 @@ export class AdaptiveDetector {
     );
     
     // Ajustar umbrales de forma conservadora
-    this.adaptiveThresholds.min = Math.max(this.BIOLOGICAL_RED_MIN, avg - stdDev * 0.6);
-    this.adaptiveThresholds.max = Math.min(this.BIOLOGICAL_RED_MAX, avg + stdDev * 0.6);
+    this.adaptiveThresholds.min = Math.max(DETECTOR_CONFIG.BIOLOGICAL_RED_MIN, avg - stdDev * 0.6);
+    this.adaptiveThresholds.max = Math.min(DETECTOR_CONFIG.BIOLOGICAL_RED_MAX, avg + stdDev * 0.6);
     
     console.log("AdaptiveDetector: Umbrales conservadores ajustados:", this.adaptiveThresholds);
   }
@@ -247,12 +177,12 @@ export class AdaptiveDetector {
   public reset(): void {
     this.detectionHistory = [];
     this.baselineValues = null;
-    this.adaptiveThresholds = { min: 60, max: 180 };
+    this.adaptiveThresholds = { ...DETECTOR_CONFIG.DEFAULT_ADAPTIVE_THRESHOLDS };
     this.consecutiveDetections = 0;
     this.consecutiveNonDetections = 0;
     this.stabilityHistory = [];
-    this.signalConsistencyHistory = [];
     this.lastValidSignal = 0;
     this.framesSinceBaseline = 0;
+    this.signalVariabilityAnalyzer.reset();
   }
 }
