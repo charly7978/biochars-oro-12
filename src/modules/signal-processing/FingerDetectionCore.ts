@@ -97,23 +97,22 @@ export class FingerDetectionCore {
   private extractBasicMetrics(imageData: ImageData) {
     const { data, width, height } = imageData;
     
-    // ROI central para capturar el dedo
-    const centerX = Math.floor(width / 2);
-    const centerY = Math.floor(height / 2);
-    const roiSize = Math.min(width, height) * 0.25;
-    const roiX = centerX - roiSize / 2;
-    const roiY = centerY - roiSize / 2;
+    // ROI central más grande para asegurar que el dedo esté dentro
+    const roiSizeFactor = 0.4; // Aumentado de 0.25 a 0.4
+    const roiWidth = Math.min(width, height) * roiSizeFactor;
+    const roiHeight = roiWidth;
+    const roiX = Math.floor(width / 2 - roiWidth / 2);
+    const roiY = Math.floor(height / 2 - roiHeight / 2);
     
     let redSum = 0, greenSum = 0, blueSum = 0;
     let validPixels = 0;
-    const intensities: number[] = [];
+    const intensities: number[] = []; // Para textura y estabilidad
     
-    // Muestreo en el centro de la imagen
-    const step = 2;
-    for (let y = centerY - roiSize/2; y < centerY + roiSize/2; y += step) {
-      for (let x = centerX - roiSize/2; x < centerX + roiSize/2; x += step) {
+    // Procesar cada píxel en el ROI para obtener promedios más precisos
+    for (let y = roiY; y < roiY + roiHeight; y++) {
+      for (let x = roiX; x < roiX + roiWidth; x++) {
         if (x >= 0 && x < width && y >= 0 && y < height) {
-          const index = (Math.floor(y) * width + Math.floor(x)) * 4;
+          const index = (y * width + x) * 4;
           const r = data[index];
           const g = data[index + 1];
           const b = data[index + 2];
@@ -121,7 +120,7 @@ export class FingerDetectionCore {
           redSum += r;
           greenSum += g;
           blueSum += b;
-          intensities.push((r + g + b) / 3);
+          intensities.push((r + g + b) / 3); // Usar intensidad promedio para textura/estabilidad
           validPixels++;
         }
       }
@@ -133,86 +132,83 @@ export class FingerDetectionCore {
     
     const hemoglobinScore = this.hemoglobinValidator.validateHemoglobinSignature(avgRed, avgGreen, avgBlue);
 
+    // Loguear valores RGB crudos y score de hemoglobina para diagnóstico
+    if (this.frameCount % 15 === 0) { // Loguear más frecuentemente para debug
+        console.log("[MetricsDebug]", {
+            avgR: avgRed.toFixed(1),
+            avgG: avgGreen.toFixed(1),
+            avgB: avgBlue.toFixed(1),
+            hemoglobinScore: hemoglobinScore.toFixed(2),
+            roi: {x: roiX, y: roiY, w: roiWidth, h: roiHeight}
+        });
+    }
+
     return {
-      metrics: {
+      metrics: { 
         redIntensity: avgRed,
         greenIntensity: avgGreen,
         blueIntensity: avgBlue,
-        redToGreenRatio: avgGreen > 10 ? avgRed / avgGreen : 0,
+        redToGreenRatio: avgGreen > 5 ? avgRed / avgGreen : 0, // Umbral más bajo para ratio
         textureScore: this.calculateTexture(intensities),
-        stability: this.calculateStability(avgRed),
+        stability: this.calculateStability(intensities), // Usar todas las intensidades para estabilidad
         hemoglobinScore,
       },
-      roi: { x: roiX, y: roiY, width: roiSize, height: roiSize }
+      roi: { x: roiX, y: roiY, width: roiWidth, height: roiHeight } 
     };
   }
   
   /**
-   * Validación CORREGIDA para dedos reales
+   * Validación CORREGIDA para dedos reales - AÚN MÁS SIMPLIFICADA PARA DEBUG
    */
   private validateRealFinger(metrics: any) {
     const reasons: string[] = [];
     let confidence = 0;
-    const MIN_HEMOGLOBIN_SCORE = 0.35; // MUY permisivo temporalmente
+    const MIN_HEMOGLOBIN_SCORE = 0.20; // Umbral MUY BAJO para hemoglobina
+    const MIN_RED_INTENSITY = 40;    // Umbral MUY BAJO para rojo
 
-    // 0. Hemoglobin signature (most important for human finger)
-    if (metrics.hemoglobinScore < MIN_HEMOGLOBIN_SCORE) {
-      reasons.push(`Firma de hemoglobina baja: ${metrics.hemoglobinScore.toFixed(2)} (Min: ${MIN_HEMOGLOBIN_SCORE})`);
-      // No retornamos inmediatamente, solo bajamos mucho la confianza
-      confidence = metrics.hemoglobinScore * 0.2; // Poca confianza si falla
+    // 1. Hemoglobina (debe tener ALGO de firma)
+    if (metrics.hemoglobinScore >= MIN_HEMOGLOBIN_SCORE) {
+      confidence += metrics.hemoglobinScore * 0.5; // Ponderación alta
+      reasons.push(`Hemo OK: ${metrics.hemoglobinScore.toFixed(2)}`);
     } else {
-      confidence += metrics.hemoglobinScore * 0.7; // Hemoglobina da hasta 0.7 de confianza
+      reasons.push(`Hemo BAJO: ${metrics.hemoglobinScore.toFixed(2)} (Min: ${MIN_HEMOGLOBIN_SCORE})`);
+      confidence += metrics.hemoglobinScore * 0.1; // Aún da un poco si está bajo pero no cero
     }
 
-    // El resto de las validaciones se harán mucho más permisivas o se desactivarán temporalmente
-
-    // 1. Intensidad roja: rango muy amplio temporalmente
-    if (metrics.redIntensity < 30 || metrics.redIntensity > 240) { // Rango muy amplio
-      reasons.push(`Intensidad roja MUY fuera de rango: ${metrics.redIntensity.toFixed(1)}`);
-      confidence *= 0.5; // Penalización si está muy fuera
+    // 2. Intensidad Roja (debe haber ALGO de rojo)
+    if (metrics.redIntensity >= MIN_RED_INTENSITY) {
+      confidence += 0.3;
+      reasons.push(`Rojo OK: ${metrics.redIntensity.toFixed(1)}`);
     } else {
-      confidence += 0.1; // Pequeño bonus si está en rango laxo
-    }
-
-    // 2. Ratio rojo/verde: rango muy amplio temporalmente
-    if (metrics.redToGreenRatio < 0.3 || metrics.redToGreenRatio > 5.0) { // Rango muy amplio
-      reasons.push(`Ratio R/G MUY fuera de rango: ${metrics.redToGreenRatio.toFixed(2)}`);
-      confidence *= 0.8; // Penalización menor
-    } else {
-      confidence += 0.05;
-    }
-
-    // 3. Textura: temporalmente menos restrictivo
-    if (metrics.textureScore < 0.03) { // Umbral muy bajo
-      reasons.push(`Textura de piel MUY baja: ${metrics.textureScore.toFixed(2)}`);
-      confidence *= 0.9; // Penalización menor
-    } else {
-      confidence += 0.05;
-    }
-
-    // 4. Estabilidad: temporalmente menos restrictivo
-    if (metrics.stability < 0.1 || metrics.stability > 0.98) { // Rango muy amplio
-      reasons.push(`Estabilidad MUY fuera de rango: ${metrics.stability.toFixed(2)}`);
-      confidence *= 0.9; 
-    } else {
-      confidence += 0.05;
+      reasons.push(`Rojo BAJO: ${metrics.redIntensity.toFixed(1)} (Min: ${MIN_RED_INTENSITY})`);
+      confidence *= 0.5; // Penaliza si no hay rojo
     }
     
-    // La pulsación sigue siendo importante, pero la evaluamos después de la confianza base
+    // 3. Pulsación sigue siendo crucial
     const pulsationDetected = this.detectPulsation();
-    if (!pulsationDetected) {
+    if (pulsationDetected) {
+        confidence += 0.3; // Fuerte bonus por pulso
+        reasons.push('Pulso OK');
+    } else {
         reasons.unshift('No se detectó pulsación');
-        confidence *= 0.3; // Penalización fuerte si no hay pulso
+        confidence *= 0.2; // Penalización muy fuerte si no hay pulso
+    }
+    
+    // Otros factores ahora solo modulan ligeramente la confianza si los primarios fallan mucho
+    if (confidence < 0.3) {
+        if (metrics.textureScore > 0.05) confidence += 0.05;
+        if (metrics.stability > 0.2) confidence += 0.05;
+        if (metrics.redToGreenRatio > 0.4 && metrics.redToGreenRatio < 5.0) confidence +=0.05;
     }
 
-    const finalConfidence = Math.min(1.0, Math.max(0, confidence)); // Asegurar que esté entre 0 y 1
+    const finalConfidence = Math.min(1.0, Math.max(0, confidence));
 
-    // Umbral de detección temporalmente más bajo para pruebas
-    if (finalConfidence > 0.40) { 
-        reasons.push("Detección de dedo (modo prueba simplificado)");
+    // Umbral de detección MUY bajo para pruebas
+    if (finalConfidence > 0.25) { 
+        reasons.push("Detección de dedo (modo prueba MUY simplificado)");
         return { detected: true, confidence: finalConfidence, reasons };
     } else {
-        reasons.push("Confianza de detección baja (modo prueba simplificado)");
+        reasons.push(`Confianza MUY baja: ${finalConfidence.toFixed(2)} (Umbral: 0.25)`);
         return { detected: false, confidence: finalConfidence, reasons };
     }
   }
@@ -222,32 +218,31 @@ export class FingerDetectionCore {
    */
   private calculateTexture(intensities: number[]): number {
     if (intensities.length < 10) return 0;
-    
+
     const mean = intensities.reduce((a, b) => a + b, 0) / intensities.length;
     const diffs = intensities.map(val => Math.abs(val - mean));
-    const mad = diffs.reduce((a,b) => a + b, 0) / diffs.length;
-    
-    return Math.min(1.0, mad / 15.0);
+    const mad = diffs.reduce((a,b) => a + b, 0) / diffs.length; // Mean Absolute Deviation
+
+    // Normalize based on expected MAD for textured skin (e.g., 5-15)
+    return Math.min(1.0, mad / 20.0); // Más permisivo
   }
   
   /**
    * Cálculo de estabilidad temporal
    */
-  private calculateStability(redValue: number): number {
-    this.recentReadings.push(redValue);
-    if (this.recentReadings.length > 15) {
-      this.recentReadings.shift();
-    }
+  private calculateStability(intensities: number[]): number { // Modificado para aceptar `intensities`
+    this.recentReadings = intensities; // Usar las intensidades del frame actual para estabilidad inmediata
     
-    if (this.recentReadings.length < 7) return 0.5;
-    
+    if (this.recentReadings.length < 10) return 0.3; // Necesita suficientes muestras
+
     const mean = this.recentReadings.reduce((a, b) => a + b, 0) / this.recentReadings.length;
-    if (mean === 0) return 0;
+    if (mean === 0) return 0; // Avoid division by zero
     const variance = this.recentReadings.reduce((acc, val) => acc + Math.pow(val - mean, 2), 0) / this.recentReadings.length;
     const stdDev = Math.sqrt(variance);
     const cv = stdDev / mean;
-    
-    return Math.max(0, Math.min(1, 1 - (cv / 0.25)));
+
+    // Lower CV means higher stability. Target CV < 0.15 for good stability.
+    return Math.max(0, Math.min(1, 1 - (cv / 0.35))); // Más permisivo
   }
   
   /**
