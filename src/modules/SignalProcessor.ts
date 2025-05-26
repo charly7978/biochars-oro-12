@@ -1,86 +1,103 @@
 
-// Este archivo exporta el PPGSignalProcessor UNIFICADO
-import { PPGSignalProcessor as UnifiedPPGSignalProcessor } from './signal-processing/PPGSignalProcessor';
+// PROCESADOR DE SEÑAL UNIFICADO Y SIMPLIFICADO
+import { HumanFingerDetector, HumanFingerResult } from './signal-processing/HumanFingerDetector';
 import { ProcessedSignal, ProcessingError } from '../types/signal';
 
-// Extender la clase unificada
-export class PPGSignalProcessor extends UnifiedPPGSignalProcessor {
-  private isInitialized: boolean = false;
+export class PPGSignalProcessor {
+  private humanFingerDetector: HumanFingerDetector;
+  private frameCount = 0;
+  public onSignalReady?: (signal: ProcessedSignal) => void;
+  public onError?: (error: ProcessingError) => void;
   
   constructor(
     onSignalReady?: (signal: ProcessedSignal) => void,
     onError?: (error: ProcessingError) => void
   ) {
-    console.log("SignalProcessor wrapper UNIFICADO: Constructor", {
-      hasSignalReadyCallback: !!onSignalReady,
-      hasErrorCallback: !!onError
-    });
+    console.log("PPGSignalProcessor UNIFICADO: Inicializando con detector humano especializado");
     
-    super(onSignalReady, onError);
-    
-    setTimeout(() => {
-      this.checkInitialization();
-    }, 1000);
-  }
-  
-  private checkInitialization() {
-    console.log("SignalProcessor wrapper UNIFICADO: checkInitialization");
-    if (!this.isInitialized) {
-      console.log("⚠️ PPGSignalProcessor UNIFICADO: Inicialización verificada manualmente");
-      this.initialize().then(() => {
-        console.log("✅ PPGSignalProcessor UNIFICADO: Inicialización manual exitosa");
-        this.isInitialized = true;
-      }).catch(err => {
-        console.error("❌ PPGSignalProcessor UNIFICADO: Error en inicialización manual", err);
-      });
-    }
+    this.humanFingerDetector = new HumanFingerDetector();
+    this.onSignalReady = onSignalReady;
+    this.onError = onError;
   }
   
   async initialize(): Promise<void> {
-    console.log("SignalProcessor wrapper UNIFICADO: initialize() called");
-    
-    if (this.onSignalReady) {
-      super.onSignalReady = this.onSignalReady;
-    }
-    
-    if (this.onError) {
-      super.onError = this.onError;
-    }
-    
-    const result = await super.initialize();
-    this.isInitialized = true;
-    return result;
+    console.log("PPGSignalProcessor UNIFICADO: Sistema inicializado correctamente");
+    return Promise.resolve();
   }
-
+  
   processFrame(imageData: ImageData): void {
-    console.log("SignalProcessor wrapper UNIFICADO: processFrame() called", {
-      isInitialized: this.isInitialized,
-      hasOnSignalReadyCallback: !!this.onSignalReady,
-      imageSize: `${imageData.width}x${imageData.height}`
-    });
+    this.frameCount++;
     
-    // Asegurar que los callbacks están correctamente configurados
-    if (this.onSignalReady && super.onSignalReady !== this.onSignalReady) {
-      console.log("PPGSignalProcessor wrapper UNIFICADO: Actualizando onSignalReady callback");
-      super.onSignalReady = this.onSignalReady;
+    try {
+      // Procesar con el detector humano unificado
+      const result: HumanFingerResult = this.humanFingerDetector.detectHumanFinger(imageData);
+      
+      // Convertir a formato ProcessedSignal
+      const processedSignal: ProcessedSignal = {
+        timestamp: result.timestamp,
+        rawValue: result.rawValue,
+        filteredValue: result.filteredValue,
+        quality: result.quality,
+        fingerDetected: result.isHumanFinger,
+        roi: {
+          x: imageData.width / 2 - 80,
+          y: imageData.height / 2 - 80,
+          width: 160,
+          height: 160
+        },
+        perfusionIndex: result.confidence
+      };
+      
+      // Log cada 30 frames
+      if (this.frameCount % 30 === 0) {
+        console.log("PPGSignalProcessor UNIFICADO:", {
+          detected: result.isHumanFinger,
+          confidence: result.confidence.toFixed(3),
+          quality: result.quality,
+          rawValue: result.rawValue.toFixed(1),
+          rejections: result.debugInfo.rejectionReasons.slice(0, 2)
+        });
+      }
+      
+      // Enviar señal procesada
+      if (this.onSignalReady) {
+        this.onSignalReady(processedSignal);
+      }
+      
+    } catch (error) {
+      console.error("PPGSignalProcessor UNIFICADO: Error procesando frame:", error);
+      
+      if (this.onError) {
+        this.onError({
+          code: 'PROCESSING_ERROR',
+          message: error instanceof Error ? error.message : 'Error desconocido',
+          timestamp: Date.now()
+        });
+      }
     }
-    
-    if (this.onError && super.onError !== this.onError) {
-      console.log("PPGSignalProcessor wrapper UNIFICADO: Actualizando onError callback");
-      super.onError = this.onError;
-    }
-    
-    if (!this.isInitialized) {
-      console.log("PPGSignalProcessor UNIFICADO: Inicializando en processFrame");
-      this.initialize().then(() => {
-        console.log("PPGSignalProcessor UNIFICADO: Inicializado correctamente, procesando frame");
-        super.processFrame(imageData);
-      }).catch(error => {
-        console.error("PPGSignalProcessor UNIFICADO: Error al inicializar", error);
-      });
-    } else {
-      super.processFrame(imageData);
-    }
+  }
+  
+  start(): void {
+    console.log("PPGSignalProcessor UNIFICADO: Iniciado");
+  }
+  
+  stop(): void {
+    console.log("PPGSignalProcessor UNIFICADO: Detenido");
+    this.humanFingerDetector.reset();
+    this.frameCount = 0;
+  }
+  
+  reset(): void {
+    console.log("PPGSignalProcessor UNIFICADO: Reset completo");
+    this.humanFingerDetector.reset();
+    this.frameCount = 0;
+  }
+  
+  getStatus() {
+    return {
+      frameCount: this.frameCount,
+      detector: this.humanFingerDetector.getStatus()
+    };
   }
 }
 
