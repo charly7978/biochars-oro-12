@@ -1,4 +1,3 @@
-
 /**
  * Detector adaptativo con validación ESTRICTA para dedo humano real
  * Rechaza fuentes de luz, objetos y superficies artificiales
@@ -6,18 +5,18 @@
 export class AdaptiveDetector {
   private detectionHistory: boolean[] = [];
   private readonly HISTORY_SIZE = 10;
-  private readonly CONFIDENCE_THRESHOLD = 0.65; // MÁS ESTRICTO
+  private readonly CONFIDENCE_THRESHOLD = 0.45; // REDUCIDO para mejorar detección de dedo (era 0.65)
   private baselineValues: { red: number; green: number; blue: number } | null = null;
-  private adaptiveThresholds: { min: number; max: number } = { min: 80, max: 160 }; // Rango más estricto
+  private adaptiveThresholds: { min: number; max: number } = { min: 60, max: 180 }; // AMPLIADO rango para dedo (era 80-160)
   private consecutiveDetections = 0;
   private consecutiveNonDetections = 0;
-  private readonly MIN_CONSECUTIVE_DETECTIONS = 4; // Requiere más confirmaciones
+  private readonly MIN_CONSECUTIVE_DETECTIONS = 2; // REDUCIDO para respuesta más rápida (era 4)
   private readonly MAX_CONSECUTIVE_NON_DETECTIONS = 3;
   private stabilityHistory: number[] = [];
   private signalConsistencyHistory: number[] = [];
   private lastValidSignal = 0;
-  private readonly MIN_SIGNAL_STRENGTH = 70; // Más estricto
-  private readonly MAX_SIGNAL_STRENGTH = 170; // Más estricto
+  private readonly MIN_SIGNAL_STRENGTH = 70;
+  private readonly MAX_SIGNAL_STRENGTH = 170;
   private framesSinceBaseline = 0;
   private readonly BASELINE_RECALIBRATION_FRAMES = 60;
   
@@ -248,7 +247,7 @@ export class AdaptiveDetector {
   public reset(): void {
     this.detectionHistory = [];
     this.baselineValues = null;
-    this.adaptiveThresholds = { min: 80, max: 160 };
+    this.adaptiveThresholds = { min: 60, max: 180 };
     this.consecutiveDetections = 0;
     this.consecutiveNonDetections = 0;
     this.stabilityHistory = [];
