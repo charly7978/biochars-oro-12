@@ -67,15 +67,16 @@ export class HemoglobinValidator {
    * Detectar presencia de pulsación en los valores
    */
   public detectPulsation(redHistory: number[], timespan: number): boolean {
-    if (redHistory.length < 20 || timespan < 1000) return false;
+    if (redHistory.length < 20 || timespan < 800) return false;
     
     // Calcular variabilidad esperada para señal de pulso
     const mean = redHistory.reduce((a, b) => a + b, 0) / redHistory.length;
+    if (mean < 20) return false; // Intensidad demasiado baja
     const variance = redHistory.reduce((acc, val) => acc + Math.pow(val - mean, 2), 0) / redHistory.length;
     const cv = Math.sqrt(variance) / mean;
     
-    // La señal de pulso debe tener variabilidad característica (1-8%)
-    return cv >= 0.01 && cv <= 0.08;
+    // La señal de pulso suele tener variabilidad 0.5-12%
+    return cv >= 0.005 && cv <= 0.12;
   }
 
   public reset(): void {

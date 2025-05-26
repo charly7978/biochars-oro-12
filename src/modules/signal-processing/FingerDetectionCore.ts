@@ -153,7 +153,7 @@ export class FingerDetectionCore {
   private validateRealFinger(metrics: any) {
     const reasons: string[] = [];
     let confidence = 0;
-    const MIN_HEMOGLOBIN_SCORE = 0.6;
+    const MIN_HEMOGLOBIN_SCORE = 0.45;
 
     // 0. Hemoglobin signature (most important for human finger)
     if (metrics.hemoglobinScore < MIN_HEMOGLOBIN_SCORE) {
