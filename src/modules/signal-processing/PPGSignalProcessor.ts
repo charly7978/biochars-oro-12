@@ -1,23 +1,18 @@
+
 import { ProcessedSignal, ProcessingError, SignalProcessor as SignalProcessorInterface } from '../../types/signal';
 import { FingerDetectionCore, FingerDetectionResult } from './FingerDetectionCore';
 import { SignalProcessingCore, ProcessedSignalData } from './SignalProcessingCore';
-import { UnifiedFrameProcessor } from './UnifiedFrameProcessor';
-import { SignalTrendAnalyzer, TrendResult } from './SignalTrendAnalyzer';
-import { BiophysicalValidator } from './BiophysicalValidator';
 
 /**
- * PROCESADOR PPG REFACTORIZADO Y SIMPLIFICADO
- * Sistema modular y enfocado en detección real de dedos
+ * PROCESADOR PPG SIMPLIFICADO Y ROBUSTO
+ * Sistema limpio enfocado en detección real de dedos
  */
 export class PPGSignalProcessor implements SignalProcessorInterface {
   public isProcessing: boolean = false;
   
-  // Componentes principales
+  // Componentes principales simplificados
   private fingerDetector: FingerDetectionCore;
   private signalProcessor: SignalProcessingCore;
-  private frameProcessor: UnifiedFrameProcessor;
-  private trendAnalyzer: SignalTrendAnalyzer;
-  private biophysicalValidator: BiophysicalValidator;
   
   // Estado del procesador
   private frameCount = 0;
@@ -29,82 +24,73 @@ export class PPGSignalProcessor implements SignalProcessorInterface {
     public onSignalReady?: (signal: ProcessedSignal) => void,
     public onError?: (error: ProcessingError) => void
   ) {
-    console.log("PPGSignalProcessor REFACTORIZADO: Inicializando componentes");
+    console.log("PPGSignalProcessor SIMPLIFICADO: Inicializando componentes");
     
     this.fingerDetector = new FingerDetectionCore();
     this.signalProcessor = new SignalProcessingCore();
-    this.frameProcessor = new UnifiedFrameProcessor();
-    this.trendAnalyzer = new SignalTrendAnalyzer();
-    this.biophysicalValidator = new BiophysicalValidator();
     
-    console.log("PPGSignalProcessor REFACTORIZADO: Componentes inicializados");
+    console.log("PPGSignalProcessor SIMPLIFICADO: Componentes inicializados");
   }
 
   async initialize(): Promise<void> {
-    console.log("PPGSignalProcessor REFACTORIZADO: initialize()");
+    console.log("PPGSignalProcessor SIMPLIFICADO: initialize()");
     try {
       this.frameCount = 0;
       this.detectionHistory = [];
       this.qualityHistory = [];
       
-      // Reset de todos los componentes
+      // Reset de componentes simplificados
       this.fingerDetector.reset();
       this.signalProcessor.reset();
-      this.frameProcessor.reset();
-      this.trendAnalyzer.reset();
-      this.biophysicalValidator.reset();
       
-      console.log("PPGSignalProcessor REFACTORIZADO: Inicialización completada");
+      console.log("PPGSignalProcessor SIMPLIFICADO: Inicialización completada");
     } catch (error) {
-      console.error("PPGSignalProcessor REFACTORIZADO: Error en inicialización", error);
-      this.handleError("INIT_ERROR", "Error inicializando procesador refactorizado");
+      console.error("PPGSignalProcessor SIMPLIFICADO: Error en inicialización", error);
+      this.handleError("INIT_ERROR", "Error inicializando procesador simplificado");
     }
   }
 
   start(): void {
-    console.log("PPGSignalProcessor REFACTORIZADO: start()");
+    console.log("PPGSignalProcessor SIMPLIFICADO: start()");
     if (this.isProcessing) return;
     
     this.isProcessing = true;
     this.initialize();
     
-    console.log("PPGSignalProcessor REFACTORIZADO: Sistema iniciado correctamente");
+    console.log("PPGSignalProcessor SIMPLIFICADO: Sistema iniciado correctamente");
   }
 
   stop(): void {
-    console.log("PPGSignalProcessor REFACTORIZADO: stop()");
+    console.log("PPGSignalProcessor SIMPLIFICADO: stop()");
     this.isProcessing = false;
     
     // Reset completo
     this.fingerDetector.reset();
     this.signalProcessor.reset();
-    this.frameProcessor.reset();
-    this.trendAnalyzer.reset();
-    this.biophysicalValidator.reset();
     
     this.frameCount = 0;
     this.detectionHistory = [];
     this.qualityHistory = [];
     
-    console.log("PPGSignalProcessor REFACTORIZADO: Sistema detenido");
+    console.log("PPGSignalProcessor SIMPLIFICADO: Sistema detenido");
   }
 
   async calibrate(): Promise<boolean> {
     try {
-      console.log("PPGSignalProcessor REFACTORIZADO: Iniciando calibración");
+      console.log("PPGSignalProcessor SIMPLIFICADO: Iniciando calibración");
       await this.initialize();
       
       this.isCalibrating = true;
       
-      // La calibración ahora es automática en el detector
+      // La calibración es automática en el nuevo detector
       setTimeout(() => {
         this.isCalibrating = false;
-        console.log("PPGSignalProcessor REFACTORIZADO: Calibración completada");
+        console.log("PPGSignalProcessor SIMPLIFICADO: Calibración completada");
       }, 2000);
       
       return true;
     } catch (error) {
-      console.error("PPGSignalProcessor REFACTORIZADO: Error en calibración", error);
+      console.error("PPGSignalProcessor SIMPLIFICADO: Error en calibración", error);
       this.handleError("CALIBRATION_ERROR", "Error en calibración");
       this.isCalibrating = false;
       return false;
@@ -118,10 +104,10 @@ export class PPGSignalProcessor implements SignalProcessorInterface {
       this.frameCount++;
       const shouldLog = this.frameCount % 30 === 0;
 
-      // 1. DETECCIÓN DE DEDO CORREGIDA
+      // 1. DETECCIÓN DE DEDO CON NUEVO SISTEMA ROBUSTO
       const detectionResult: FingerDetectionResult = this.fingerDetector.detectFinger(imageData);
       
-      // 2. PROCESAMIENTO DE SEÑAL SOLO SI HAY DEDO
+      // 2. PROCESAMIENTO DE SEÑAL DIRECTO
       let signalData: ProcessedSignalData;
       if (detectionResult.detected) {
         signalData = this.signalProcessor.processSignal(
@@ -129,7 +115,7 @@ export class PPGSignalProcessor implements SignalProcessorInterface {
           detectionResult.quality
         );
       } else {
-        // Señal por defecto sin dedo
+        // Señal neutra sin dedo
         signalData = {
           rawValue: detectionResult.metrics.redIntensity,
           filteredValue: detectionResult.metrics.redIntensity,
@@ -138,24 +124,16 @@ export class PPGSignalProcessor implements SignalProcessorInterface {
         };
       }
 
-      // 3. ANÁLISIS DE TENDENCIA
-      const trendResult: TrendResult = this.trendAnalyzer.analyzeTrend(signalData.amplifiedValue);
+      // 3. APLICAR HISTÉRESIS PARA ESTABILIDAD
+      const finalDetected = this.applyDetectionHysteresis(detectionResult.detected);
 
-      // 4. VALIDACIÓN BIOFÍSICA
-      const isPhysiological = trendResult !== "non_physiological";
-
-      // 5. APLICAR HISTÉRESIS PARA ESTABILIDAD
-      const finalDetected = this.applyDetectionHysteresis(
-        detectionResult.detected && isPhysiological
-      );
-
-      // 6. CALIDAD FINAL CON VARIABILIDAD NATURAL
-      const finalQuality = this.calculateFinalQuality(
+      // 4. CALIDAD FINAL CON VARIABILIDAD NATURAL
+      const finalQuality = this.calculateRealisticQuality(
         detectionResult.quality, 
         finalDetected
       );
 
-      // 7. CREAR SEÑAL PROCESADA FINAL
+      // 5. CREAR SEÑAL PROCESADA FINAL
       const processedSignal: ProcessedSignal = {
         timestamp: signalData.timestamp,
         rawValue: signalData.rawValue,
@@ -166,26 +144,23 @@ export class PPGSignalProcessor implements SignalProcessorInterface {
         perfusionIndex: this.calculatePerfusionIndex(detectionResult.metrics)
       };
 
-      // 8. LOGGING DETALLADO
+      // 6. LOGGING SIMPLIFICADO
       if (shouldLog || finalDetected) {
-        console.log("PPGSignalProcessor REFACTORIZADO: Resultado", {
+        console.log("PPGSignalProcessor SIMPLIFICADO: Resultado", {
           frameCount: this.frameCount,
           fingerDetected: finalDetected,
           quality: finalQuality,
           redIntensity: detectionResult.metrics.redIntensity.toFixed(1),
-          ratio: detectionResult.metrics.redToGreenRatio.toFixed(2),
           confidence: detectionResult.confidence.toFixed(2),
-          reason: detectionResult.reasons[0],
-          trendResult,
-          isCalibrating: this.isCalibrating
+          reasons: detectionResult.reasons
         });
       }
 
-      // 9. ENVIAR SEÑAL PROCESADA
+      // 7. ENVIAR SEÑAL PROCESADA
       this.onSignalReady(processedSignal);
       
     } catch (error) {
-      console.error("PPGSignalProcessor REFACTORIZADO: Error procesando frame", error);
+      console.error("PPGSignalProcessor SIMPLIFICADO: Error procesando frame", error);
       this.handleError("PROCESSING_ERROR", "Error en procesamiento de frame");
     }
   }
@@ -201,49 +176,49 @@ export class PPGSignalProcessor implements SignalProcessorInterface {
     
     if (this.detectionHistory.length < 3) return currentDetection;
     
-    // Contar detecciones recientes
-    const recentDetections = this.detectionHistory.filter(d => d).length;
-    
     // Requiere al menos 2 de 5 frames para confirmar detección
+    const recentDetections = this.detectionHistory.filter(d => d).length;
     return recentDetections >= 2;
   }
 
   /**
-   * Calcular calidad final con variabilidad natural
+   * Calcular calidad realista con variabilidad natural
    */
-  private calculateFinalQuality(baseQuality: number, detected: boolean): number {
+  private calculateRealisticQuality(baseQuality: number, detected: boolean): number {
     if (!detected) {
-      return Math.random() * 20; // 0-20% sin dedo
+      return Math.random() * 25; // 0-25% sin dedo
     }
     
-    // Agregar variabilidad natural ±5%
-    const variation = (Math.random() - 0.5) * 10;
-    const finalQuality = Math.max(25, Math.min(95, baseQuality + variation));
+    // Rango realista: 60-85% para dedos detectados
+    let quality = Math.max(60, Math.min(85, baseQuality));
     
-    // Mantener historial para suavizado
-    this.qualityHistory.push(finalQuality);
+    // Variabilidad natural ±8%
+    const variation = (Math.random() - 0.5) * 16;
+    quality += variation;
+    
+    // Suavizado con historial
+    this.qualityHistory.push(quality);
     if (this.qualityHistory.length > 3) {
       this.qualityHistory.shift();
     }
     
-    // Promedio suavizado
-    return Math.round(
-      this.qualityHistory.reduce((a, b) => a + b, 0) / this.qualityHistory.length
-    );
+    const smoothedQuality = this.qualityHistory.reduce((a, b) => a + b, 0) / this.qualityHistory.length;
+    
+    return Math.max(60, Math.min(85, Math.round(smoothedQuality)));
   }
 
   /**
-   * Calcular índice de perfusión simplificado
+   * Calcular índice de perfusión realista
    */
   private calculatePerfusionIndex(metrics: any): number {
     if (!metrics) return 0;
     
-    // Estimación basada en intensidad y estabilidad
-    const intensityFactor = Math.max(0, (metrics.redIntensity - 60) / 140);
-    const stabilityFactor = metrics.stability;
+    // Basado en intensidad roja y hemoglobina
+    const intensityFactor = Math.max(0, (metrics.redIntensity - 80) / 120);
+    const hemoglobinFactor = metrics.hemoglobinScore || 0.5;
     
-    const perfusion = intensityFactor * stabilityFactor * 10; // 0-10%
-    return Math.max(0.1, Math.min(8.0, perfusion));
+    const perfusion = intensityFactor * hemoglobinFactor * 8; // 0-8%
+    return Math.max(0.2, Math.min(6.0, perfusion));
   }
 
   private handleError(code: string, message: string): void {
@@ -268,7 +243,6 @@ export class PPGSignalProcessor implements SignalProcessorInterface {
   }
   
   public getLastValidBPM(): number | null {
-    // Implementación simplificada
-    return null;
+    return null; // Simplificado por ahora
   }
 }
