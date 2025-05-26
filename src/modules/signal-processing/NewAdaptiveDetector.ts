@@ -1,4 +1,3 @@
-
 /**
  * NUEVO DETECTOR ADAPTATIVO ROBUSTO
  * Implementa el plan completo para detección SOLO de dedos humanos reales
@@ -23,7 +22,7 @@ export class NewAdaptiveDetector {
   private consecutiveDetections = 0;
   private consecutiveNonDetections = 0;
   private isCurrentlyDetected = false;
-  private readonly MIN_CONSECUTIVE_DETECTIONS = 5; // Más estricto
+  private readonly MIN_CONSECUTIVE_DETECTIONS = 3; // Reducido de 5 a 3
   private readonly MAX_CONSECUTIVE_NON_DETECTIONS = 3;
   
   // Historia temporal
@@ -112,8 +111,8 @@ export class NewAdaptiveDetector {
     
     if (binaryValidation.isValid) {
       detected = true;
-      confidence = 0.9; // Alta confianza solo si pasa todas las validaciones
-      reasons.push("Dedo humano validado correctamente");
+      confidence = 0.8; // Alta confianza si pasa todas las validaciones
+      reasons.push("✅ Dedo humano validado correctamente");
     } else {
       detected = false;
       confidence = 0;
@@ -148,20 +147,27 @@ export class NewAdaptiveDetector {
     
     const diagnostics = this.getDiagnostics();
     
-    console.log("NewAdaptiveDetector: Detección robusta completada", {
-      finalDetected,
-      quality,
-      confidence,
-      consecutiveDetections: this.consecutiveDetections,
-      consecutiveNonDetections: this.consecutiveNonDetections,
-      reasons: reasons.slice(0, 3), // Limitar para logging
-      redValue,
-      noiseLevel: this.noiseDetector.getNoiseLevel(),
-      isAboveNoise,
-      hasValidHemoglobin,
-      hasValidSkinTexture,
-      isArtificial: artificialCheck.isArtificial
-    });
+    // Log más claro y conciso
+    if (finalDetected || detected) {
+      console.log("✅ NewAdaptiveDetector: DEDO DETECTADO", {
+        finalDetected,
+        quality,
+        confidence,
+        consecutiveDetections: this.consecutiveDetections,
+        redValue,
+        noiseLevel: this.noiseDetector.getNoiseLevel(),
+        isCalibrated: this.noiseDetector.isCalibrated()
+      });
+    } else {
+      console.log("❌ NewAdaptiveDetector: NO DETECTADO", {
+        mainReason: reasons[0] || "Sin razón específica",
+        redValue,
+        noiseLevel: this.noiseDetector.getNoiseLevel(),
+        isAboveNoise,
+        isCalibrated: this.noiseDetector.isCalibrated(),
+        consecutiveNonDetections: this.consecutiveNonDetections
+      });
+    }
     
     return {
       detected: finalDetected,
@@ -211,6 +217,7 @@ export class NewAdaptiveDetector {
       
       if (!this.isCurrentlyDetected && this.consecutiveDetections >= this.MIN_CONSECUTIVE_DETECTIONS) {
         this.isCurrentlyDetected = true;
+        console.log("🎯 ESTADO CAMBIADO: Dedo detectado tras", this.consecutiveDetections, "frames consecutivos");
       }
     } else {
       this.consecutiveNonDetections++;
@@ -218,6 +225,7 @@ export class NewAdaptiveDetector {
       
       if (this.isCurrentlyDetected && this.consecutiveNonDetections >= this.MAX_CONSECUTIVE_NON_DETECTIONS) {
         this.isCurrentlyDetected = false;
+        console.log("❌ ESTADO CAMBIADO: Dedo perdido tras", this.consecutiveNonDetections, "frames sin detección");
       }
     }
     

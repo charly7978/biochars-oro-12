@@ -1,4 +1,3 @@
-
 /**
  * Detector de ruido de fondo robusto
  * Determina el ambiente base antes de procesar cualquier señal
@@ -7,9 +6,9 @@ export class NoiseDetector {
   private backgroundHistogram: number[] = [];
   private environmentalNoise: number = 0;
   private calibrationFrames: number = 0;
-  private readonly CALIBRATION_REQUIRED = 30;
+  private readonly CALIBRATION_REQUIRED = 15; // Reducido de 30 a 15 para calibración más rápida
   private readonly HISTOGRAM_BINS = 256;
-  private readonly NOISE_PERCENTILE = 15; // Más estricto que percentil 25
+  private readonly NOISE_PERCENTILE = 10; // Más permisivo durante calibración inicial
   
   /**
    * Actualizar histograma de fondo con nuevo frame
@@ -22,15 +21,15 @@ export class NoiseDetector {
     
     // Muestrear esquinas y bordes donde típicamente no hay dedo
     const sampleRegions = [
-      { x: 0, y: 0, w: Math.floor(width * 0.1), h: Math.floor(height * 0.1) },
-      { x: width - Math.floor(width * 0.1), y: 0, w: Math.floor(width * 0.1), h: Math.floor(height * 0.1) },
-      { x: 0, y: height - Math.floor(height * 0.1), w: Math.floor(width * 0.1), h: Math.floor(height * 0.1) },
-      { x: width - Math.floor(width * 0.1), y: height - Math.floor(height * 0.1), w: Math.floor(width * 0.1), h: Math.floor(height * 0.1) }
+      { x: 0, y: 0, w: Math.floor(width * 0.15), h: Math.floor(height * 0.15) },
+      { x: width - Math.floor(width * 0.15), y: 0, w: Math.floor(width * 0.15), h: Math.floor(height * 0.15) },
+      { x: 0, y: height - Math.floor(height * 0.15), w: Math.floor(width * 0.15), h: Math.floor(height * 0.15) },
+      { x: width - Math.floor(width * 0.15), y: height - Math.floor(height * 0.15), w: Math.floor(width * 0.15), h: Math.floor(height * 0.15) }
     ];
     
     for (const region of sampleRegions) {
-      for (let y = region.y; y < region.y + region.h; y += 2) {
-        for (let x = region.x; x < region.x + region.w; x += 2) {
+      for (let y = region.y; y < region.y + region.h; y += 3) {
+        for (let x = region.x; x < region.x + region.w; x += 3) {
           const index = (y * width + x) * 4;
           const luminance = (data[index] + data[index + 1] + data[index + 2]) / 3;
           samples.push(luminance);
@@ -56,11 +55,12 @@ export class NoiseDetector {
     const index = Math.floor(this.backgroundHistogram.length * (this.NOISE_PERCENTILE / 100));
     this.environmentalNoise = this.backgroundHistogram[index];
     
-    console.log("NoiseDetector: Ruido ambiental calibrado:", {
+    console.log("NoiseDetector: Ruido ambiental calibrado RÁPIDO:", {
       environmentalNoise: this.environmentalNoise,
       samples: this.backgroundHistogram.length,
       min: this.backgroundHistogram[0],
-      max: this.backgroundHistogram[this.backgroundHistogram.length - 1]
+      max: this.backgroundHistogram[this.backgroundHistogram.length - 1],
+      calibrationFrames: this.calibrationFrames
     });
   }
   
@@ -69,13 +69,19 @@ export class NoiseDetector {
    */
   public isAboveNoiseFloor(redValue: number): boolean {
     if (this.calibrationFrames < this.CALIBRATION_REQUIRED) {
-      return redValue > 45; // Umbral temporal durante calibración
+      // Durante calibración inicial, ser más permisivo pero no totalmente abierto
+      const initialThreshold = 35; // Más bajo que antes
+      console.log(`NoiseDetector: Calibrando (${this.calibrationFrames}/${this.CALIBRATION_REQUIRED}) - Umbral temporal: ${initialThreshold}, Valor: ${redValue}`);
+      return redValue > initialThreshold;
     }
     
-    const noiseThreshold = this.environmentalNoise * 2.5; // Debe superar 2.5x el ruido
-    const minimumSignal = 50; // Mínimo absoluto
+    const noiseThreshold = this.environmentalNoise * 2.0; // Reducido de 2.5x a 2.0x
+    const minimumSignal = 40; // Reducido de 50 a 40
+    const threshold = Math.max(noiseThreshold, minimumSignal);
     
-    return redValue > Math.max(noiseThreshold, minimumSignal);
+    console.log(`NoiseDetector: Calibrado - Ruido: ${this.environmentalNoise}, Umbral: ${threshold}, Valor: ${redValue}, Pasa: ${redValue > threshold}`);
+    
+    return redValue > threshold;
   }
   
   /**
