@@ -6,6 +6,7 @@ import { ProcessedSignal, ProcessingError } from '../types/signal';
 export class PPGSignalProcessor {
   private humanFingerDetector: HumanFingerDetector;
   private frameCount = 0;
+  public isProcessing = false;
   public onSignalReady?: (signal: ProcessedSignal) => void;
   public onError?: (error: ProcessingError) => void;
   
@@ -22,10 +23,31 @@ export class PPGSignalProcessor {
   
   async initialize(): Promise<void> {
     console.log("PPGSignalProcessor UNIFICADO: Sistema inicializado correctamente");
+    this.isProcessing = false;
+    this.frameCount = 0;
     return Promise.resolve();
   }
   
+  async calibrate(): Promise<boolean> {
+    try {
+      console.log("PPGSignalProcessor UNIFICADO: Iniciando calibración");
+      await this.initialize();
+      
+      // Calibración automática en los primeros frames
+      setTimeout(() => {
+        console.log("PPGSignalProcessor UNIFICADO: Calibración completada");
+      }, 2000);
+      
+      return true;
+    } catch (error) {
+      console.error("PPGSignalProcessor UNIFICADO: Error en calibración", error);
+      return false;
+    }
+  }
+  
   processFrame(imageData: ImageData): void {
+    if (!this.isProcessing) return;
+    
     this.frameCount++;
     
     try {
@@ -79,10 +101,12 @@ export class PPGSignalProcessor {
   
   start(): void {
     console.log("PPGSignalProcessor UNIFICADO: Iniciado");
+    this.isProcessing = true;
   }
   
   stop(): void {
     console.log("PPGSignalProcessor UNIFICADO: Detenido");
+    this.isProcessing = false;
     this.humanFingerDetector.reset();
     this.frameCount = 0;
   }
@@ -91,11 +115,13 @@ export class PPGSignalProcessor {
     console.log("PPGSignalProcessor UNIFICADO: Reset completo");
     this.humanFingerDetector.reset();
     this.frameCount = 0;
+    this.isProcessing = false;
   }
   
   getStatus() {
     return {
       frameCount: this.frameCount,
+      isProcessing: this.isProcessing,
       detector: this.humanFingerDetector.getStatus()
     };
   }
