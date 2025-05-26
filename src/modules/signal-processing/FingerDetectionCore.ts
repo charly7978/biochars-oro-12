@@ -1,4 +1,3 @@
-
 import { HemoglobinValidator } from './HemoglobinValidator';
 import { RealSignalQualityAnalyzer } from './RealSignalQualityAnalyzer';
 
@@ -67,11 +66,11 @@ export class FingerDetectionCore {
     const pulsationStrength = this.detectEnhancedPulsation();
     const pulsationScore = pulsationStrength;
 
-    // Validación estricta mejorada: DEBE tener pulsación para ser considerado dedo real
-    if (validation.detected && pulsationStrength < 0.3) {
+    // Validación mejorada: Después de los primeros 30 frames, requerir pulsación
+    if (validation.detected && this.frameCount > 30 && pulsationStrength < 0.15) {
       validation.detected = false;
       validation.reasons.unshift('Pulsación cardíaca insuficiente detectada');
-      validation.confidence *= 0.05;
+      validation.confidence *= 0.3;
     }
 
     if (validation.detected) {
@@ -89,12 +88,13 @@ export class FingerDetectionCore {
       validation.detected
     );
     
-    if (this.frameCount % 20 === 0) {
-      console.log("[FingerDetectionCore MEJORADO]", {
+    if (this.frameCount % 15 === 0) {
+      console.log("[FingerDetectionCore MEJORADO - Debug]", {
         detected: validation.detected,
         quality: quality.toFixed(1),
         confidence: validation.confidence.toFixed(3),
-        reasons: validation.reasons.slice(0, 2).join(', '),
+        frameCount: this.frameCount,
+        reasons: validation.reasons.slice(0, 3).join(', '),
         metrics: {
           red: metrics.redIntensity.toFixed(1),
           rgRatio: metrics.redToGreenRatio.toFixed(3),
@@ -251,88 +251,88 @@ export class FingerDetectionCore {
     const reasons: string[] = [];
     let confidence = 0;
     
-    // Umbrales MEJORADOS y más precisos
-    const MIN_HEMOGLOBIN_SCORE = 0.42;
-    const MIN_RED_INTENSITY = 75;
-    const MAX_RED_INTENSITY = 185;
-    const MIN_RG_RATIO = 1.25;
-    const MAX_RG_RATIO = 1.95;
-    const MIN_TEXTURE = 0.10;
-    const MIN_STABILITY = 0.45;
-    const MIN_PERFUSION = 0.15;
-    const MIN_SKIN_CONSISTENCY = 0.25;
+    // Umbrales AJUSTADOS y más realistas para detección efectiva
+    const MIN_HEMOGLOBIN_SCORE = 0.25;  // Reducido de 0.42
+    const MIN_RED_INTENSITY = 60;       // Reducido de 75
+    const MAX_RED_INTENSITY = 200;      // Incrementado de 185
+    const MIN_RG_RATIO = 1.0;           // Reducido de 1.25
+    const MAX_RG_RATIO = 2.2;           // Incrementado de 1.95
+    const MIN_TEXTURE = 0.05;           // Reducido de 0.10
+    const MIN_STABILITY = 0.25;         // Reducido de 0.45
+    const MIN_PERFUSION = 0.08;         // Reducido de 0.15
+    const MIN_SKIN_CONSISTENCY = 0.15;  // Reducido de 0.25
 
-    // Validación de hemoglobina con mayor peso
+    // Validación de hemoglobina con mayor tolerancia
     if (metrics.hemoglobinScore >= MIN_HEMOGLOBIN_SCORE) {
       const hemoBonus = (metrics.hemoglobinScore - MIN_HEMOGLOBIN_SCORE) / (1 - MIN_HEMOGLOBIN_SCORE);
-      confidence += 0.35 + (hemoBonus * 0.15);
+      confidence += 0.30 + (hemoBonus * 0.10);
       reasons.push(`Hemoglobina: ${metrics.hemoglobinScore.toFixed(3)}`);
     } else {
       reasons.push(`Hemoglobina INSUF: ${metrics.hemoglobinScore.toFixed(3)}`);
-      confidence += metrics.hemoglobinScore * 0.1;
+      confidence += metrics.hemoglobinScore * 0.2;
     }
 
-    // Validación de intensidad roja mejorada
+    // Validación de intensidad roja más tolerante
     if (metrics.redIntensity >= MIN_RED_INTENSITY && metrics.redIntensity <= MAX_RED_INTENSITY) {
-      confidence += 0.20;
+      confidence += 0.25;
       reasons.push(`Rojo: ${metrics.redIntensity.toFixed(1)}`);
       
-      // Bonus para rango óptimo
-      if (metrics.redIntensity >= 120 && metrics.redIntensity <= 170) {
-        confidence += 0.08;
+      // Bonus para rango óptimo ampliado
+      if (metrics.redIntensity >= 100 && metrics.redIntensity <= 180) {
+        confidence += 0.10;
       }
     } else {
       reasons.push(`Rojo FUERA: ${metrics.redIntensity.toFixed(1)}`);
-      confidence *= 0.4;
+      confidence *= 0.6; // Menos penalización
     }
     
-    // Validación de ratio R/G mejorada
+    // Validación de ratio R/G más flexible
     if (metrics.redToGreenRatio >= MIN_RG_RATIO && metrics.redToGreenRatio <= MAX_RG_RATIO) {
-      confidence += 0.15;
+      confidence += 0.20;
       reasons.push(`R/G: ${metrics.redToGreenRatio.toFixed(3)}`);
     } else {
       reasons.push(`R/G ANOM: ${metrics.redToGreenRatio.toFixed(3)}`);
-      confidence *= 0.6;
+      confidence *= 0.75; // Menos penalización
     }
 
-    // Validación de perfusión (NUEVO)
+    // Validación de perfusión más tolerante
     if (metrics.perfusionIndex >= MIN_PERFUSION) {
-      confidence += 0.12;
+      confidence += 0.15;
       reasons.push(`Perfusión: ${metrics.perfusionIndex.toFixed(3)}`);
     } else {
       reasons.push(`Perfusión BAJA: ${metrics.perfusionIndex.toFixed(3)}`);
-      confidence *= 0.7;
-    }
-
-    // Validación de consistencia de piel (NUEVO)
-    if (metrics.skinConsistency >= MIN_SKIN_CONSISTENCY) {
-      confidence += 0.08;
-      reasons.push(`Consistencia: ${metrics.skinConsistency.toFixed(3)}`);
-    } else {
-      reasons.push(`Consistencia BAJA: ${metrics.skinConsistency.toFixed(3)}`);
       confidence *= 0.8;
     }
 
-    // Validaciones adicionales
+    // Validación de consistencia más flexible
+    if (metrics.skinConsistency >= MIN_SKIN_CONSISTENCY) {
+      confidence += 0.10;
+      reasons.push(`Consistencia: ${metrics.skinConsistency.toFixed(3)}`);
+    } else {
+      reasons.push(`Consistencia BAJA: ${metrics.skinConsistency.toFixed(3)}`);
+      confidence *= 0.85;
+    }
+
+    // Validaciones adicionales más tolerantes
     if (metrics.textureScore >= MIN_TEXTURE) {
       confidence += 0.05;
     } else {
-      confidence *= 0.85;
+      confidence *= 0.9;
     }
 
     if (metrics.stability >= MIN_STABILITY) {
       confidence += 0.05;
     } else {
-      confidence *= 0.85;
+      confidence *= 0.9;
     }
 
     const finalConfidence = Math.min(1.0, Math.max(0, confidence));
 
-    // Umbral final más estricto y adaptativo
-    const dynamicThreshold = 0.65 + (this.frameCount < 60 ? 0.05 : 0); // Más estricto después de calibración
+    // Umbral final más accesible
+    const dynamicThreshold = 0.45 + (this.frameCount < 30 ? 0.10 : 0); // Más tolerante al inicio
     
     if (finalConfidence > dynamicThreshold) {
-        reasons.push("Dedo validado (criterios mejorados)");
+        reasons.push("Dedo validado (criterios ajustados)");
         return { detected: true, confidence: finalConfidence, reasons };
     } else {
         reasons.push(`Confianza INSUF: ${finalConfidence.toFixed(3)} (Umbral: ${dynamicThreshold.toFixed(2)})`);
