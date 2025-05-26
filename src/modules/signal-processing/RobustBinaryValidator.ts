@@ -5,11 +5,11 @@
  */
 export class RobustBinaryValidator {
   private readonly VALIDATION_RULES = {
-    MIN_SIGNAL_STRENGTH: 30, // Reducido de 45 para permitir dedos más pálidos
+    MIN_SIGNAL_STRENGTH: 25, // Reducido de 30 a 25 - MÁS SENSIBLE
     MAX_SIGNAL_STRENGTH: 200, // Aumentado para más tolerancia
-    MIN_RED_DOMINANCE: 1.05, // Reducido para ser más permisivo
+    MIN_RED_DOMINANCE: 1.03, // Reducido de 1.05 a 1.03 - MÁS SENSIBLE
     MAX_RED_DOMINANCE: 3.0, // Aumentado para más tolerancia
-    MIN_HEMOGLOBIN_RATIO: 1.02, // Reducido significativamente
+    MIN_HEMOGLOBIN_RATIO: 1.01, // Reducido de 1.02 a 1.01 - MÁS SENSIBLE
     MAX_HEMOGLOBIN_RATIO: 2.5, // Aumentado para más tolerancia
     MIN_STABILITY_THRESHOLD: 0.2, // Reducido para ser más permisivo
     MIN_TEXTURE_SCORE: 0.03, // Reducido para ser más permisivo
