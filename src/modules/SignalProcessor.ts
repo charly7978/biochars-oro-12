@@ -1,54 +1,44 @@
-// Este archivo exporta el PPGSignalProcessor desde la estructura refactorizada
-// para mantener compatibilidad con versiones anteriores
-import { PPGSignalProcessor as OriginalPPGSignalProcessor } from './signal-processing/PPGSignalProcessor';
+
+// Este archivo exporta el PPGSignalProcessor UNIFICADO
+import { PPGSignalProcessor as UnifiedPPGSignalProcessor } from './signal-processing/PPGSignalProcessor';
 import { ProcessedSignal, ProcessingError } from '../types/signal';
 
-// Extender la clase original en lugar de implementar su interfaz
-export class PPGSignalProcessor extends OriginalPPGSignalProcessor {
-  // Bandera para monitorear inicialización correcta
+// Extender la clase unificada
+export class PPGSignalProcessor extends UnifiedPPGSignalProcessor {
   private isInitialized: boolean = false;
   
   constructor(
     onSignalReady?: (signal: ProcessedSignal) => void,
     onError?: (error: ProcessingError) => void
   ) {
-    console.log("[DIAG] SignalProcessor wrapper: Constructor", {
+    console.log("SignalProcessor wrapper UNIFICADO: Constructor", {
       hasSignalReadyCallback: !!onSignalReady,
-      hasErrorCallback: !!onError,
-      stack: new Error().stack
+      hasErrorCallback: !!onError
     });
     
-    // Llamar al constructor de la clase padre
     super(onSignalReady, onError);
     
-    // Verificar inicialización
     setTimeout(() => {
       this.checkInitialization();
     }, 1000);
   }
   
-  // Verificación de inicialización correcta
   private checkInitialization() {
-    console.log("[DIAG] SignalProcessor wrapper: checkInitialization", { isInitialized: this.isInitialized });
+    console.log("SignalProcessor wrapper UNIFICADO: checkInitialization");
     if (!this.isInitialized) {
-      console.log("⚠️ PPGSignalProcessor: Inicialización verificada manualmente");
+      console.log("⚠️ PPGSignalProcessor UNIFICADO: Inicialización verificada manualmente");
       this.initialize().then(() => {
-        console.log("✅ PPGSignalProcessor: Inicialización manual exitosa");
+        console.log("✅ PPGSignalProcessor UNIFICADO: Inicialización manual exitosa");
         this.isInitialized = true;
       }).catch(err => {
-        console.error("❌ PPGSignalProcessor: Error en inicialización manual", err);
+        console.error("❌ PPGSignalProcessor UNIFICADO: Error en inicialización manual", err);
       });
     }
   }
   
-  // Sobrescribimos initialize para marcar como inicializado
   async initialize(): Promise<void> {
-    console.log("[DIAG] SignalProcessor wrapper: initialize() called", {
-      hasOnSignalReadyCallback: !!this.onSignalReady,
-      hasOnErrorCallback: !!this.onError
-    });
+    console.log("SignalProcessor wrapper UNIFICADO: initialize() called");
     
-    // Asegurar que el padre tenga los callbacks correctos
     if (this.onSignalReady) {
       super.onSignalReady = this.onSignalReady;
     }
@@ -57,49 +47,41 @@ export class PPGSignalProcessor extends OriginalPPGSignalProcessor {
       super.onError = this.onError;
     }
     
-    // Llamar al initialize del padre
     const result = await super.initialize();
     this.isInitialized = true;
     return result;
   }
 
-  // Sobrescribimos processFrame para asegurar que los callbacks estén actualizados
   processFrame(imageData: ImageData): void {
-    console.log("[DIAG] SignalProcessor wrapper: processFrame() called", {
+    console.log("SignalProcessor wrapper UNIFICADO: processFrame() called", {
       isInitialized: this.isInitialized,
       hasOnSignalReadyCallback: !!this.onSignalReady,
-      superHasCallback: !!super.onSignalReady,
-      imageSize: `${imageData.width}x${imageData.height}`,
-      timestamp: new Date().toISOString()
+      imageSize: `${imageData.width}x${imageData.height}`
     });
     
-    // VERIFICACIÓN CRÍTICA: Asegurar que los callbacks están correctamente configurados
+    // Asegurar que los callbacks están correctamente configurados
     if (this.onSignalReady && super.onSignalReady !== this.onSignalReady) {
-      console.log("PPGSignalProcessor wrapper: Actualizando onSignalReady callback");
+      console.log("PPGSignalProcessor wrapper UNIFICADO: Actualizando onSignalReady callback");
       super.onSignalReady = this.onSignalReady;
     }
     
     if (this.onError && super.onError !== this.onError) {
-      console.log("PPGSignalProcessor wrapper: Actualizando onError callback");
+      console.log("PPGSignalProcessor wrapper UNIFICADO: Actualizando onError callback");
       super.onError = this.onError;
     }
     
-    // Si no se ha inicializado, hacerlo ahora
     if (!this.isInitialized) {
-      console.log("PPGSignalProcessor: Inicializando en processFrame");
+      console.log("PPGSignalProcessor UNIFICADO: Inicializando en processFrame");
       this.initialize().then(() => {
-        console.log("PPGSignalProcessor: Inicializado correctamente, procesando frame");
-        // Llamar al método de la clase padre
+        console.log("PPGSignalProcessor UNIFICADO: Inicializado correctamente, procesando frame");
         super.processFrame(imageData);
       }).catch(error => {
-        console.error("PPGSignalProcessor: Error al inicializar", error);
+        console.error("PPGSignalProcessor UNIFICADO: Error al inicializar", error);
       });
     } else {
-      // Llamar al método de la clase padre
       super.processFrame(imageData);
     }
   }
 }
 
-// También re-exportamos los tipos
 export * from './signal-processing/types';
