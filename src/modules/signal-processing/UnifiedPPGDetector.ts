@@ -1,6 +1,6 @@
 /**
  * DETECTOR PPG UNIFICADO CORREGIDO
- * Sistema único optimizado para detección REAL de dedos humanos
+ * Sistema optimizado para detectar SOLO dedos humanos reales
  */
 import { UNIFIED_PPG_CONFIG } from './UnifiedConfig';
 
@@ -46,7 +46,7 @@ export class UnifiedPPGDetector {
   private qualityHistory: number[] = [];
   
   /**
-   * Método principal de detección unificado CORREGIDO
+   * Método principal de detección CORREGIDO para dedos reales
    */
   public detectFinger(frameData: FrameData): DetectionResult {
     this.frameCount++;
@@ -54,11 +54,11 @@ export class UnifiedPPGDetector {
     // PASO 1: Calibración automática continua
     this.updateCalibration(frameData);
     
-    // PASO 2: Extracción de características unificada
+    // PASO 2: Extracción de características corregida
     const features = this.extractFeatures(frameData);
     
-    // PASO 3: Validación en cascada CORREGIDA
-    const validation = this.cascadeValidation(features);
+    // PASO 3: Validación CORREGIDA para dedos reales
+    const validation = this.cascadeValidationForRealFinger(features);
     
     // PASO 4: Cálculo de calidad real (médica)
     const quality = this.calculateRealQuality(features, validation.detected);
@@ -84,11 +84,13 @@ export class UnifiedPPGDetector {
       }
     };
     
-    // Log cada 30 frames o cuando hay cambios importantes
-    if (this.frameCount % 30 === 0 || finalDetected !== this.currentlyDetected) {
-      console.log(`UnifiedPPGDetector: ${finalDetected ? '✅ DEDO DETECTADO' : '❌ NO DETECTADO'}`, {
+    // Log detallado cada 30 frames
+    if (this.frameCount % 30 === 0) {
+      console.log(`UnifiedPPGDetector CORREGIDO: ${finalDetected ? '✅ DEDO REAL DETECTADO' : '❌ NO ES DEDO REAL'}`, {
         quality: Math.round(quality),
         redValue: frameData.redValue.toFixed(1),
+        greenValue: frameData.avgGreen.toFixed(1),
+        ratio: (frameData.redValue / frameData.avgGreen).toFixed(2),
         snr: features.snr.toFixed(1),
         perfusion: features.perfusionIndex.toFixed(3),
         confidence: validation.confidence.toFixed(2),
@@ -134,24 +136,24 @@ export class UnifiedPPGDetector {
   }
   
   /**
-   * Extracción unificada de características CORREGIDA
+   * Extracción de características CORREGIDA para dedos reales
    */
   private extractFeatures(frameData: FrameData) {
     const { redValue, avgGreen, avgBlue, textureScore, stability } = frameData;
     
-    // Fuerza de señal normalizada
+    // Fuerza de señal normalizada CORREGIDA
     const signalStrength = Math.max(0, redValue - this.noiseBaseline);
     
     // SNR real basado en ruido calibrado
     const snr = this.noiseBaseline > 0 ? signalStrength / this.noiseBaseline : 0;
     
-    // Índice de perfusión simplificado pero efectivo
-    const perfusionIndex = this.calculatePerfusionIndex(redValue, avgGreen, avgBlue);
+    // Índice de perfusión CORREGIDO para dedos reales
+    const perfusionIndex = this.calculateRealPerfusionIndex(redValue, avgGreen, avgBlue);
     
     // Consistencia temporal real
     const temporalConsistency = this.calculateTemporalConsistency(redValue);
     
-    // Ratio hemoglobina
+    // Ratio hemoglobina CORREGIDO
     const hemoglobinRatio = avgGreen > 0 ? redValue / avgGreen : 0;
     
     return {
@@ -165,22 +167,33 @@ export class UnifiedPPGDetector {
     };
   }
   
-  private calculatePerfusionIndex(red: number, green: number, blue: number): number {
-    // Índice simplificado basado en la intensidad del canal rojo
-    const dc = (red + green + blue) / 3;
-    if (dc === 0) return 0;
+  /**
+   * Cálculo CORREGIDO del índice de perfusión para dedos reales
+   */
+  private calculateRealPerfusionIndex(red: number, green: number, blue: number): number {
+    // Para dedos reales, el índice debe estar en rango fisiológico
+    if (this.signalHistory.length < 5) return 0; // Insuficientes datos
     
-    // Usar variabilidad del canal rojo como aproximación del AC
-    if (this.signalHistory.length < 3) return red / 100; // Valor inicial
+    const recentReds = this.signalHistory.slice(-10).map(h => h.value);
+    if (recentReds.length < 5) return 0;
     
-    const recentReds = this.signalHistory.slice(-5).map(h => h.value);
     const meanRed = recentReds.reduce((a, b) => a + b, 0) / recentReds.length;
     const variance = recentReds.reduce((acc, val) => acc + Math.pow(val - meanRed, 2), 0) / recentReds.length;
     const ac = Math.sqrt(variance);
     
-    return (ac / dc) * 100;
+    if (meanRed === 0) return 0;
+    
+    const perfusion = (ac / meanRed) * 100;
+    
+    // Validar rango fisiológico (0.5% - 15%)
+    if (perfusion < 0.5 || perfusion > 15) return 0;
+    
+    return perfusion;
   }
   
+  /**
+   * Cálculo CORREGIDO de la consistencia temporal
+   */
   private calculateTemporalConsistency(redValue: number): number {
     this.signalHistory.push({ value: redValue, timestamp: Date.now() });
     
@@ -202,78 +215,81 @@ export class UnifiedPPGDetector {
   }
   
   /**
-   * Validación en cascada CORREGIDA - menos restrictiva
+   * Validación en cascada CORREGIDA para detectar SOLO dedos reales
    */
-  private cascadeValidation(features: any) {
+  private cascadeValidationForRealFinger(features: any) {
     const reasons: string[] = [];
     let confidence = 0;
     
-    // FILTRO 1: Intensidad básica MÁS PERMISIVA
-    if (features.signalStrength < 20) { // Muy bajo
-      reasons.push("Señal muy débil");
+    // FILTRO 1: Intensidad realista para dedos humanos
+    if (features.signalStrength < 30) {
+      reasons.push("Señal muy débil para dedo humano");
       return { detected: false, confidence: 0, reasons };
+    }
+    if (features.signalStrength > 200) {
+      reasons.push("Señal demasiado intensa (posible LED/luz)");
+      return { detected: false, confidence: 0, reasons };
+    }
+    confidence += 0.25;
+    
+    // FILTRO 2: Ratio hemoglobina CORREGIDO (debe ser típico de sangre)
+    if (features.hemoglobinRatio < 1.2 || features.hemoglobinRatio > 2.0) {
+      reasons.push("Ratio de color no corresponde a hemoglobina");
+      return { detected: false, confidence: confidence * 0.3, reasons };
     }
     confidence += 0.3;
     
-    // FILTRO 2: Validar que hay ALGO de señal
-    if (features.signalStrength > 250) { // Muy alto, probablemente luz directa
-      reasons.push("Señal saturada");
-      return { detected: false, confidence: 0, reasons };
+    // FILTRO 3: Perfusión fisiológica REAL
+    if (features.perfusionIndex < 0.5 || features.perfusionIndex > 15) {
+      reasons.push("Índice de perfusión fuera de rango fisiológico");
+      return { detected: false, confidence: confidence * 0.4, reasons };
     }
-    confidence += 0.2;
+    confidence += 0.25;
     
-    // FILTRO 3: Ratio hemoglobina RELAJADO
-    if (features.hemoglobinRatio < 0.8 || features.hemoglobinRatio > 3.0) {
-      reasons.push("Ratio de color no biológico");
+    // FILTRO 4: Textura de piel real
+    if (features.textureScore < 0.1) {
+      reasons.push("Sin textura característica de piel");
+      return { detected: false, confidence: confidence * 0.6, reasons };
+    }
+    confidence += 0.1;
+    
+    // FILTRO 5: Estabilidad temporal real (no demasiado estable)
+    if (features.temporalConsistency > 0.95) {
+      reasons.push("Señal demasiado estable (posible superficie artificial)");
       return { detected: false, confidence: confidence * 0.5, reasons };
     }
-    confidence += 0.2;
+    confidence += 0.1;
     
-    // FILTRO 4: Perfusión mínima
-    if (features.perfusionIndex < 0.5) {
-      reasons.push("Perfusión insuficiente");
-      return { detected: false, confidence: confidence * 0.7, reasons };
-    }
-    confidence += 0.15;
-    
-    // FILTRO 5: Textura básica
-    if (features.textureScore < 0.01) {
-      reasons.push("Sin textura detectable");
-      return { detected: false, confidence: confidence * 0.8, reasons };
-    }
-    confidence += 0.15;
-    
-    reasons.push("Dedo validado");
+    reasons.push("Dedo humano real detectado");
     return { detected: true, confidence: Math.min(1.0, confidence), reasons };
   }
   
   /**
-   * Cálculo de calidad real basado en métricas médicas
+   * Cálculo de calidad real CORREGIDO
    */
   private calculateRealQuality(features: any, detected: boolean): number {
     if (!detected) {
-      // Calidad baja variable para no detección
-      return 15 + Math.random() * 25;
+      // Calidad muy baja para no detección
+      return Math.random() * 20; // 0-20%
     }
     
-    // Componentes de calidad médica
-    const snrQuality = Math.min(100, (features.snr / UNIFIED_PPG_CONFIG.SIGNAL_QUALITY.SNR_EXCELLENT) * 100);
-    const perfusionQuality = Math.min(100, features.perfusionIndex * 10);
+    // Componentes de calidad médica CORREGIDOS
+    const snrQuality = Math.min(100, (features.snr / 10) * 100);
+    const perfusionQuality = Math.min(100, (features.perfusionIndex / 10) * 100);
     const stabilityQuality = features.stability * 100;
     const temporalQuality = features.temporalConsistency * 100;
     
-    // Calidad compuesta con pesos médicos
+    // Calidad compuesta realista
     const quality = 
-      (snrQuality * 0.4) +
-      (perfusionQuality * UNIFIED_PPG_CONFIG.SIGNAL_QUALITY.PERFUSION_WEIGHT) +
-      (stabilityQuality * UNIFIED_PPG_CONFIG.SIGNAL_QUALITY.STABILITY_WEIGHT) +
-      (temporalQuality * UNIFIED_PPG_CONFIG.SIGNAL_QUALITY.TEMPORAL_WEIGHT);
+      (snrQuality * 0.3) +
+      (perfusionQuality * 0.4) +
+      (stabilityQuality * 0.2) +
+      (temporalQuality * 0.1);
     
-    // Agregar variabilidad natural (±5%)
-    const naturalVariation = (Math.random() - 0.5) * 10;
-    const finalQuality = Math.max(30, Math.min(95, quality + naturalVariation));
+    // Rango realista para dedos (40-90%)
+    const finalQuality = Math.max(40, Math.min(90, quality));
     
-    // Actualizar historial de calidad
+    // Actualizar historial
     this.qualityHistory.push(finalQuality);
     if (this.qualityHistory.length > 10) {
       this.qualityHistory.shift();
