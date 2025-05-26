@@ -1,4 +1,3 @@
-
 /**
  * Detector de ruido de fondo robusto
  * Determina el ambiente base antes de procesar cualquier señal
@@ -71,13 +70,13 @@ export class NoiseDetector {
   public isAboveNoiseFloor(redValue: number): boolean {
     if (this.calibrationFrames < this.CALIBRATION_REQUIRED) {
       // Durante calibración inicial, ser más permisivo para dedos humanos
-      const initialThreshold = 20; // Reducido de 25 a 20
+      const initialThreshold = 18; // Reducido de 20 a 18 - SOLO para dedos humanos
       console.log(`NoiseDetector: Calibrando (${this.calibrationFrames}/${this.CALIBRATION_REQUIRED}) - Umbral temporal: ${initialThreshold}, Valor: ${redValue}`);
       return redValue > initialThreshold;
     }
     
     const noiseThreshold = this.environmentalNoise * 1.3; // Reducido de 1.5x a 1.3x - MÁS SENSIBLE
-    const minimumSignal = 25; // Reducido de 30 a 25 - MÁS SENSIBLE
+    const minimumSignal = 22; // Reducido de 25 a 22 - MÁS SENSIBLE para dedos humanos
     const threshold = Math.max(noiseThreshold, minimumSignal);
     
     console.log(`NoiseDetector: Calibrado - Ruido: ${this.environmentalNoise}, Umbral: ${threshold}, Valor: ${redValue}, Pasa: ${redValue > threshold}`);
