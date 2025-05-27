@@ -1,4 +1,3 @@
-
 /**
  * Sistema de calibración automática médica para PPG
  */
@@ -69,8 +68,9 @@ export class AutoCalibrationSystem {
     results?: any;
   } {
     const currentTime = Date.now();
-    const phaseElapsed = currentTime - this.phaseStartTime;
     const phaseDuration = this.PHASE_DURATIONS[this.currentPhase] || 5000;
+    // Asegurar que phaseElapsed no sea negativo si phaseStartTime es futuro (improbable pero seguro)
+    const phaseElapsed = Math.max(0, currentTime - this.phaseStartTime);
     const progress = Math.min(100, (phaseElapsed / phaseDuration) * 100);
     
     let instructions = "";
@@ -86,13 +86,23 @@ export class AutoCalibrationSystem {
       case this.CALIBRATION_PHASES.FINGER_DETECTION:
         instructions = "Coloque su dedo sobre la cámara y manténgalo firme";
         this.processFingerDetectionPhase(frameData);
-        shouldAdvance = phaseElapsed >= phaseDuration && frameData.fingerDetected;
+        // Avanzar si se completa el tiempo Y el dedo ha sido consistentemente detectado recientemente
+        // (Esta lógica de "consistentemente detectado" podría necesitar más elaboración aquí o basarse en la calidad)
+        shouldAdvance = phaseElapsed >= phaseDuration && frameData.fingerDetected && frameData.quality > 30;
+        if (phaseElapsed >= phaseDuration && !(frameData.fingerDetected && frameData.quality > 30)) {
+            console.log("AutoCalibrationSystem: Detección de dedo fallida/calidad baja al final de la fase, extendiendo...");
+            this.phaseStartTime = Date.now() - (phaseDuration * 0.8); // Retroceder un poco el tiempo para dar más oportunidad
+        }
         break;
         
       case this.CALIBRATION_PHASES.SIGNAL_OPTIMIZATION:
         instructions = "Mantenga el dedo quieto mientras optimizamos la señal";
         this.processSignalOptimizationPhase(frameData);
-        shouldAdvance = phaseElapsed >= phaseDuration;
+        shouldAdvance = phaseElapsed >= phaseDuration && frameData.quality > 50; // Exigir mejor calidad para avanzar
+         if (phaseElapsed >= phaseDuration && !(frameData.quality > 50)) {
+            console.log("AutoCalibrationSystem: Calidad de señal insuficiente para optimización, extendiendo...");
+            this.phaseStartTime = Date.now() - (phaseDuration * 0.8);
+        }
         break;
         
       case this.CALIBRATION_PHASES.VALIDATION:
@@ -104,6 +114,16 @@ export class AutoCalibrationSystem {
     
     if (shouldAdvance) {
       this.advancePhase();
+      // Si avanzamos a COMPLETE, recalcular progreso para que sea 100%
+      if (this.currentPhase === this.CALIBRATION_PHASES.COMPLETE) {
+        return {
+          phase: this.currentPhase,
+          progress: 100,
+          instructions: "Calibración Completada",
+          isComplete: true,
+          results: this.getCalibrationResults()
+        };
+      }
     }
     
     return {
@@ -184,7 +204,7 @@ export class AutoCalibrationSystem {
         const currentValue = frameData.redValue;
         
         this.calibrationData.signalParams = {
-          gain: avgQuality > 60 ? 1.0 : 1.2,
+          gain: avgQuality > 60 ? 1.0 : 1.2, // Ganancia adaptativa simplificada
           offset: currentValue - baselineValue
         };
         
@@ -213,6 +233,7 @@ export class AutoCalibrationSystem {
           this.calibrationData.validationResults = { accuracy: 0, stability: 0 };
         }
         
+        // Acumular scores, normalizar después en getCalibrationResults
         this.calibrationData.validationResults.accuracy += isInRange ? 1 : 0;
         this.calibrationData.validationResults.stability += qualityGood ? 1 : 0;
       }
@@ -229,8 +250,16 @@ export class AutoCalibrationSystem {
     if (currentIndex < phases.length - 1) {
       this.currentPhase = phases[currentIndex + 1];
       this.phaseStartTime = Date.now();
-      
+      this.samples.baseline = []; // Limpiar muestras de fases anteriores si es necesario
+      this.samples.fingerDetection = [];
+      this.samples.signalQuality = [];
       console.log(`AutoCalibrationSystem: Avanzando a fase ${this.currentPhase}`);
+    } else if (this.currentPhase !== this.CALIBRATION_PHASES.COMPLETE) {
+        // Esto asegura que si se llama advancePhase en la última fase (VALIDATION) y debe completarse,
+        // se transite a COMPLETE. 
+        this.currentPhase = this.CALIBRATION_PHASES.COMPLETE;
+        this.phaseStartTime = Date.now(); // Registrar tiempo de finalización
+        console.log(`AutoCalibrationSystem: Transición final a fase ${this.currentPhase}`);
     }
   }
   
@@ -243,6 +272,7 @@ export class AutoCalibrationSystem {
     thresholds: any;
     signalParams: any;
     accuracy: number;
+    stabilityScore: number; // Nuevo: score de estabilidad
     recommendations: string[];
   } {
     const recommendations: string[] = [];
@@ -250,28 +280,37 @@ export class AutoCalibrationSystem {
     
     if (!this.calibrationData.baseline) {
       success = false;
-      recommendations.push("No se pudo establecer línea base - verifique iluminación");
+      recommendations.push("No se pudo establecer línea base - verifique iluminación y que no haya dedo.");
     }
     
     if (!this.calibrationData.fingerThresholds) {
       success = false;
-      recommendations.push("No se detectó dedo consistentemente - mejore contacto");
+      recommendations.push("No se detectó dedo consistentemente o la señal fue muy variable.");
     }
     
     if (!this.calibrationData.signalParams) {
       success = false;
-      recommendations.push("Calidad de señal insuficiente - limpie lente y mejore presión");
+      recommendations.push("Calidad de señal insuficiente para optimización - limpie lente y mejore presión/posición.");
     }
     
     const validation = this.calibrationData.validationResults;
-    const accuracy = validation ? (validation.accuracy / 50) * 100 : 0; // 50 muestras esperadas
+    // Normalizar accuracy y stability basados en el número de muestras que se deberían haber tomado
+    // Asumiendo aprox 30 FPS y duración de fase de validación de 3 segundos = 90 muestras
+    const expectedValidationSamples = (this.PHASE_DURATIONS[this.CALIBRATION_PHASES.VALIDATION] / 1000) * 30; 
+    const accuracy = validation ? (validation.accuracy / expectedValidationSamples) * 100 : 0;
+    const stabilityScore = validation ? (validation.stability / expectedValidationSamples) * 100 : 0;
     
-    if (accuracy < 70) {
-      recommendations.push("Precisión baja - repita calibración en mejor ambiente");
+    if (accuracy < 60) { // Umbral más realista
+      success = false; // Si la precisión es baja, la calibración no es exitosa
+      recommendations.push("Precisión de validación baja - repita calibración en mejor ambiente.");
+    }
+    if (stabilityScore < 60) {
+       success = false;
+       recommendations.push("Estabilidad de señal baja durante validación.");
     }
     
     if (success && recommendations.length === 0) {
-      recommendations.push("Calibración exitosa - sistema listo para medición");
+      recommendations.push("Calibración exitosa - sistema listo para medición.");
     }
     
     return {
@@ -280,6 +319,7 @@ export class AutoCalibrationSystem {
       thresholds: this.calibrationData.fingerThresholds,
       signalParams: this.calibrationData.signalParams,
       accuracy: Math.round(accuracy),
+      stabilityScore: Math.round(stabilityScore),
       recommendations
     };
   }
@@ -292,7 +332,7 @@ export class AutoCalibrationSystem {
       baseline: null,
       fingerThresholds: null,
       signalParams: null,
-      validationResults: null
+      validationResults: { accuracy: 0, stability: 0 } // Resetear validationResults
     };
     
     this.samples = {
@@ -309,13 +349,16 @@ export class AutoCalibrationSystem {
     return this.currentPhase !== this.CALIBRATION_PHASES.COMPLETE;
   }
   
-  /**
-   * Obtener progreso actual
-   */
+  // Método para obtener la fase actual
+  public getCurrentPhase(): string {
+    return this.currentPhase;
+  }
+
   public getCurrentProgress(): number {
+    if (this.currentPhase === this.CALIBRATION_PHASES.COMPLETE) return 100;
     const currentTime = Date.now();
-    const phaseElapsed = currentTime - this.phaseStartTime;
+    const phaseElapsed = Math.max(0, currentTime - this.phaseStartTime);
     const phaseDuration = this.PHASE_DURATIONS[this.currentPhase] || 5000;
-    return Math.min(100, (phaseElapsed / phaseDuration) * 100);
+    return Math.min(100, Math.round((phaseElapsed / phaseDuration) * 100));
   }
 }
