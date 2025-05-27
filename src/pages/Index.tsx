@@ -257,9 +257,7 @@ const Index = () => {
           glucose: generalProgress,
           lipids: generalProgress,
           hemoglobin: generalProgress
-        },
-        instructions: calibrationStatus.instructions,
-        phase: calibrationStatus.phase
+        }
       });
 
       if (calibrationStatus.isComplete) {
