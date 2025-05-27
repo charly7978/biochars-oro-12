@@ -73,6 +73,32 @@ export class VitalSignsProcessor {
   processSignal(ppgValue: number, rrData?: { intervals: number[]; lastPeakTime: number | null }): VitalSignsResult {
     this.frameCount++;
     
+    // Si no está calibrado, no procesar ni devolver resultados
+    if (!this.isCalibrated) {
+      return {
+        heartRate: 0,
+        spo2: 0,
+        pressure: 0,
+        glucose: 0,
+        lipids: { totalCholesterol: 0, triglycerides: 0 },
+        hemoglobin: 0,
+        arrhythmiaStatus: "NO_VALID_RESULT",
+        lastArrhythmiaData: null,
+        calibration: {
+          isCalibrating: true,
+          progress: {
+            heartRate: 0,
+            spo2: 0,
+            pressure: 0,
+            arrhythmia: 0,
+            glucose: 0,
+            lipids: 0,
+            hemoglobin: 0
+          }
+        }
+      };
+    }
+
     // Almacenar señal real
     this.signalBuffer.push(ppgValue);
     if (this.signalBuffer.length > 300) {
@@ -137,6 +163,30 @@ export class VitalSignsProcessor {
     // Guardar solo resultados válidos
     if (heartRate > 40 && heartRate < 200 && spo2 > 80) {
       this.lastValidResults = result;
+    } else {
+      // Si la señal no es válida, no exponer resultados
+      return {
+        heartRate: 0,
+        spo2: 0,
+        pressure: 0,
+        glucose: 0,
+        lipids: { totalCholesterol: 0, triglycerides: 0 },
+        hemoglobin: 0,
+        arrhythmiaStatus: "NO_VALID_RESULT",
+        lastArrhythmiaData: null,
+        calibration: {
+          isCalibrating: false,
+          progress: {
+            heartRate: 0,
+            spo2: 0,
+            pressure: 0,
+            arrhythmia: 0,
+            glucose: 0,
+            lipids: 0,
+            hemoglobin: 0
+          }
+        }
+      };
     }
 
     return result;

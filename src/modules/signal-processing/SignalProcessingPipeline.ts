@@ -228,6 +228,18 @@ export class SignalProcessingPipeline {
   public processFrame(imageData: ImageData): void {
     if (!this.isProcessing) return;
 
+    // Si la calibración no fue exitosa, bloquear procesamiento
+    if (!this.autoCalibrationSystem.getCalibrationResults().success) {
+      if (this.onError) {
+        this.onError({
+          code: 'CALIBRATION_FAILED',
+          message: 'La calibración no fue exitosa. No se puede procesar señal real.',
+          timestamp: Date.now()
+        });
+      }
+      return;
+    }
+
     try {
       if (this.isCalibrating) {
         const frameDataForCalibration = {
@@ -269,49 +281,47 @@ export class SignalProcessingPipeline {
 
       const fingerDetectionResult = this.humanFingerDetector.detectHumanFinger(imageData);
 
-      let finalFilteredValue = fingerDetectionResult.rawValue;
-      let finalAmplifiedValue = fingerDetectionResult.rawValue; // Valor por defecto si no hay dedo
-      let finalQuality = fingerDetectionResult.quality;
-
-      if (fingerDetectionResult.isHumanFinger && fingerDetectionResult.quality > 30) { // Umbral de calidad para procesar
+      // Solo procesar si es dedo humano real y calidad suficiente
+      if (fingerDetectionResult.isHumanFinger && fingerDetectionResult.quality > 30) {
         const ppgResults = this.processPPGSignal(fingerDetectionResult.rawValue, fingerDetectionResult.quality);
-        finalFilteredValue = ppgResults.amplifiedValue;
-        finalAmplifiedValue = ppgResults.amplifiedValue;
+        const outputSignal: ProcessedSignal = {
+          timestamp: fingerDetectionResult.timestamp,
+          rawValue: fingerDetectionResult.rawValue,
+          filteredValue: ppgResults.amplifiedValue,
+          quality: fingerDetectionResult.quality,
+          fingerDetected: true,
+          roi: {
+            x: imageData.width / 4,
+            y: imageData.height / 4,
+            width: imageData.width / 2,
+            height: imageData.height / 2,
+          },
+          perfusionIndex: fingerDetectionResult.confidence,
+        };
+        this.lastProcessedSignal = outputSignal;
+        if (this.onSignalReady) {
+          this.onSignalReady(outputSignal as ExtendedProcessedSignal);
+        }
       } else {
-        // Si no hay dedo o la calidad es muy baja, reseteamos parcialmente los filtros para que se adapten rápido al reaparecer la señal
-        this.kalmanFilter.reset(); // Resetea P y X, pero mantiene R y Q configurados
+        // Si no hay dedo real o calidad insuficiente, reportar error y no emitir señal
+        if (this.onError) {
+          this.onError({
+            code: 'NO_FINGER_OR_LOW_QUALITY',
+            message: 'No se detectó dedo humano real o la calidad es insuficiente.',
+            timestamp: Date.now()
+          });
+        }
+        // Reset rápido de filtros para adaptarse a la reaparición de señal
+        this.kalmanFilter.reset();
         this.sgFilter.reset();
-        this.baselineValue = 0; // Permitir que el baseline se reestablezca rápidamente
-        this.signalHistoryForAmplification = []; // Limpiar historial para recalculación de amplificación
+        this.baselineValue = 0;
+        this.signalHistoryForAmplification = [];
       }
-      
-      const outputSignal: ProcessedSignal = {
-        timestamp: fingerDetectionResult.timestamp,
-        rawValue: fingerDetectionResult.rawValue,
-        filteredValue: finalFilteredValue, 
-        quality: finalQuality,
-        fingerDetected: fingerDetectionResult.isHumanFinger,
-        roi: { // ROI Fijo por ahora, se puede mejorar
-          x: imageData.width / 4,
-          y: imageData.height / 4,
-          width: imageData.width / 2,
-          height: imageData.height / 2,
-        },
-        perfusionIndex: fingerDetectionResult.confidence, // Usar confianza como un proxy de PI
-      };
-      
-      this.lastProcessedSignal = outputSignal; // Guardar la última señal procesada
-
-      if (this.onSignalReady) {
-        this.onSignalReady(outputSignal as ExtendedProcessedSignal);
-      }
-
     } catch (error) {
-      console.error("SignalProcessingPipeline: Error procesando frame:", error);
       if (this.onError) {
         this.onError({
-          code: 'PIPELINE_PROCESSING_ERROR',
-          message: error instanceof Error ? error.message : 'Error desconocido en pipeline',
+          code: 'PROCESSING_ERROR',
+          message: error instanceof Error ? error.message : 'Error desconocido',
           timestamp: Date.now()
         });
       }

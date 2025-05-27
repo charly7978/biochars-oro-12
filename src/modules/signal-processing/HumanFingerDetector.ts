@@ -168,29 +168,22 @@ export class HumanFingerDetector {
   }
 
   private calculateMetricsInternal(avgRed: number, avgGreen: number, avgBlue: number, imageData: ImageData) {
-    const rgRatio = avgGreen > 5 ? avgRed / avgGreen : (avgRed > 10 ? 10 : 0.5);
-    const rbRatio = avgBlue > 5 ? avgRed / avgBlue : (avgRed > 10 ? 10 : 0.5);
-    
-    // Las siguientes métricas son placeholders o simplificaciones si no se quiere hacer un análisis de ROI completo aquí
-    // Si se necesitan con precisión, se debería pasar el array de píxeles del ROI a estas funciones.
-    const placeholderIntensities = this.rawRedHistory.length > 0 ? this.rawRedHistory : [avgRed]; // Usa historial o valor actual
-    const placeholderReds = this.rawRedHistory.length > 0 ? this.rawRedHistory : [avgRed];
-    const placeholderGreens = this.rawRedHistory.length > 0 ? this.rawRedHistory.map(r => r / (rgRatio||1)) : [avgGreen];
-    const placeholderBlues = this.rawRedHistory.length > 0 ? this.rawRedHistory.map(r => r / (rbRatio||1)) : [avgBlue];
-
+    const rgRatio = avgGreen > 5 ? avgRed / avgGreen : 0;
+    const rbRatio = avgBlue > 5 ? avgRed / avgBlue : 0;
+    // Eliminar placeholders: solo usar datos reales
     return {
       redIntensity: avgRed,
       greenIntensity: avgGreen,
       blueIntensity: avgBlue,
       rgRatio: rgRatio,
       rbRatio: rbRatio,
-      gbRatio: avgBlue > 5 ? avgGreen / avgBlue : (avgGreen > 10 ? 10 : 0.5),
+      gbRatio: avgBlue > 5 ? avgGreen / avgBlue : 0,
       colorTemperature: this.calculateColorTemperature(avgRed, avgGreen, avgBlue),
-      textureScore: this.calculateTextureScore(placeholderIntensities), 
-      edgeGradient: this.calculateEdgeGradient(placeholderReds),
-      areaPercentage: 100, // Asumimos que el ROI definido está cubierto
-      specularRatio: this.calculateSpecularRatio(placeholderReds, placeholderGreens, placeholderBlues), 
-      uniformity: this.calculateUniformity(placeholderIntensities)
+      textureScore: this.calculateTextureScore([avgRed]),
+      edgeGradient: this.calculateEdgeGradient([avgRed]),
+      areaPercentage: 100,
+      specularRatio: this.calculateSpecularRatio([avgRed], [avgGreen], [avgBlue]),
+      uniformity: this.calculateUniformity([avgRed])
     };
   }
   

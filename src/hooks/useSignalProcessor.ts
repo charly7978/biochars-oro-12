@@ -42,6 +42,7 @@ export const useSignalProcessor = () => {
   const calibrationInProgressRef = useRef(false);
   const errorCountRef = useRef(0);
   const lastErrorTimeRef = useRef(0);
+  const [criticalError, setCriticalError] = useState<string | null>(null);
 
   useEffect(() => {
     const sessionId = Math.random().toString(36).substring(2, 9);
@@ -51,27 +52,26 @@ export const useSignalProcessor = () => {
     });
 
     const onSignalReadyCallback = (signal: ExtendedProcessedSignal) => {
-      // console.log("[DIAG] useSignalProcessor/onSignalReady: Frame recibido desde Pipeline", {
-      //   timestamp: new Date(signal.timestamp).toISOString(),
-      //   fingerDetected: signal.fingerDetected,
-      //   quality: signal.quality,
-      //   rawValue: signal.rawValue,
-      //   filteredValue: signal.filteredValue,
-      // });
-      
+      if (calibrationStatus && calibrationStatus.succeeded === false) {
+        setCriticalError('La calibración no fue exitosa. No se puede medir.');
+        setLastSignal(null);
+        return;
+      }
+      if (!signal.fingerDetected || (signal.quality !== undefined && signal.quality <= 30)) {
+        setCriticalError('No se detectó dedo humano real o la calidad es insuficiente.');
+        setLastSignal(null);
+        return;
+      }
+      setCriticalError(null);
       setLastSignal(signal);
       setError(null);
-      
-      // Solo contar frames si no estamos en una fase de calibración que emita señales "especiales"
       if (!signal.calibrationPhase) {
           setFramesProcessed(prev => prev + 1);
       }
-      
       signalHistoryRef.current.push(signal);
       if (signalHistoryRef.current.length > 100) {
         signalHistoryRef.current.shift();
       }
-      
       const prevSignal = signalHistoryRef.current[signalHistoryRef.current.length - 2];
       if (prevSignal && Math.abs(prevSignal.quality - signal.quality) > 15) {
         qualityTransitionsRef.current.push({
@@ -83,7 +83,6 @@ export const useSignalProcessor = () => {
           qualityTransitionsRef.current.shift();
         }
       }
-      
       if (signal.fingerDetected && signal.quality > 30) {
         setSignalStats(prev => ({
           minValue: Math.min(prev.minValue, signal.filteredValue),
@@ -240,6 +239,7 @@ export const useSignalProcessor = () => {
     startCalibration,
     processFrame,
     signalHistory: signalHistoryRef.current,
-    qualityTransitions: qualityTransitionsRef.current
+    qualityTransitions: qualityTransitionsRef.current,
+    criticalError
   };
 };
