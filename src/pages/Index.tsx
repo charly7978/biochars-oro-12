@@ -6,7 +6,7 @@ import { useHeartBeatProcessor } from "@/hooks/useHeartBeatProcessor";
 import { useVitalSignsProcessor } from "@/hooks/useVitalSignsProcessor";
 import PPGSignalMeter from "@/components/PPGSignalMeter";
 import MonitorButton from "@/components/MonitorButton";
-import { VitalSignsResult } from "@/modules/vital-signs/VitalSignsProcessor";
+import { VitalSignsResult, BloodPressureResult as BPResultType } from "@/modules/vital-signs/VitalSignsProcessor";
 import { toast } from "@/components/ui/use-toast";
 
 const Index = () => {
@@ -16,7 +16,7 @@ const Index = () => {
   const [vitalSigns, setVitalSigns] = useState<VitalSignsResult>({
     heartRate: 0,
     spo2: 0,
-    pressure: "--/--",
+    pressure: { systolic: 0, diastolic: 0, confidence: 0, status: "--/--" },
     arrhythmiaStatus: "--",
     glucose: 0,
     lipids: {
@@ -187,7 +187,7 @@ const Index = () => {
       setVitalSigns({
         heartRate: 0,
         spo2: 0,
-        pressure: "--/--",
+        pressure: { systolic: 0, diastolic: 0, confidence: 0, status: "ERROR" },
         arrhythmiaStatus: "--",
         glucose: 0,
         lipids: { totalCholesterol: 0, triglycerides: 0 },
@@ -412,18 +412,16 @@ const Index = () => {
     setHeartRate(0);
     setHeartbeatSignal(0);
     setBeatMarker(0);
-    setVitalSigns({ 
+    setVitalSigns(prev => ({
+      ...prev,
       heartRate: 0,
       spo2: 0,
-      pressure: "--/--",
+      pressure: { systolic: 0, diastolic: 0, confidence: 0, status: "--/--" },
       arrhythmiaStatus: "--",
       glucose: 0,
-      lipids: {
-        totalCholesterol: 0,
-        triglycerides: 0
-      },
+      lipids: { totalCholesterol: 0, triglycerides: 0 },
       hemoglobin: 0
-    });
+    }));
     setArrhythmiaCount("--");
     setSignalQuality(0);
     setLastArrhythmiaData(null);
@@ -654,6 +652,22 @@ const Index = () => {
     }
   };
 
+  const formatPressureForDisplay = (
+    pressureData: BPResultType | { systolic: 0, diastolic: 0, confidence: 0, status?: string }
+  ): string => {
+    if (pressureData && typeof pressureData === 'object') {
+      if ('systolic' in pressureData && pressureData.systolic > 0 && 
+          'diastolic' in pressureData && pressureData.diastolic > 0) {
+        return `${pressureData.systolic}/${pressureData.diastolic}`;
+      }
+      // Check for status only if systolic/diastolic aren't valid for display
+      if ('status' in pressureData && typeof pressureData.status === 'string') {
+        return pressureData.status;
+      }
+    }
+    return "--/--";
+  };
+
   return (
     <div className="fixed inset-0 flex flex-col bg-black" style={{ 
       height: '100svh',
@@ -760,43 +774,56 @@ const Index = () => {
 
           {/* Contenedor de los displays ampliado y con mayor espaciamiento */}
           <div className="absolute inset-x-0 top-[55%] bottom-[60px] bg-black/10 px-4 py-6">
-            <div className="grid grid-cols-3 gap-4 place-items-center">
+            <div className="grid grid-cols-2 gap-4">
               <VitalSign 
-                label="FRECUENCIA CARDÍACA"
-                value={heartRate || "--"}
-                unit="BPM"
+                label="FRECUENCIA CARDÍACA" 
+                value={vitalSigns.heartRate > 0 ? vitalSigns.heartRate : heartbeatSignal > 0 ? heartbeatSignal : '--'} 
+                unit="BPM" 
                 highlighted={showResults}
+                calibrationProgress={calibrationProgress?.progress.heartRate}
               />
               <VitalSign 
-                label="SPO2"
-                value={vitalSigns.spo2 || "--"}
-                unit="%"
+                label="SPO2" 
+                value={vitalSigns.spo2 > 0 ? vitalSigns.spo2 : '--'} 
+                unit="%" 
                 highlighted={showResults}
+                calibrationProgress={calibrationProgress?.progress.spo2}
               />
               <VitalSign 
-                label="PRESIÓN ARTERIAL"
-                value={vitalSigns.pressure}
-                unit="mmHg"
+                label="PRESIÓN ARTERIAL" 
+                value={formatPressureForDisplay(vitalSigns.pressure)} 
+                unit="mmHg" 
                 highlighted={showResults}
+                calibrationProgress={calibrationProgress?.progress.pressure}
               />
               <VitalSign 
-                label="HEMOGLOBINA"
-                value={vitalSigns.hemoglobin || "--"}
-                unit="g/dL"
+                label="ARRITMIAS" 
+                value={arrhythmiaCount} // arrhythmiaCount ya es string o number
+                unit="" 
                 highlighted={showResults}
+                calibrationProgress={calibrationProgress?.progress.arrhythmia}
               />
               <VitalSign 
-                label="GLUCOSA"
-                value={vitalSigns.glucose || "--"}
-                unit="mg/dL"
-                highlighted={showResults}
+                label="GLUCOSA" 
+                value={vitalSigns.glucose > 0 ? vitalSigns.glucose : '--'} 
+                unit="mg/dL" 
+                highlighted={showResults} 
+                calibrationProgress={calibrationProgress?.progress.glucose}
               />
               <VitalSign 
-                label="COLESTEROL/TRIGL."
-                value={`${vitalSigns.lipids?.totalCholesterol || "--"}/${vitalSigns.lipids?.triglycerides || "--"}`}
-                unit="mg/dL"
+                label="COLESTEROL/TRIGL." 
+                value={vitalSigns.lipids.totalCholesterol > 0 ? `${vitalSigns.lipids.totalCholesterol}/${vitalSigns.lipids.triglycerides}` : '--'} 
+                unit="mg/dL" 
                 highlighted={showResults}
+                calibrationProgress={calibrationProgress?.progress.lipids}
               />
+              {/* <VitalSign 
+                label="HEMOGLOBINA" 
+                value={vitalSigns.hemoglobin > 0 ? vitalSigns.hemoglobin : '--'} 
+                unit="g/dL" 
+                highlighted={showResults}
+                calibrationProgress={calibrationProgress?.progress.hemoglobin}
+              /> */}
             </div>
           </div>
 

@@ -41,15 +41,6 @@ export interface ProcessingError {
   timestamp: number;
 }
 
-export interface SignalProcessor {
-  initialize: () => Promise<void>;
-  start: () => void;
-  stop: () => void;
-  calibrate: () => Promise<boolean>;
-  onSignalReady?: (signal: ProcessedSignal) => void;
-  onError?: (error: ProcessingError) => void;
-}
-
 declare global {
   interface Window {
     heartBeatProcessor: HeartBeatProcessor;

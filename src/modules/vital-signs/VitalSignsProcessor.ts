@@ -1,16 +1,35 @@
+import { BloodPressureProcessor, BloodPressureResult } from "./blood-pressure-processor";
+export type { BloodPressureResult };
+import { GlucoseProcessor } from "./glucose-processor";
+
+/**
+ * Datos de referencia opcionales que el usuario podría ingresar para calibrar
+ * ciertas mediciones experimentales.
+ */
+export interface VitalSignsReferenceData {
+  referenceSystolic?: number;
+  referenceDiastolic?: number;
+  referenceAge?: number;       // Para calibración de PA
+  referenceGlucose?: number;   // Para calibración de Glucosa
+}
+
 /**
  * PROCESADOR DE SIGNOS VITALES 100% REAL
  * Cálculos basados únicamente en mediciones físicas reales del PPG
+ * ADVERTENCIA: Varias mediciones (ej. Glucosa, Presión Arterial, Lípidos, Hemoglobina)
+ * estimadas mediante PPG de smartphone son ALTAMENTE EXPERIMENTALES y su precisión
+ * NO está garantizada. NO deben usarse para diagnóstico médico sin supervisión profesional.
  */
 
 export interface VitalSignsResult {
   heartRate: number;
   spo2: number;
-  pressure: string;
+  pressure: BloodPressureResult | { systolic: 0, diastolic: 0, confidence: 0, status?: string };
   glucose: number;
   lipids: {
     totalCholesterol: number;
     triglycerides: number;
+    status?: 'experimental_unreliable';
   };
   hemoglobin: number;
   arrhythmiaStatus: string;
@@ -35,66 +54,62 @@ export interface VitalSignsResult {
 
 export class VitalSignsProcessor {
   private signalBuffer: number[] = [];
-  private peakTimes: number[] = [];
   private rrIntervals: number[] = [];
-  private calibrationBaseline: number = 0;
-  private isCalibrated = false;
-  private frameCount = 0;
   private lastValidResults: VitalSignsResult | null = null;
+  private globalCalibrationSuccess: boolean = false;
+
+  // Instancias de los procesadores dedicados
+  private bpProcessor: BloodPressureProcessor;
+  private glucoseProcessor: GlucoseProcessor;
 
   constructor() {
     console.log("VitalSignsProcessor: Inicializado (SIN SIMULACIONES)");
+    this.bpProcessor = new BloodPressureProcessor();
+    this.glucoseProcessor = new GlucoseProcessor();
   }
 
-  startCalibration(): void {
-    console.log("VitalSignsProcessor: Iniciando calibración REAL");
-    this.calibrationBaseline = 0;
-    this.signalBuffer = [];
-    this.peakTimes = [];
-    this.rrIntervals = [];
-    this.isCalibrated = false;
-    this.frameCount = 0;
-  }
+  /**
+   * Establece el estado de calibración global y, si es exitosa y se proporcionan datos
+   * de referencia, calibra los sub-procesadores que lo requieran.
+   */
+  public setExternalCalibration(isSuccess: boolean, referenceData?: VitalSignsReferenceData): void {
+    this.globalCalibrationSuccess = isSuccess;
+    console.log(`VitalSignsProcessor: Estado de calibración externa actualizado a: ${isSuccess}`);
 
-  forceCalibrationCompletion(): void {
-    console.log("VitalSignsProcessor: Forzando completion de calibración");
-    this.isCalibrated = true;
-  }
-
-  isCurrentlyCalibrating(): boolean {
-    return !this.isCalibrated && this.frameCount < 60; // 2 segundos aprox
-  }
-
-  getCalibrationProgress(): number {
-    if (this.isCalibrated) return 100;
-    return Math.min(100, (this.frameCount / 60) * 100);
+    if (isSuccess && referenceData) {
+      if (referenceData.referenceSystolic !== undefined && 
+          referenceData.referenceDiastolic !== undefined) {
+        this.bpProcessor.calibrate(
+          referenceData.referenceSystolic,
+          referenceData.referenceDiastolic,
+          referenceData.referenceAge // age es opcional en bpProcessor.calibrate
+        );
+      }
+      if (referenceData.referenceGlucose !== undefined) {
+        this.glucoseProcessor.calibrate(referenceData.referenceGlucose);
+      }
+    } else if (!isSuccess) {
+        // Si la calibración global falla, resetear la calibración de los sub-procesadores también
+        this.bpProcessor.reset(); // Asumiendo que reset() también invalida su calibración interna
+        this.glucoseProcessor.reset(); // Asumiendo que reset() también invalida su calibración interna
+    }
   }
 
   processSignal(ppgValue: number, rrData?: { intervals: number[]; lastPeakTime: number | null }): VitalSignsResult {
-    this.frameCount++;
-    
-    // Si no está calibrado, no procesar ni devolver resultados
-    if (!this.isCalibrated) {
+    // Si la calibración global no fue exitosa, no procesar ni devolver resultados significativos.
+    if (!this.globalCalibrationSuccess) {
       return {
         heartRate: 0,
         spo2: 0,
-        pressure: 0,
+        pressure: { systolic: 0, diastolic: 0, confidence: 0, status: "GLOBAL_CALIBRATION_FAILED" },
         glucose: 0,
-        lipids: { totalCholesterol: 0, triglycerides: 0 },
+        lipids: { totalCholesterol: 0, triglycerides: 0, status: "experimental_unreliable" },
         hemoglobin: 0,
         arrhythmiaStatus: "NO_VALID_RESULT",
         lastArrhythmiaData: null,
         calibration: {
-          isCalibrating: true,
-          progress: {
-            heartRate: 0,
-            spo2: 0,
-            pressure: 0,
-            arrhythmia: 0,
-            glucose: 0,
-            lipids: 0,
-            hemoglobin: 0
-          }
+          isCalibrating: false,
+          progress: { heartRate: 0, spo2: 0, pressure: 0, arrhythmia: 0, glucose: 0, lipids: 0, hemoglobin: 0 }
         }
       };
     }
@@ -103,15 +118,6 @@ export class VitalSignsProcessor {
     this.signalBuffer.push(ppgValue);
     if (this.signalBuffer.length > 300) {
       this.signalBuffer.shift();
-    }
-
-    // Establecer baseline durante calibración
-    if (!this.isCalibrated) {
-      if (this.frameCount >= 60) {
-        this.calibrationBaseline = this.signalBuffer.reduce((a, b) => a + b, 0) / this.signalBuffer.length;
-        this.isCalibrated = true;
-        console.log("VitalSignsProcessor: Calibración completada, baseline:", this.calibrationBaseline);
-      }
     }
 
     // Usar datos RR reales si están disponibles
@@ -126,10 +132,10 @@ export class VitalSignsProcessor {
     const spo2 = this.calculateRealSpO2();
     
     // Calcular presión real basada en características de pulso
-    const pressure = this.calculateRealBloodPressure();
+    const pressure = this.calculateRealBloodPressure(this.signalBuffer);
     
     // Calcular glucosa real basada en variabilidad PPG
-    const glucose = this.calculateRealGlucose();
+    const glucose = this.calculateRealGlucose(this.signalBuffer);
     
     // Calcular lípidos reales basados en perfusión
     const lipids = this.calculateRealLipids();
@@ -147,15 +153,15 @@ export class VitalSignsProcessor {
       arrhythmiaStatus: "NORMAL",
       lastArrhythmiaData: null,
       calibration: {
-        isCalibrating: this.isCurrentlyCalibrating(),
+        isCalibrating: false,
         progress: {
-          heartRate: this.getCalibrationProgress(),
-          spo2: this.getCalibrationProgress(),
-          pressure: this.getCalibrationProgress(),
-          arrhythmia: this.getCalibrationProgress(),
-          glucose: this.getCalibrationProgress(),
-          lipids: this.getCalibrationProgress(),
-          hemoglobin: this.getCalibrationProgress()
+          heartRate: 0,
+          spo2: 0,
+          pressure: 0,
+          arrhythmia: 0,
+          glucose: 0,
+          lipids: 0,
+          hemoglobin: 0
         }
       }
     };
@@ -168,9 +174,9 @@ export class VitalSignsProcessor {
       return {
         heartRate: 0,
         spo2: 0,
-        pressure: 0,
+        pressure: { systolic: 0, diastolic: 0, confidence: 0, status: "INVALID_SIGNAL" },
         glucose: 0,
-        lipids: { totalCholesterol: 0, triglycerides: 0 },
+        lipids: { totalCholesterol: 0, triglycerides: 0, status: "experimental_unreliable" },
         hemoglobin: 0,
         arrhythmiaStatus: "NO_VALID_RESULT",
         lastArrhythmiaData: null,
@@ -219,7 +225,9 @@ export class VitalSignsProcessor {
 
   private detectRealPeaks(signal: number[]): number[] {
     const peaks: number[] = [];
-    const threshold = this.calibrationBaseline * 1.02; // 2% sobre baseline
+    if (signal.length === 0) return [];
+    const meanSignal = signal.reduce((a,b) => a+b, 0) / signal.length;
+    const threshold = meanSignal * 1.05; // 5% por encima de la media como ejemplo, ajustar si es necesario
     
     for (let i = 2; i < signal.length - 2; i++) {
       if (signal[i] > threshold &&
@@ -238,7 +246,7 @@ export class VitalSignsProcessor {
   }
 
   private calculateRealSpO2(): number {
-    if (this.signalBuffer.length < 30 || !this.isCalibrated) return 0;
+    if (this.signalBuffer.length < 30) return 0;
     
     // Calcular componente AC (amplitud de pulsación)
     const recent = this.signalBuffer.slice(-30);
@@ -257,96 +265,40 @@ export class VitalSignsProcessor {
     // Fórmula empírica basada en investigación médica
     const spo2 = 110 - (25 * ratio);
     
-    return Math.round(Math.max(85, Math.min(100, spo2)));
+    return Math.round(Math.max(80, Math.min(100, spo2)));
   }
 
-  private calculateRealBloodPressure(): string {
-    if (this.signalBuffer.length < 60 || !this.isCalibrated) return "0/0";
-    
-    // Analizar forma de onda PPG para estimar presión
-    const recent = this.signalBuffer.slice(-60);
-    const amplitude = Math.max(...recent) - Math.min(...recent);
-    const baseline = recent.reduce((a, b) => a + b, 0) / recent.length;
-    
-    // Índice de rigidez arterial basado en forma de pulso
-    const stiffnessIndex = amplitude / baseline;
-    
-    // Estimación basada en características de pulso
-    const systolic = Math.round(90 + (stiffnessIndex * 40));
-    const diastolic = Math.round(60 + (stiffnessIndex * 20));
-    
-    const finalSystolic = Math.max(90, Math.min(180, systolic));
-    const finalDiastolic = Math.max(60, Math.min(120, diastolic));
-    
-    return `${finalSystolic}/${finalDiastolic}`;
-  }
-
-  private calculateRealGlucose(): number {
-    if (this.signalBuffer.length < 90 || !this.isCalibrated) return 0;
-    
-    // Análisis de variabilidad de señal PPG para glucosa
-    const recent = this.signalBuffer.slice(-90);
-    
-    // Calcular variabilidad como indicador metabólico
-    const mean = recent.reduce((a, b) => a + b, 0) / recent.length;
-    const variance = recent.reduce((acc, val) => acc + Math.pow(val - mean, 2), 0) / recent.length;
-    const cv = Math.sqrt(variance) / mean;
-    
-    // Correlación empírica con niveles de glucosa
-    const glucoseBase = 90; // mg/dL normal
-    const glucoseVariation = cv * 100; // Factor de variabilidad
-    
-    const glucose = glucoseBase + glucoseVariation;
-    
-    return Math.round(Math.max(70, Math.min(200, glucose)));
-  }
-
-  private calculateRealLipids(): { totalCholesterol: number; triglycerides: number } {
-    if (this.signalBuffer.length < 120 || !this.isCalibrated) {
-      return { totalCholesterol: 0, triglycerides: 0 };
+  private calculateRealBloodPressure(currentSignalBuffer: number[]): BloodPressureResult | { systolic: 0, diastolic: 0, confidence: 0, status?: string } {
+    if (currentSignalBuffer.length < 60) {
+        return { systolic: 0, diastolic: 0, confidence: 0, status: "INSUFFICIENT_DATA" };
     }
-    
-    // Análisis de perfusión para estimación lipídica
-    const recent = this.signalBuffer.slice(-120);
-    
-    // Calcular índice de perfusión
-    const max = Math.max(...recent);
-    const min = Math.min(...recent);
-    const avg = recent.reduce((a, b) => a + b, 0) / recent.length;
-    
-    const perfusionIndex = (max - min) / avg;
-    
-    // Correlación con perfil lipídico
-    const baseColesterol = 180; // mg/dL
-    const baseTriglikeridos = 120; // mg/dL
-    
-    const colesterol = baseColesterol + (perfusionIndex * 50);
-    const trigliceridos = baseTriglikeridos + (perfusionIndex * 30);
-    
-    return {
-      totalCholesterol: Math.round(Math.max(120, Math.min(300, colesterol))),
-      triglycerides: Math.round(Math.max(80, Math.min(250, trigliceridos)))
-    };
+    // BP Processor internamente verifica su propio this.isCalibrated (que se setea vía su propio .calibrate())
+    const bpResult = this.bpProcessor.calculateBloodPressure(currentSignalBuffer);
+    return bpResult;
   }
 
-  private calculateRealHemoglobina(): number {
-    if (this.signalBuffer.length < 60 || !this.isCalibrated) return 0;
-    
-    // Análisis de absorción de luz para hemoglobina
-    const recent = this.signalBuffer.slice(-60);
-    const intensity = recent.reduce((a, b) => a + b, 0) / recent.length;
-    
-    // Ley de Beer-Lambert simplificada
-    const absorption = Math.log(255 / Math.max(1, intensity));
-    
-    // Correlación empírica con niveles de hemoglobina
-    const hemoglobin = 12 + (absorption * 2.5); // g/dL
-    
-    return Math.round(Math.max(8, Math.min(18, hemoglobin)) * 10) / 10;
+  private calculateRealGlucose(currentSignalBuffer: number[]): number {
+    if (currentSignalBuffer.length < 60) {
+        return 0;
+    }
+    // Glucose Processor internamente verifica su propio this.isCalibrated (que se setea vía su propio .calibrate())
+    const glucoseEstimation = this.glucoseProcessor.calculateGlucose(currentSignalBuffer);
+    return glucoseEstimation;
+  }
+
+  private calculateRealLipids(): { totalCholesterol: number; triglycerides: number; status?: 'experimental_unreliable' } {
+    // ADVERTENCIA: La estimación de lípidos con PPG de smartphone es ALTAMENTE EXPERIMENTAL
+    // y NO se considera fiable para uso médico. No hay una base científica sólida
+    // ampliamente aceptada para esta medición con la tecnología actual de smartphones.
+    // Devolver valores placeholder o que indiquen "no medible".
+    return { totalCholesterol: 0, triglycerides: 0, status: "experimental_unreliable" };
   }
 
   private calculateRealHemoglobin(): number {
-    return this.calculateRealHemoglobina();
+    // ADVERTENCIA: La estimación de hemoglobina con PPG de smartphone es ALTAMENTE EXPERIMENTAL
+    // y NO se considera fiable para uso médico.
+    // Devolver un valor placeholder o que indique "no medible".
+    return 0; // Indica no medible o valor no fiable
   }
 
   reset(): VitalSignsResult | null {
@@ -354,22 +306,25 @@ export class VitalSignsProcessor {
     const savedResults = this.lastValidResults;
     
     this.signalBuffer = [];
-    this.peakTimes = [];
     this.rrIntervals = [];
-    this.frameCount = 0;
-    this.isCalibrated = false;
+    this.globalCalibrationSuccess = false;
     
+    // También resetear sub-procesadores
+    this.bpProcessor.reset();
+    this.glucoseProcessor.reset();
+
     return savedResults;
   }
 
   fullReset(): void {
     console.log("VitalSignsProcessor: Reset completo");
     this.signalBuffer = [];
-    this.peakTimes = [];
     this.rrIntervals = [];
-    this.calibrationBaseline = 0;
-    this.isCalibrated = false;
-    this.frameCount = 0;
+    this.frameCount = 0; // Aunque no se usa para calibración, se mantenía para processSignal, pero ya no es tan relevante
     this.lastValidResults = null;
+    this.globalCalibrationSuccess = false;
+
+    this.bpProcessor.reset();
+    this.glucoseProcessor.reset();
   }
 }

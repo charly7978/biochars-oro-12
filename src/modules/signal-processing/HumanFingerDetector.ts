@@ -5,16 +5,16 @@
 
 export interface HumanFingerResult {
   isHumanFinger: boolean;
-  confidence: number; 
-  quality: number;    
-  rawValue: number;   
-  filteredValue: number; 
+  confidence: number;
+  quality: number;
+  rawValue: number;
+  filteredValue: number;
   timestamp: number;
   debugInfo: {
     avgRed: number;
     avgGreen: number;
     avgBlue: number;
-    rgRatio: number; 
+    rgRatio: number;
     rbRatio: number; 
     redDominanceScore: number; 
     pulsatilityScore: number;  
@@ -93,7 +93,7 @@ export class HumanFingerDetector {
   public detectHumanFinger(imageData: ImageData): HumanFingerResult {
     this.frameCount++;
     const timestamp = Date.now();
-
+    
     const { width, height, data } = imageData;
     const roiWidth = Math.floor(width * this.config.ROI_WIDTH_FACTOR);
     const roiHeight = Math.floor(height * this.config.ROI_HEIGHT_FACTOR);
@@ -155,7 +155,7 @@ export class HumanFingerDetector {
         avgRed,
         avgGreen,
         avgBlue,
-        rgRatio: metrics.rgRatio, 
+        rgRatio: metrics.rgRatio,
         rbRatio: metrics.rbRatio, 
         redDominanceScore: spectralAnalysis.redDominanceScore, 
         pulsatilityScore: temporalValidation.pulsatilityScore, 
@@ -233,7 +233,7 @@ export class HumanFingerDetector {
       rejectionReasons.push(`✗ Plástico/Reflejo? (R=${metrics.redIntensity.toFixed(0)}, RG=${metrics.rgRatio.toFixed(1)})`);
     }
     if (metrics.rgRatio < this.FALSE_POSITIVE_BLACKLIST.EXTREME_GREEN_DOMINANT_THRESHOLD || metrics.rbRatio < 0.8) { 
-        isFalsePositive = true;
+      isFalsePositive = true;
         rejectionReasons.push(`✗ Color no piel (RG=${metrics.rgRatio.toFixed(1)}, RB=${metrics.rbRatio.toFixed(1)})`);
     }
     return { isFalsePositive, rejectionReasons };
