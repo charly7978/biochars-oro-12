@@ -719,13 +719,30 @@ const Index = () => {
 
         <div className="relative z-10 h-full flex flex-col">
           {/* Se agrega header para sensor de calidad y estado de huella digital */}
-          <div className="px-4 py-2 flex justify-around items-center bg-black/20">
-            <div className="text-white text-lg">
-              Calidad: {signalQuality}
+          <div className="px-4 py-2 flex flex-col items-center bg-black/30">
+            <div className="flex justify-around items-center w-full">
+              <div className="text-white text-sm">
+                Calidad: {signalQuality}
+                {lastSignal?.debugInfo?.dbgRawQuality !== undefined && ` (Raw: ${lastSignal.debugInfo.dbgRawQuality.toFixed(0)})`}
+              </div>
+              <div className="text-white text-sm">
+                {lastSignal?.fingerDetected ? "Dedo Detectado" : "No Dedo"}
+              </div>
             </div>
-            <div className="text-white text-lg">
-              {lastSignal?.fingerDetected ? "Huella Detectada" : "Huella No Detectada"}
-            </div>
+            {/* Fila adicional para debugInfo detallado */} 
+            {lastSignal?.debugInfo && (
+              <div className="flex justify-around items-center w-full mt-1 text-xs text-gray-400">
+                <span>
+                  SpecConf: {lastSignal.debugInfo.dbgSpectralConfidence !== undefined ? lastSignal.debugInfo.dbgSpectralConfidence.toFixed(2) : "N/A"}
+                </span>
+                <span>
+                  PulsScore: {lastSignal.debugInfo.pulsatilityScore !== undefined ? lastSignal.debugInfo.pulsatilityScore.toFixed(2) : "N/A"}
+                </span>
+                <span>
+                  StabScore: {lastSignal.debugInfo.stabilityScore !== undefined ? lastSignal.debugInfo.stabilityScore.toFixed(2) : "N/A"}
+                </span>
+              </div>
+            )}
           </div>
 
           <div className="flex-1">

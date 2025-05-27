@@ -21,6 +21,8 @@ export interface HumanFingerResult {
     stabilityScore: number;    
     rejectionReasons: string[];
     acceptanceReasons: string[];
+    dbgSpectralConfidence?: number;
+    dbgRawQuality?: number;
   };
 }
 
@@ -133,20 +135,19 @@ export class HumanFingerDetector {
     const spectralAnalysis = this.analyzeHumanSkinSpectrum(metrics);
     const falsePositiveCheck = this.detectExtremeFalsePositives(metrics);
     const temporalValidation = this.validateTemporal(metrics, spectralAnalysis);
-    const finalDecision = this.makeFinalDecision(
+    
+    const decisionInternal = this.makeFinalDecision(
       spectralAnalysis, 
       falsePositiveCheck, 
       temporalValidation
     );
     
-    const quality = this.calculateIntegratedQuality(finalDecision.isHumanFinger, metrics, temporalValidation.stability, temporalValidation.pulsatilityScore);
-    
-    this.logDetectionResult(finalDecision, metrics, quality);
+    const qualityScores = this.calculateIntegratedQuality(decisionInternal.isHumanFinger, metrics, temporalValidation.stability, temporalValidation.pulsatilityScore);
     
     const result: HumanFingerResult = {
-      isHumanFinger: finalDecision.isHumanFinger,
-      confidence: finalDecision.confidence,
-      quality: Math.round(quality),
+      isHumanFinger: decisionInternal.isHumanFinger,
+      confidence: decisionInternal.confidence,
+      quality: qualityScores.finalQuality,
       rawValue: avgRed, 
       filteredValue: currentFilteredRed, 
       timestamp,
@@ -159,11 +160,12 @@ export class HumanFingerDetector {
         redDominanceScore: spectralAnalysis.redDominanceScore, 
         pulsatilityScore: temporalValidation.pulsatilityScore, 
         stabilityScore: temporalValidation.stability, 
-        rejectionReasons: finalDecision.rejectionReasons,
-        acceptanceReasons: finalDecision.acceptanceReasons 
+        rejectionReasons: decisionInternal.rejectionReasons,
+        acceptanceReasons: decisionInternal.acceptanceReasons,
+        dbgSpectralConfidence: decisionInternal.dbgSpectralConfidence,
+        dbgRawQuality: qualityScores.rawQuality
       }
     };
-    // this.lastDetectionResult = result; // Ya no parece usarse este miembro de clase
     return result;
   }
 
@@ -302,6 +304,7 @@ export class HumanFingerDetector {
 
     let isHumanFinger = false;
     let currentConfidence = 0;
+    let dbgSpectralConfidence = spectralAnalysis.confidence;
 
     // Criterio primario: Espectro y pulsatilidad
     if (spectralAnalysis.isValidSpectrum && temporalValidation.meetsPulsatility) {
@@ -328,7 +331,6 @@ export class HumanFingerDetector {
         currentConfidence *= 0.5; // Reducir drásticamente la confianza
     }
     
-    // Asegurar que la confianza no sea demasiado alta si no es dedo
     if(!isHumanFinger) {
         currentConfidence = Math.min(0.45, currentConfidence);
     }
@@ -339,33 +341,33 @@ export class HumanFingerDetector {
       isHumanFinger,
       confidence: Math.max(0, Math.min(1, this.smoothedConfidence)),
       acceptanceReasons,
-      rejectionReasons
+      rejectionReasons,
+      dbgSpectralConfidence
     };
   }
   
-  private calculateIntegratedQuality(isFinger: boolean, metrics: any, stabilityScoreParam: number, pulsatilityScoreParam: number): number {
+  private calculateIntegratedQuality(isFinger: boolean, metrics: any, stabilityScoreParam: number, pulsatilityScoreParam: number): { finalQuality: number, rawQuality: number } {
     const currentStabilityScore = stabilityScoreParam;
     const currentPulsatilityScore = pulsatilityScoreParam;
     const avgRed = metrics.redIntensity;
+    let rawQualityCalc = 0;
 
     if (!isFinger) {
-      return Math.max(0, Math.min(25, Math.round(this.smoothedConfidence * 50))); // Aún más bajo si no es dedo
+      rawQualityCalc = Math.max(0, Math.min(25, Math.round(this.smoothedConfidence * 50)));
+      return { finalQuality: rawQualityCalc, rawQuality: rawQualityCalc };
     }
     
-    // Ponderación de calidad más simple y generosa si hay dedo
-    // Dar más peso a la pulsatilidad y a la confianza de detección general
-    let quality = 
-        (currentPulsatilityScore * 0.60) +   // Pulsatilidad es clave
-        (this.smoothedConfidence * 0.30) + // Confianza general de que es un dedo
-        (currentStabilityScore * 0.10)) * 100; // Estabilidad tiene menos peso si ya hay pulso y confianza
+    rawQualityCalc = 
+        (currentPulsatilityScore * 0.60) +   
+        (this.smoothedConfidence * 0.30) + 
+        (currentStabilityScore * 0.10)) * 100;
 
-    // Penalización por intensidad de rojo en extremos, muy suave
     if (avgRed < this.config.MIN_RED_INTENSITY + 10 || avgRed > this.config.MAX_RED_INTENSITY - 10) {
-      quality *= 0.95; // Penalización muy leve (5%)
+      rawQualityCalc *= 0.95; 
     }
     
-    // Calidad mínima si es dedo, permitiendo valores más bajos para iniciar y luego mejorar
-    return Math.max(10, Math.min(99, Math.round(quality))); 
+    const finalQualityCalc = Math.max(10, Math.min(99, Math.round(rawQualityCalc)));
+    return { finalQuality: finalQualityCalc, rawQuality: Math.round(rawQualityCalc) };
   }
 
   private createDefaultResult(timestamp: number, reason: string): HumanFingerResult {
@@ -381,7 +383,8 @@ export class HumanFingerDetector {
         avgRed: 0, avgGreen: 0, avgBlue: 0, rgRatio: 0, rbRatio: 0,
         redDominanceScore: 0, pulsatilityScore: 0, stabilityScore: 0,
         rejectionReasons: [reason],
-        acceptanceReasons: []
+        acceptanceReasons: [],
+        dbgRawQuality: 0
       }
     };
   }
@@ -389,7 +392,6 @@ export class HumanFingerDetector {
   reset(): void {
     this.rawRedHistory = [];
     this.filteredRedHistory = [];
-    // this.lastDetectionResult = null; // Ya no se usa
     this.frameCount = 0;
     this.lastRawRedEMA = 0;
     this.smoothedConfidence = 0;

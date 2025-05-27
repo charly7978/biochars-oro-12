@@ -252,11 +252,12 @@ export class SignalProcessingPipeline {
             filteredValue: fingerDetectionResult.filteredValue,
             quality: fingerDetectionResult.quality,
             fingerDetected: fingerDetectionResult.isHumanFinger,
-            roi: { x: 0, y: 0, width: imageData.width, height: imageData.height }, // Placeholder, ajustar si se usa ROI específico aquí
+            roi: { x: 0, y: 0, width: imageData.width, height: imageData.height },
             perfusionIndex: fingerDetectionResult.confidence,
             calibrationPhase: calibrationStatus.phase,
             calibrationProgress: calibrationStatus.progress,
-            calibrationInstructions: calibrationStatus.instructions
+            calibrationInstructions: calibrationStatus.instructions,
+            debugInfo: fingerDetectionResult.debugInfo
           };
           this.onSignalReady(signalDuringCalibration);
         }
@@ -289,11 +290,12 @@ export class SignalProcessingPipeline {
             filteredValue: fingerDetectionResult.filteredValue,
             quality: fingerDetectionResult.quality,
             fingerDetected: fingerDetectionResult.isHumanFinger,
-            roi: { x: imageData.width / 4, y: imageData.height / 4, width: imageData.width / 2, height: imageData.height / 2 }, // ROI General
+            roi: { x: imageData.width / 4, y: imageData.height / 4, width: imageData.width / 2, height: imageData.height / 2 },
             perfusionIndex: fingerDetectionResult.confidence,
             calibrationPhase: 'pending_successful_calibration',
             calibrationProgress: 0,
-            calibrationInstructions: 'Calibración requerida para medición.'
+            calibrationInstructions: 'Calibración requerida para medición.',
+            debugInfo: fingerDetectionResult.debugInfo
           };
           this.onSignalReady(signalNoPpg);
         }
@@ -309,8 +311,9 @@ export class SignalProcessingPipeline {
           filteredValue: ppgResults.amplifiedValue,
           quality: fingerDetectionResult.quality,
           fingerDetected: true,
-          roi: { x: imageData.width / 4, y: imageData.height / 4, width: imageData.width / 2, height: imageData.height / 2 }, // ROI General
+          roi: { x: imageData.width / 4, y: imageData.height / 4, width: imageData.width / 2, height: imageData.height / 2 },
           perfusionIndex: fingerDetectionResult.confidence,
+          debugInfo: fingerDetectionResult.debugInfo
         };
         this.lastProcessedSignal = outputSignal;
         if (this.onSignalReady) {
@@ -332,8 +335,9 @@ export class SignalProcessingPipeline {
             filteredValue: fingerDetectionResult.filteredValue,
             quality: fingerDetectionResult.quality,
             fingerDetected: fingerDetectionResult.isHumanFinger,
-            roi: { x: imageData.width / 4, y: imageData.height / 4, width: imageData.width / 2, height: imageData.height / 2 }, // ROI General
+            roi: { x: imageData.width / 4, y: imageData.height / 4, width: imageData.width / 2, height: imageData.height / 2 },
             perfusionIndex: fingerDetectionResult.confidence,
+            debugInfo: fingerDetectionResult.debugInfo
           };
           this.onSignalReady(signalNoPpg);
         }
@@ -355,12 +359,13 @@ export class SignalProcessingPipeline {
             rawValue: 0,
             filteredValue: 0,
             quality: 0,
-            fingerDetected: false, // No se puede determinar
+            fingerDetected: false,
             roi: { x: 0, y:0, width: imageData.width, height: imageData.height},
             perfusionIndex: 0,
             calibrationPhase: 'error',
             calibrationProgress: 0,
-            calibrationInstructions: 'Error en procesamiento.'
+            calibrationInstructions: 'Error en procesamiento.',
+            debugInfo: fingerDetectionResult ? fingerDetectionResult.debugInfo : { rejectionReasons: ['Error catastrófico'] }
         };
         this.onSignalReady(errorSignal);
       }
