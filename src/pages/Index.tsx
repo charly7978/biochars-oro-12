@@ -47,12 +47,17 @@ const Index = () => {
   const processingLoopRef = useRef<number | null>(null);
   
   const {
+    isProcessing,
+    calibrationStatus,
+    lastSignal,
+    error: pipelineError,
+    framesProcessed,
     startProcessing,
     stopProcessing,
-    lastSignal,
+    startCalibration,
     processFrame,
-    calibrationStatus,
-    criticalError
+    criticalError,
+    pipelineRef
   } = useSignalProcessor();
   const { 
     processSignal: processHeartBeat, 
@@ -62,9 +67,7 @@ const Index = () => {
     processSignal: processVitalSigns, 
     reset: resetVitalSigns,
     fullReset: fullResetVitalSigns,
-    lastValidResults,
-    startCalibration,
-    forceCalibrationCompletion
+    lastValidResults
   } = useVitalSignsProcessor();
 
   const enterFullScreen = async () => {
@@ -205,19 +208,16 @@ const Index = () => {
       setIsCameraOn(true);
       setShowResults(false);
       
-      // Iniciar procesamiento de señal
-      startProcessing();
+      startProcessing(); 
       
-      // Resetear valores
       setElapsedTime(0);
       setVitalSigns(prev => ({
         ...prev,
         arrhythmiaStatus: "SIN ARRITMIAS|0"
       }));
       
-      // Iniciar calibración automática
-      console.log("Iniciando fase de calibración automática");
-      startAutoCalibration();
+      console.log("Index.tsx: Solicitando inicio de MODO calibración al SignalProcessingPipeline.");
+      startCalibration();
       
       // Iniciar temporizador para medición
       if (measurementTimerRef.current) {
@@ -240,115 +240,41 @@ const Index = () => {
     }
   };
 
-  const startAutoCalibration = () => {
-    console.log("Iniciando auto-calibración real con indicadores visuales");
-    setIsCalibrating(true);
-    
-    // Iniciar la calibración en el procesador
-    startCalibration();
-    
-    // Establecer explícitamente valores iniciales de calibración para CADA vital sign
-    // Esto garantiza que el estado comience correctamente
-    console.log("Estableciendo valores iniciales de calibración");
-    setCalibrationProgress({
-      isCalibrating: true,
-      progress: {
-        heartRate: 0,
-        spo2: 0,
-        pressure: 0,
-        arrhythmia: 0,
-        glucose: 0,
-        lipids: 0,
-        hemoglobin: 0
-      }
-    });
-    
-    // Logear para verificar que el estado se estableció
-    setTimeout(() => {
-      console.log("Estado de calibración establecido:", calibrationProgress);
-    }, 100);
-    
-    // Actualizar el progreso visualmente en intervalos regulares
-    let step = 0;
-    const calibrationInterval = setInterval(() => {
-      step += 1;
+  // Efecto para actualizar la UI de calibración basado en el pipeline
+  useEffect(() => {
+    if (calibrationStatus) {
+      console.log("Index.tsx: calibrationStatus del pipeline actualizado", calibrationStatus);
+      setIsCalibrating(!calibrationStatus.isComplete && calibrationStatus.phase !== 'complete');
       
-      // Actualizar progreso visual (10 pasos en total)
-      if (step <= 10) {
-        const progressPercent = step * 10; // 0-100%
-        console.log(`Actualizando progreso de calibración: ${progressPercent}%`);
-        
-        // Actualizar cada valor individualmente para asegurar que se renderice
-        setCalibrationProgress({
-          isCalibrating: true,
-          progress: {
-            heartRate: progressPercent,
-            spo2: Math.max(0, progressPercent - 10),
-            pressure: Math.max(0, progressPercent - 20),
-            arrhythmia: Math.max(0, progressPercent - 15),
-            glucose: Math.max(0, progressPercent - 5),
-            lipids: Math.max(0, progressPercent - 25),
-            hemoglobin: Math.max(0, progressPercent - 30)
-          }
-        });
-      } else {
-        // Al finalizar, detener el intervalo
-        console.log("Finalizando animación de calibración");
-        clearInterval(calibrationInterval);
-        
-        // Completar calibración
-        if (isCalibrating) {
-          console.log("Completando calibración");
-          forceCalibrationCompletion();
-          setIsCalibrating(false);
-          
-          // Importante: Establecer calibrationProgress a undefined o con valores 100
-          // para que la UI refleje que ya no está calibrando
-          setCalibrationProgress({
-            isCalibrating: false,
-            progress: {
-              heartRate: 100,
-              spo2: 100,
-              pressure: 100,
-              arrhythmia: 100,
-              glucose: 100,
-              lipids: 100,
-              hemoglobin: 100
-            }
-          });
-          
-          // Opcional: vibración si está disponible
-          if (navigator.vibrate) {
-            navigator.vibrate([100, 50, 100]);
-          }
+      const generalProgress = calibrationStatus.progress;
+      setCalibrationProgress({
+        isCalibrating: !calibrationStatus.isComplete,
+        progress: {
+          heartRate: generalProgress,
+          spo2: generalProgress,
+          pressure: generalProgress,
+          arrhythmia: generalProgress,
+          glucose: generalProgress,
+          lipids: generalProgress,
+          hemoglobin: generalProgress
+        },
+        instructions: calibrationStatus.instructions,
+        phase: calibrationStatus.phase
+      });
+
+      if (calibrationStatus.isComplete) {
+        if (calibrationStatus.succeeded) {
+          toast({ title: "Calibración Completada", description: calibrationStatus.recommendations?.join(' ') || "Lista para medir.", duration: 3000 });
+        } else {
+          toast({ title: "Calibración Fallida", description: calibrationStatus.recommendations?.join(' ') || "Intente de nuevo.", variant: "destructive", duration: 5000 });
         }
       }
-    }, 800); // Cada paso dura 800ms (8 segundos en total)
-    
-    // Temporizador de seguridad
-    setTimeout(() => {
-      if (isCalibrating) {
-        console.log("Forzando finalización de calibración por tiempo límite");
-        clearInterval(calibrationInterval);
-        forceCalibrationCompletion();
-        setIsCalibrating(false);
-        
-        // Asegurar que se limpie el estado de calibración
-        setCalibrationProgress({
-          isCalibrating: false,
-          progress: {
-            heartRate: 100,
-            spo2: 100,
-            pressure: 100,
-            arrhythmia: 100,
-            glucose: 100,
-            lipids: 100,
-            hemoglobin: 100
-          }
-        });
-      }
-    }, 10000); // 10 segundos como máximo
-  };
+    } else {
+      // Si no hay calibrationStatus (ej. al inicio o después de un reset completo), asegurar que la UI esté limpia.
+      setIsCalibrating(false);
+      setCalibrationProgress(undefined);
+    }
+  }, [calibrationStatus, toast]);
 
   const finalizeMeasurement = () => {
     console.log("Finalizando medición: deteniendo procesamiento de frames");
@@ -358,11 +284,6 @@ const Index = () => {
     if (processingLoopRef.current) {
       cancelAnimationFrame(processingLoopRef.current);
       processingLoopRef.current = null;
-    }
-    
-    if (isCalibrating) {
-      console.log("Calibración en progreso al finalizar, forzando finalización");
-      forceCalibrationCompletion();
     }
     
     setIsMonitoring(false);
@@ -743,8 +664,8 @@ const Index = () => {
                 {lastSignal?.fingerDetected ? "Dedo Detectado" : "No Dedo"}
               </div>
             </div>
-            {/* Fila adicional para debugInfo detallado */} 
-            {lastSignal?.debugInfo && (
+            {/* Fila adicional para debugInfo detallado */ 
+            (lastSignal?.debugInfo && (
               <div className="flex justify-around items-center w-full mt-1 text-xs text-gray-400">
                 <span>
                   SpecConf: {lastSignal.debugInfo.dbgSpectralConfidence !== undefined ? lastSignal.debugInfo.dbgSpectralConfidence.toFixed(2) : "N/A"}
@@ -756,7 +677,7 @@ const Index = () => {
                   StabScore: {lastSignal.debugInfo.stabilityScore !== undefined ? lastSignal.debugInfo.stabilityScore.toFixed(2) : "N/A"}
                 </span>
               </div>
-            )}
+            ))}
           </div>
 
           <div className="flex-1">
