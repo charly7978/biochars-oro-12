@@ -297,33 +297,42 @@ export class HumanFingerDetector {
   }
   
   private makeFinalDecision(spectralAnalysis: any, falsePositiveCheck: any, temporalValidation: any) {
-    const acceptanceReasons = [...spectralAnalysis.reasons, ...temporalValidation.reasons].filter(r => r.startsWith('✓')); // Solo razones positivas
-    const rejectionReasons = [...falsePositiveCheck.rejectionReasons]; 
+    const acceptanceReasons = [...spectralAnalysis.reasons, ...temporalValidation.reasons].filter(r => r.startsWith('✓'));
+    const rejectionReasons = [...falsePositiveCheck.rejectionReasons];
 
-    if (!spectralAnalysis.isValidSpectrum) rejectionReasons.push("Espectro color inválido");
-    if (!temporalValidation.meetsPulsatility) rejectionReasons.push("Pulsatilidad insuf.");
-    if (!temporalValidation.meetsStability) rejectionReasons.push("Señal inestable");
-
-    const isHumanFinger = 
-      spectralAnalysis.isValidSpectrum &&
-      !falsePositiveCheck.isFalsePositive &&
-      temporalValidation.meetsPulsatility &&
-      temporalValidation.meetsStability;
-
+    let isHumanFinger = false;
     let currentConfidence = 0;
-    if (isHumanFinger) {
-      currentConfidence = (spectralAnalysis.confidence * 0.5) + 
-                          (temporalValidation.pulsatilityScore * 0.35) +
-                          (temporalValidation.stability * 0.15);
-      currentConfidence = Math.max(0.55, currentConfidence);
+
+    // Criterio primario: Espectro y pulsatilidad
+    if (spectralAnalysis.isValidSpectrum && temporalValidation.meetsPulsatility) {
+      isHumanFinger = true;
+      currentConfidence = (spectralAnalysis.confidence * 0.6) + (temporalValidation.pulsatilityScore * 0.4); // Mayor peso al espectro y pulso
+      if (!temporalValidation.meetsStability) {
+        currentConfidence *= 0.8; // Penalizar ligeramente si es inestable pero hay espectro y pulso
+        rejectionReasons.push("Advertencia: Inestable pero con pulso/espectro OK");
+      }
     } else {
-      currentConfidence = Math.min(0.4, 
-        (spectralAnalysis.confidence * 0.3) + 
-        (temporalValidation.pulsatilityScore * 0.15) + 
-        (temporalValidation.stability * 0.05)
-      );
+      // Si falla el espectro o la pulsatilidad, es menos probable que sea dedo
+      if (!spectralAnalysis.isValidSpectrum) rejectionReasons.push("Espectro color inválido");
+      if (!temporalValidation.meetsPulsatility) rejectionReasons.push("Pulsatilidad insuf.");
+      if (!temporalValidation.meetsStability && spectralAnalysis.isValidSpectrum) {
+          rejectionReasons.push("Señal inestable (sin pulso claro)");
+      } else if (!temporalValidation.meetsStability) {
+          rejectionReasons.push("Señal inestable");
+      }
+      currentConfidence = (spectralAnalysis.confidence * 0.3) + (temporalValidation.pulsatilityScore * 0.2) + (temporalValidation.stability * 0.1);
+    }
+
+    if (falsePositiveCheck.isFalsePositive) {
+        isHumanFinger = false; // Anular si es un falso positivo claro
+        currentConfidence *= 0.5; // Reducir drásticamente la confianza
     }
     
+    // Asegurar que la confianza no sea demasiado alta si no es dedo
+    if(!isHumanFinger) {
+        currentConfidence = Math.min(0.45, currentConfidence);
+    }
+
     this.smoothedConfidence = this.smoothedConfidence * (1 - this.config.CONFIDENCE_EMA_ALPHA) + currentConfidence * this.config.CONFIDENCE_EMA_ALPHA;
     
     return {
@@ -340,19 +349,23 @@ export class HumanFingerDetector {
     const avgRed = metrics.redIntensity;
 
     if (!isFinger) {
-      return Math.max(0, Math.min(30, Math.round(this.smoothedConfidence * 60)));
+      return Math.max(0, Math.min(25, Math.round(this.smoothedConfidence * 50))); // Aún más bajo si no es dedo
     }
     
+    // Ponderación de calidad más simple y generosa si hay dedo
+    // Dar más peso a la pulsatilidad y a la confianza de detección general
     let quality = 
-        (currentPulsatilityScore * 0.50) + 
-        (currentStabilityScore * 0.25) +
-        (this.smoothedConfidence * 0.25)) * 100;
+        (currentPulsatilityScore * 0.60) +   // Pulsatilidad es clave
+        (this.smoothedConfidence * 0.30) + // Confianza general de que es un dedo
+        (currentStabilityScore * 0.10)) * 100; // Estabilidad tiene menos peso si ya hay pulso y confianza
 
-    if (avgRed < this.config.MIN_RED_INTENSITY + 15 || avgRed > this.config.MAX_RED_INTENSITY - 15) {
-      quality *= 0.90;
+    // Penalización por intensidad de rojo en extremos, muy suave
+    if (avgRed < this.config.MIN_RED_INTENSITY + 10 || avgRed > this.config.MAX_RED_INTENSITY - 10) {
+      quality *= 0.95; // Penalización muy leve (5%)
     }
     
-    return Math.max(15, Math.min(99, Math.round(quality)));
+    // Calidad mínima si es dedo, permitiendo valores más bajos para iniciar y luego mejorar
+    return Math.max(10, Math.min(99, Math.round(quality))); 
   }
 
   private createDefaultResult(timestamp: number, reason: string): HumanFingerResult {
