@@ -139,7 +139,7 @@ export class HumanFingerDetector {
       temporalValidation
     );
     
-    const quality = this.calculateIntegratedQuality(finalDecision, metrics, temporalValidation.stability);
+    const quality = this.calculateIntegratedQuality(finalDecision.isHumanFinger, metrics, temporalValidation.stability, temporalValidation.pulsatilityScore);
     
     this.logDetectionResult(finalDecision, metrics, quality);
     
@@ -251,7 +251,7 @@ export class HumanFingerDetector {
       
       if (stdDev > this.config.PULSABILITY_STD_THRESHOLD) { 
           meetsPulsatility = true;
-          pulsatilityScore = Math.min(1, stdDev / (this.config.PULSABILITY_STD_THRESHOLD * 4));
+          pulsatilityScore = Math.min(1, stdDev / (this.config.PULSABILITY_STD_THRESHOLD * 2.5));
           reasons.push(`✓ Pulsat. (stdFilt:${stdDev.toFixed(2)})`);
       } else {
         reasons.push(`✗ Pulsat. (stdFilt:${stdDev.toFixed(2)} < ${this.config.PULSABILITY_STD_THRESHOLD})`);
@@ -275,9 +275,9 @@ export class HumanFingerDetector {
           reasons.push(`✗ Inest. ventana (StdRaw:${stdDevLong.toFixed(0)} > ${this.config.STABILITY_WINDOW_STD_THRESHOLD})`);
           meetsStabilityOverall = false;
         }
-        stability = Math.max(0, 1 - (stdDevLong / (this.config.STABILITY_WINDOW_STD_THRESHOLD * 2))); 
+        stability = Math.max(0, 1 - (stdDevLong / (this.config.STABILITY_WINDOW_STD_THRESHOLD * 3)));
       } else {
-         stability = meetsStabilityOverall ? 0.6 : 0.2; // Ajustado para reflejar mejor el estado sin historial largo
+         stability = meetsStabilityOverall ? 0.65 : 0.25;
       }
       if (meetsStabilityOverall) {
         reasons.push(`✓ Estab. (score:${stability.toFixed(2)})`);
@@ -313,9 +313,9 @@ export class HumanFingerDetector {
     let currentConfidence = 0;
     if (isHumanFinger) {
       currentConfidence = (spectralAnalysis.confidence * 0.5) + 
-                          (temporalValidation.pulsatilityScore * 0.35) + // Más peso a pulsatilidad
-                          (temporalValidation.stability * 0.15); // Menos peso a estabilidad si ya hay pulso
-      currentConfidence = Math.max(0.55, currentConfidence); // Confianza mínima si es dedo
+                          (temporalValidation.pulsatilityScore * 0.35) +
+                          (temporalValidation.stability * 0.15);
+      currentConfidence = Math.max(0.55, currentConfidence);
     } else {
       currentConfidence = Math.min(0.4, 
         (spectralAnalysis.confidence * 0.3) + 
@@ -334,18 +334,25 @@ export class HumanFingerDetector {
     };
   }
   
-  private calculateIntegratedQuality(isFinger: boolean, stabilityScore: number, pulsatilityScore: number, avgRed: number): number {
-    if (!isFinger) {
-      return Math.max(0, Math.min(35, Math.round(this.smoothedConfidence * 70))); 
-    }
-    
-    let quality = (pulsatilityScore * 0.55 + stabilityScore * 0.30 + this.smoothedConfidence * 0.15) * 100;
+  private calculateIntegratedQuality(isFinger: boolean, metrics: any, stabilityScoreParam: number, pulsatilityScoreParam: number): number {
+    const currentStabilityScore = stabilityScoreParam;
+    const currentPulsatilityScore = pulsatilityScoreParam;
+    const avgRed = metrics.redIntensity;
 
-    if (avgRed < this.config.MIN_RED_INTENSITY + 20 || avgRed > this.config.MAX_RED_INTENSITY - 20) {
-      quality *= 0.85; // Penalizar si la intensidad está en los extremos del rango aceptable
+    if (!isFinger) {
+      return Math.max(0, Math.min(30, Math.round(this.smoothedConfidence * 60)));
     }
     
-    return Math.max(20, Math.min(99, Math.round(quality))); // Calidad mínima de 20 si es dedo
+    let quality = 
+        (currentPulsatilityScore * 0.50) + 
+        (currentStabilityScore * 0.25) +
+        (this.smoothedConfidence * 0.25)) * 100;
+
+    if (avgRed < this.config.MIN_RED_INTENSITY + 15 || avgRed > this.config.MAX_RED_INTENSITY - 15) {
+      quality *= 0.90;
+    }
+    
+    return Math.max(15, Math.min(99, Math.round(quality)));
   }
 
   private createDefaultResult(timestamp: number, reason: string): HumanFingerResult {
