@@ -45,13 +45,13 @@ export interface HumanFingerDetectorConfig {
 const defaultDetectorConfig: HumanFingerDetectorConfig = {
   MIN_RED_INTENSITY: 30,
   MAX_RED_INTENSITY: 245,
-  MIN_RG_RATIO: 1.05,
-  MIN_RB_RATIO: 1.05,
+  MIN_RG_RATIO: 1.0,
+  MIN_RB_RATIO: 1.0,
   HISTORY_SIZE_SHORT: 15,
   HISTORY_SIZE_LONG: 45,
-  PULSABILITY_STD_THRESHOLD: 0.3,
-  STABILITY_FRAME_DIFF_THRESHOLD: 25,
-  STABILITY_WINDOW_STD_THRESHOLD: 20,
+  PULSABILITY_STD_THRESHOLD: 0.15,
+  STABILITY_FRAME_DIFF_THRESHOLD: 35,
+  STABILITY_WINDOW_STD_THRESHOLD: 30,
   ROI_WIDTH_FACTOR: 0.3, 
   ROI_HEIGHT_FACTOR: 0.3,
   EMA_ALPHA_RAW: 0.3,
@@ -93,6 +93,9 @@ export class HumanFingerDetector {
   public detectHumanFinger(imageData: ImageData): HumanFingerResult {
     this.frameCount++;
     const timestamp = Date.now();
+    const detailedLog = true; // FORZAR LOGS DETALLADOS PARA DEBUG
+
+    if (detailedLog) console.log(`\n--- HFD Frame: ${this.frameCount} ---`);
     
     const { width, height, data } = imageData;
     const roiWidth = Math.floor(width * this.config.ROI_WIDTH_FACTOR);
@@ -125,6 +128,11 @@ export class HumanFingerDetector {
     const currentFilteredRed = this.lastRawRedEMA * (1 - this.config.EMA_ALPHA_RAW) + avgRed * this.config.EMA_ALPHA_RAW;
     this.lastRawRedEMA = currentFilteredRed;
 
+    if (detailedLog) {
+      console.log("[HFD] RGB Averages:", { avgRed: avgRed.toFixed(2), avgGreen: avgGreen.toFixed(2), avgBlue: avgBlue.toFixed(2) });
+      console.log("[HFD] Filtered Red:", currentFilteredRed.toFixed(2));
+    }
+
     this.rawRedHistory.push(avgRed); 
     if (this.rawRedHistory.length > this.config.HISTORY_SIZE_LONG) this.rawRedHistory.shift();
     
@@ -135,6 +143,12 @@ export class HumanFingerDetector {
     const spectralAnalysis = this.analyzeHumanSkinSpectrum(metrics);
     const falsePositiveCheck = this.detectExtremeFalsePositives(metrics);
     const temporalValidation = this.validateTemporal(metrics, spectralAnalysis);
+
+    if (detailedLog) {
+      console.log("[HFD] Spectral Analysis:", spectralAnalysis);
+      console.log("[HFD] False Positive Check:", falsePositiveCheck);
+      console.log("[HFD] Temporal Validation:", temporalValidation);
+    }
     
     const decisionInternal = this.makeFinalDecision(
       spectralAnalysis, 
@@ -144,6 +158,11 @@ export class HumanFingerDetector {
     
     const qualityScores = this.calculateIntegratedQuality(decisionInternal.isHumanFinger, metrics, temporalValidation.stability, temporalValidation.pulsatilityScore);
     
+    if (detailedLog) {
+      console.log("[HFD] Internal Decision:", decisionInternal);
+      console.log("[HFD] Quality Scores:", qualityScores);
+    }
+
     const result: HumanFingerResult = {
       isHumanFinger: decisionInternal.isHumanFinger,
       confidence: decisionInternal.confidence,
@@ -166,6 +185,7 @@ export class HumanFingerDetector {
         dbgRawQuality: qualityScores.rawQuality
       }
     };
+    if (detailedLog) console.log("[HFD] Final Result:", result);
     return result;
   }
 
@@ -352,21 +372,39 @@ export class HumanFingerDetector {
     const avgRed = metrics.redIntensity;
     let rawQualityCalc = 0;
 
+    if (detailedLog) { // Usar la misma variable detailedLog o pasarla como parámetro si está en otro scope
+      console.log("[HFD IQ] Inputs:", { isFinger, smoothedConfidence: this.smoothedConfidence, currentStabilityScore, currentPulsatilityScore, avgRed });
+    }
+
     if (!isFinger) {
       rawQualityCalc = Math.max(0, Math.min(25, Math.round(this.smoothedConfidence * 50)));
+      if (detailedLog) console.log("[HFD IQ] Not a finger, rawQualityCalc:", rawQualityCalc);
       return { finalQuality: rawQualityCalc, rawQuality: rawQualityCalc };
     }
     
     rawQualityCalc = 
-        (currentPulsatilityScore * 0.60) +   
+        ((currentPulsatilityScore * 0.60) +   
         (this.smoothedConfidence * 0.30) + 
         (currentStabilityScore * 0.10)) * 100;
 
+    if (detailedLog) console.log("[HFD IQ] Finger detected, initial rawQualityCalc:", rawQualityCalc);
+
     if (avgRed < this.config.MIN_RED_INTENSITY + 10 || avgRed > this.config.MAX_RED_INTENSITY - 10) {
       rawQualityCalc *= 0.95; 
+      if (detailedLog) console.log("[HFD IQ] Penalized for red intensity, new rawQualityCalc:", rawQualityCalc);
     }
     
     const finalQualityCalc = Math.max(10, Math.min(99, Math.round(rawQualityCalc)));
+    if (detailedLog) {
+      console.log("[HFD IQ] Final Scores:", { finalQualityCalc, rawQualityCalc: Math.round(rawQualityCalc) });
+    }
+    if (isNaN(finalQualityCalc) || isNaN(rawQualityCalc)) {
+        console.error("[HFD IQ CRITICAL] NaN DETECTED IN QUALITY CALCULATION", 
+            { isFinger, smoothedConfidence: this.smoothedConfidence, currentStabilityScore, currentPulsatilityScore, avgRed, rawQualityCalc, finalQualityCalc }
+        );
+        // Devolver 0 si es NaN para evitar propagar NaN
+        return { finalQuality: 0, rawQuality: 0 }; 
+    }
     return { finalQuality: finalQualityCalc, rawQuality: Math.round(rawQualityCalc) };
   }
 
@@ -460,18 +498,24 @@ export class HumanFingerDetector {
   }
 
   private logDetectionResult(decision: any, metrics: any, quality: number): void {
-    if (this.frameCount % 30 === 0) { // Loguear cada segundo (asumiendo 30fps)
-      console.log("HFDetector:", {
+    // if (this.frameCount % 30 === 0) { // Loguear cada segundo (asumiendo 30fps)
+      console.log("[HFD INTERNAL LOG] Detection Result:", {
         D: decision.isHumanFinger ? 1:0,
         C: decision.confidence.toFixed(2),
         Q: quality.toFixed(0),
         R: metrics.redIntensity.toFixed(0),
         RG: metrics.rgRatio.toFixed(1),
         RB: metrics.rbRatio.toFixed(1),
-        PS: decision.debugInfo.pulsatilityScore.toFixed(2),
-        SS: decision.debugInfo.stabilityScore.toFixed(2),
-        Reject: decision.rejectionReasons.length > 0 ? decision.rejectionReasons[0].substring(0,15) : "-"
+        PS: pulsatilityScoreParamForLog, // Necesitaría acceso a pulsatilityScore desde makeFinalDecision o qualityScores
+        SS: stabilityScoreParamForLog, // Necesitaría acceso a stabilityScore desde makeFinalDecision o qualityScores
+        Reject: decision.rejectionReasons.length > 0 ? decision.rejectionReasons.join(', ').substring(0,30) : "-",
+        Accept: decision.acceptanceReasons.length > 0 ? decision.acceptanceReasons.join(', ').substring(0,30) : "-"
       });
-    }
+    // }
   }
 }
+
+// Helper para la función de log, ya que las variables no están en scope directo
+// Estas variables necesitarían pasarse a logDetectionResult o ser accesibles de otra forma
+let pulsatilityScoreParamForLog = 0;
+let stabilityScoreParamForLog = 0;
