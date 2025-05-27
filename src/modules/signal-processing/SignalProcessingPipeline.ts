@@ -1,4 +1,4 @@
-import { HumanFingerDetector, HumanFingerResult } from './HumanFingerDetector';
+import { HumanFingerDetector, HumanFingerResult, HumanFingerDetectorConfig } from './HumanFingerDetector';
 import { OptimizedKalmanFilter } from './OptimizedKalmanFilter';
 import { SavitzkyGolayFilter } from './SavitzkyGolayFilter';
 import { AutoCalibrationSystem } from './AutoCalibrationSystem';
@@ -25,6 +25,11 @@ export interface SignalPipelineConfig {
   targetAmplitude: number;
   minAmplificationFactor: number;
   maxAmplificationFactor: number;
+
+  // Nuevos campos para la configuración del detector de dedo que podrían ser calibrados
+  pulsatilityThreshold?: number;
+  stabilityFrameDiffThreshold?: number;
+  stabilityWindowStdThreshold?: number;
 }
 
 const defaultConfig: SignalPipelineConfig = {
@@ -39,6 +44,9 @@ const defaultConfig: SignalPipelineConfig = {
   targetAmplitude: 50,
   minAmplificationFactor: 5,
   maxAmplificationFactor: 40,
+  pulsatilityThreshold: undefined,
+  stabilityFrameDiffThreshold: undefined,
+  stabilityWindowStdThreshold: undefined,
 };
 
 // Interfaz para los datos que el pipeline necesita del AutoCalibrationSystem
@@ -78,7 +86,14 @@ export class SignalProcessingPipeline {
     onCalibrationUpdate?: (calibrationStatus: { phase: string; progress: number; instructions: string; isComplete: boolean;}) => void
   ) {
     this.config = { ...defaultConfig, ...config };
-    this.humanFingerDetector = new HumanFingerDetector(); // Usará sus propios defaults o se pueden pasar configs
+    this.humanFingerDetector = new HumanFingerDetector({
+        MIN_RED_INTENSITY: this.config.minRedReflectance,
+        MAX_RED_INTENSITY: this.config.maxRedReflectance,
+        MIN_RG_RATIO: this.config.minRGRatio,
+        PULSABILITY_THRESHOLD: this.config.pulsatilityThreshold,
+        STABILITY_FRAME_DIFF_THRESHOLD: this.config.stabilityFrameDiffThreshold,
+        STABILITY_THRESHOLD_WINDOW_STDDEV: this.config.stabilityWindowStdThreshold,
+    });
     this.kalmanFilter = new OptimizedKalmanFilter(this.config.kalmanR, this.config.kalmanQ);
     this.sgFilter = new SavitzkyGolayFilter(this.config.sgWindowSize);
     this.autoCalibrationSystem = new AutoCalibrationSystem();
@@ -99,9 +114,9 @@ export class SignalProcessingPipeline {
     this.baselineValue = 0;
     this.signalHistoryForAmplification = [];
     if (this.onCalibrationUpdate) {
-      // Forzar una actualización inicial para la UI
-      const initialStatus = { phase: this.autoCalibrationSystem.getCurrentPhase ? this.autoCalibrationSystem.getCurrentPhase() : 'baseline', progress: 0, instructions: 'Iniciando calibración...', isComplete: false };
-      this.onCalibrationUpdate(initialStatus);
+      const initialPhase = this.autoCalibrationSystem.getCurrentPhase ? this.autoCalibrationSystem.getCurrentPhase() : 'baseline';
+      const initialProgress = this.autoCalibrationSystem.getCurrentProgress ? this.autoCalibrationSystem.getCurrentProgress() : 0;
+      this.onCalibrationUpdate({ phase: initialPhase, progress: initialProgress, instructions: 'Iniciando calibración...', isComplete: false });
     }
   }
 
@@ -116,25 +131,37 @@ export class SignalProcessingPipeline {
     }
   }
 
-  private applyCalibrationResults(results: any /* Debería ser un tipo más específico */): void {
+  private applyCalibrationResults(results: any): void {
     console.log("SignalProcessingPipeline: Aplicando resultados de calibración", results);
     if (results.success) {
-      if (results.thresholds) {
-        // TODO: HumanFingerDetector necesita métodos para setear umbrales o ser reinstanciado con nueva config.
-        // Ejemplo conceptual:
-        // this.humanFingerDetector.configure({ 
-        //   RED_REFLECTANCE_MIN: results.thresholds.min, 
-        //   RED_REFLECTANCE_MAX: results.thresholds.max 
-        // });
-        console.warn("SignalProcessingPipeline: Aplicación de `results.thresholds` a HumanFingerDetector pendiente.");
+      const newDetectorConfig: Partial<HumanFingerDetectorConfig> = {};
+      let reconfigureDetector = false;
+
+      if (results.thresholds && results.thresholds.min !== undefined && results.thresholds.max !== undefined) {
+        newDetectorConfig.MIN_RED_INTENSITY = results.thresholds.min;
+        newDetectorConfig.MAX_RED_INTENSITY = results.thresholds.max;
+        reconfigureDetector = true;
+        console.log("SignalProcessingPipeline: Nuevos umbrales de rojo para detector:", newDetectorConfig);
       }
-      if (results.signalParams && results.signalParams.gain) {
-        // Ejemplo conceptual:
-        // this.config.minAmplificationFactor = Math.max(1, this.config.minAmplificationFactor * results.signalParams.gain * 0.8);
-        // this.config.maxAmplificationFactor = Math.min(50, this.config.maxAmplificationFactor * results.signalParams.gain * 1.2);
-        console.warn("SignalProcessingPipeline: Aplicación de `results.signalParams` a la configuración del pipeline pendiente.");
+
+      if (reconfigureDetector) {
+        this.humanFingerDetector.configure(newDetectorConfig);
+        console.log("HumanFingerDetector reconfigurado con resultados de calibración.");
       }
-       console.log("SignalProcessingPipeline: Resultados de calibración aplicados (conceptualmente).");
+
+      if (results.signalParams) {
+        if (results.signalParams.gain !== undefined) {
+            this.config.minAmplificationFactor = Math.max(3, Math.min(20, defaultConfig.minAmplificationFactor * (results.signalParams.gain * 0.8 + 0.2)));
+            this.config.maxAmplificationFactor = Math.max(20, Math.min(60, defaultConfig.maxAmplificationFactor * (results.signalParams.gain * 0.7 + 0.3)));
+            this.config.targetAmplitude = defaultConfig.targetAmplitude * (results.signalParams.gain * 0.5 + 0.5);
+            console.log("SignalProcessingPipeline: Factores de amplificación ajustados por calibración:", {
+                min: this.config.minAmplificationFactor,
+                max: this.config.maxAmplificationFactor,
+                target: this.config.targetAmplitude
+            });
+        }
+      }
+       console.log("SignalProcessingPipeline: Resultados de calibración aplicados.");
     } else {
       console.warn("SignalProcessingPipeline: Calibración no exitosa, no se aplicaron resultados.", results.recommendations);
     }
@@ -145,12 +172,12 @@ export class SignalProcessingPipeline {
    * Esta función se llamaría DESPUÉS de que HumanFingerDetector confirme un dedo.
    */
   private processPPGSignal(rawValue: number, currentQuality: number): { filteredValue: number, amplifiedValue: number } {
-    // Establecer baseline inicial
-    if (this.baselineValue === 0) {
+    if (this.baselineValue === 0 && this.signalHistoryForAmplification.length < 5) {
       this.baselineValue = rawValue;
     } else {
-      // Adaptación lenta del baseline
-      this.baselineValue = this.baselineValue * 0.98 + rawValue * 0.01;
+      const sortedHistory = [...this.signalHistoryForAmplification.slice(-10), rawValue].sort((a,b)=>a-b);
+      const medianBaseline = sortedHistory[Math.floor(sortedHistory.length/2)] || rawValue;
+      this.baselineValue = this.baselineValue * 0.95 + medianBaseline * 0.05; 
     }
 
     const normalizedForKalman = rawValue - this.baselineValue;
@@ -183,14 +210,15 @@ export class SignalProcessingPipeline {
    */
   private calculateDynamicAmplification(): number {
     if (this.signalHistoryForAmplification.length < 20) {
-      return this.config.minAmplificationFactor; // Factor de amplificación inicial/por defecto
+      return (this.config.minAmplificationFactor + this.config.maxAmplificationFactor) / 2;
     }
     const recentProcessedSignal = this.signalHistoryForAmplification.slice(-20);
     const minVal = Math.min(...recentProcessedSignal);
     const maxVal = Math.max(...recentProcessedSignal);
     const currentAmplitude = maxVal - minVal;
 
-    if (currentAmplitude < 1e-6) return this.config.maxAmplificationFactor;
+    if (currentAmplitude < 0.1) return this.config.maxAmplificationFactor;
+    if (currentAmplitude > this.config.targetAmplitude * 2) return this.config.minAmplificationFactor;
 
     let factor = this.config.targetAmplitude / currentAmplitude;
     factor = Math.max(this.config.minAmplificationFactor, Math.min(this.config.maxAmplificationFactor, factor));
@@ -245,9 +273,9 @@ export class SignalProcessingPipeline {
       let finalAmplifiedValue = fingerDetectionResult.rawValue; // Valor por defecto si no hay dedo
       let finalQuality = fingerDetectionResult.quality;
 
-      if (fingerDetectionResult.isHumanFinger && fingerDetectionResult.quality > 20) { // Umbral de calidad para procesar
+      if (fingerDetectionResult.isHumanFinger && fingerDetectionResult.quality > 30) { // Umbral de calidad para procesar
         const ppgResults = this.processPPGSignal(fingerDetectionResult.rawValue, fingerDetectionResult.quality);
-        finalFilteredValue = ppgResults.filteredValue;
+        finalFilteredValue = ppgResults.amplifiedValue;
         finalAmplifiedValue = ppgResults.amplifiedValue;
       } else {
         // Si no hay dedo o la calidad es muy baja, reseteamos parcialmente los filtros para que se adapten rápido al reaparecer la señal

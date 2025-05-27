@@ -14,26 +14,30 @@ export interface HumanFingerResult {
     avgRed: number;
     avgGreen: number;
     avgBlue: number;
+    rgRatio: number; 
+    rbRatio: number; 
     redDominanceScore: number; 
     pulsatilityScore: number;  
     stabilityScore: number;    
     rejectionReasons: string[];
-    acceptanceReasons: string[]; // Mantener por si se añaden en el futuro
+    acceptanceReasons: string[];
   };
 }
 
-// Interfaz para la configuración del detector
 export interface HumanFingerDetectorConfig {
   MIN_RED_INTENSITY: number;
   MAX_RED_INTENSITY: number;
   MIN_RG_RATIO: number;
   MIN_RB_RATIO: number;
-  HISTORY_SIZE_SHORT: number;
-  HISTORY_SIZE_LONG: number;
-  PULSABILITY_THRESHOLD: number;
-  STABILITY_THRESHOLD_FRAME: number;
-  STABILITY_THRESHOLD_WINDOW_STDDEV: number;
-  // Podrían añadirse más parámetros de FALSE_POSITIVE_BLACKLIST si se desea calibrarlos
+  HISTORY_SIZE_SHORT: number; // Renombrado desde HISTORY_SIZE_SHORT_PULS para consistencia
+  HISTORY_SIZE_LONG: number;  // Renombrado desde HISTORY_SIZE_LONG_STAB para consistencia
+  PULSABILITY_STD_THRESHOLD: number; 
+  STABILITY_FRAME_DIFF_THRESHOLD: number;
+  STABILITY_WINDOW_STD_THRESHOLD: number;
+  ROI_WIDTH_FACTOR: number; 
+  ROI_HEIGHT_FACTOR: number; 
+  EMA_ALPHA_RAW: number; 
+  CONFIDENCE_EMA_ALPHA: number; 
 }
 
 const defaultDetectorConfig: HumanFingerDetectorConfig = {
@@ -41,11 +45,15 @@ const defaultDetectorConfig: HumanFingerDetectorConfig = {
   MAX_RED_INTENSITY: 240,
   MIN_RG_RATIO: 1.1,
   MIN_RB_RATIO: 1.5,
-  HISTORY_SIZE_SHORT: 10,
-  HISTORY_SIZE_LONG: 30,
-  PULSABILITY_THRESHOLD: 0.5, 
-  STABILITY_THRESHOLD_FRAME: 15,
-  STABILITY_THRESHOLD_WINDOW_STDDEV: 10,
+  HISTORY_SIZE_SHORT: 10,      // Coincide con HISTORY_SIZE_SHORT_PULS
+  HISTORY_SIZE_LONG: 30,       // Coincide con HISTORY_SIZE_LONG_STAB
+  PULSABILITY_STD_THRESHOLD: 0.6, 
+  STABILITY_FRAME_DIFF_THRESHOLD: 15,
+  STABILITY_WINDOW_STD_THRESHOLD: 10,
+  ROI_WIDTH_FACTOR: 0.3, 
+  ROI_HEIGHT_FACTOR: 0.3,
+  EMA_ALPHA_RAW: 0.35, 
+  CONFIDENCE_EMA_ALPHA: 0.15,
 };
 
 export class HumanFingerDetector {
@@ -60,32 +68,33 @@ export class HumanFingerDetector {
     EXTREME_GREEN_DOMINANT_THRESHOLD: 0.5, 
   };
   
-  private rawRedHistory: number[] = [];
-  private filteredRedHistory: number[] = [];
-  private lastDetectionResult: HumanFingerResult | null = null;
+  private rawRedHistory: number[] = [];      
+  private filteredRedHistory: number[] = []; 
+  
   private frameCount = 0;
-  private lastRawRedValue = 0; 
-  private detectionConfidenceAcc = 0;
-  private readonly CONFIDENCE_ALPHA = 0.1; 
-
+  private lastRawRedEMA: number = 0; 
+  private smoothedConfidence: number = 0;
+  
   constructor(config: Partial<HumanFingerDetectorConfig> = {}) {
     this.config = { ...defaultDetectorConfig, ...config };
     this.reset();
     console.log("HumanFingerDetector: Inicializado con config:", this.config);
   }
 
-  // El resto de los métodos (detectHumanFinger, extractHumanSkinMetrics, etc.) usarían this.config
-  // en lugar de this.HUMAN_SKIN_CRITERIA directamente para los umbrales configurables.
-  // Por ejemplo, en analyzeHumanSkinSpectrum:
-  // if (metrics.redIntensity >= this.config.MIN_RED_INTENSITY && ...)
+  public configure(newConfig: Partial<HumanFingerDetectorConfig>): void {
+    this.config = { ...this.config, ...newConfig };
+    console.log("HumanFingerDetector: Reconfigurado con nuevos umbrales/parámetros:", this.config);
+    // Considerar si es necesario un reset completo o parcial de historiales aquí
+    // this.reset(); // Podría ser demasiado agresivo si solo cambian umbrales menores
+  }
 
   public detectHumanFinger(imageData: ImageData): HumanFingerResult {
     this.frameCount++;
     const timestamp = Date.now();
 
     const { width, height, data } = imageData;
-    const roiWidth = Math.floor(width * 0.3);
-    const roiHeight = Math.floor(height * 0.3);
+    const roiWidth = Math.floor(width * this.config.ROI_WIDTH_FACTOR);
+    const roiHeight = Math.floor(height * this.config.ROI_HEIGHT_FACTOR);
     const roiX = Math.floor((width - roiWidth) / 2);
     const roiY = Math.floor((height - roiHeight) / 2);
     
@@ -102,17 +111,17 @@ export class HumanFingerDetector {
       }
     }
 
-    if (pixelCount === 0) {
-      return this.createDefaultResult(timestamp, "ROI vacío o inválido");
+    if (pixelCount < 10) { 
+      return this.createDefaultResult(timestamp, "ROI con muy pocos píxeles");
     }
 
     const avgRed = sumR / pixelCount;
     const avgGreen = sumG / pixelCount;
     const avgBlue = sumB / pixelCount;
 
-    if (this.lastRawRedValue === 0) this.lastRawRedValue = avgRed;
-    const currentFilteredRed = this.lastRawRedValue * 0.6 + avgRed * 0.4; 
-    this.lastRawRedValue = currentFilteredRed;
+    if (this.lastRawRedEMA === 0) this.lastRawRedEMA = avgRed;
+    const currentFilteredRed = this.lastRawRedEMA * (1 - this.config.EMA_ALPHA_RAW) + avgRed * this.config.EMA_ALPHA_RAW;
+    this.lastRawRedEMA = currentFilteredRed;
 
     this.rawRedHistory.push(avgRed); 
     if (this.rawRedHistory.length > this.config.HISTORY_SIZE_LONG) this.rawRedHistory.shift();
@@ -120,7 +129,7 @@ export class HumanFingerDetector {
     this.filteredRedHistory.push(currentFilteredRed); 
     if (this.filteredRedHistory.length > this.config.HISTORY_SIZE_LONG) this.filteredRedHistory.shift();
 
-    const metrics = this.calculateMetricsInternal(avgRed, avgGreen, avgBlue, imageData); // Pasar imageData para cálculos que la necesiten
+    const metrics = this.calculateMetricsInternal(avgRed, avgGreen, avgBlue, imageData);
     const spectralAnalysis = this.analyzeHumanSkinSpectrum(metrics);
     const falsePositiveCheck = this.detectExtremeFalsePositives(metrics);
     const temporalValidation = this.validateTemporal(metrics, spectralAnalysis);
@@ -130,7 +139,7 @@ export class HumanFingerDetector {
       temporalValidation
     );
     
-    const quality = this.calculateIntegratedQuality(finalDecision, metrics, temporalValidation.stability); // Pasar estabilidad para el cálculo de calidad
+    const quality = this.calculateIntegratedQuality(finalDecision, metrics, temporalValidation.stability);
     
     this.logDetectionResult(finalDecision, metrics, quality);
     
@@ -138,36 +147,36 @@ export class HumanFingerDetector {
       isHumanFinger: finalDecision.isHumanFinger,
       confidence: finalDecision.confidence,
       quality: Math.round(quality),
-      rawValue: avgRed, // avgRed es el rawValue del ROI
+      rawValue: avgRed, 
       filteredValue: currentFilteredRed, 
       timestamp,
       debugInfo: {
         avgRed,
         avgGreen,
         avgBlue,
-        redDominanceScore: spectralAnalysis.redDominanceScore, // Asumiendo que analyzeHumanSkinSpectrum devuelve esto
-        pulsatilityScore: temporalValidation.pulsatilityScore, // Asumiendo que validateTemporal devuelve esto
-        stabilityScore: temporalValidation.stability, // Usar la estabilidad calculada
+        rgRatio: metrics.rgRatio, 
+        rbRatio: metrics.rbRatio, 
+        redDominanceScore: spectralAnalysis.redDominanceScore, 
+        pulsatilityScore: temporalValidation.pulsatilityScore, 
+        stabilityScore: temporalValidation.stability, 
         rejectionReasons: finalDecision.rejectionReasons,
         acceptanceReasons: finalDecision.acceptanceReasons 
       }
     };
-    this.lastDetectionResult = result;
+    // this.lastDetectionResult = result; // Ya no parece usarse este miembro de clase
     return result;
   }
 
   private calculateMetricsInternal(avgRed: number, avgGreen: number, avgBlue: number, imageData: ImageData) {
-    // Esta función ahora toma los promedios R,G,B y puede calcular el resto si es necesario
-    // O algunas métricas pueden ser pasadas directamente desde extractHumanSkinMetrics si se mantiene esa función separada.
-    // Por simplicidad, recreamos las métricas necesarias aquí.
     const rgRatio = avgGreen > 5 ? avgRed / avgGreen : (avgRed > 10 ? 10 : 0.5);
     const rbRatio = avgBlue > 5 ? avgRed / avgBlue : (avgRed > 10 ? 10 : 0.5);
     
-    // Para texture, edgeGradient, etc., se necesitaría el imageData o los arrays de valores del ROI
-    // Por ahora, los dejaremos como placeholders o valores simples si no se pasan los datos completos del ROI.
-    // Idealmente, extractHumanSkinMetrics se mantendría y se llamaría primero.
-    // Pero para esta refactorización, simplificamos y asumimos que estas métricas se obtendrían
-    // o se les daría menos peso si HumanFingerDetector se enfoca más en color y pulsatilidad/estabilidad.
+    // Las siguientes métricas son placeholders o simplificaciones si no se quiere hacer un análisis de ROI completo aquí
+    // Si se necesitan con precisión, se debería pasar el array de píxeles del ROI a estas funciones.
+    const placeholderIntensities = this.rawRedHistory.length > 0 ? this.rawRedHistory : [avgRed]; // Usa historial o valor actual
+    const placeholderReds = this.rawRedHistory.length > 0 ? this.rawRedHistory : [avgRed];
+    const placeholderGreens = this.rawRedHistory.length > 0 ? this.rawRedHistory.map(r => r / (rgRatio||1)) : [avgGreen];
+    const placeholderBlues = this.rawRedHistory.length > 0 ? this.rawRedHistory.map(r => r / (rbRatio||1)) : [avgBlue];
 
     return {
       redIntensity: avgRed,
@@ -177,11 +186,11 @@ export class HumanFingerDetector {
       rbRatio: rbRatio,
       gbRatio: avgBlue > 5 ? avgGreen / avgBlue : (avgGreen > 10 ? 10 : 0.5),
       colorTemperature: this.calculateColorTemperature(avgRed, avgGreen, avgBlue),
-      textureScore: 0.1, // Placeholder - se necesitaría análisis del ROI completo
-      edgeGradient: 0.1, // Placeholder
+      textureScore: this.calculateTextureScore(placeholderIntensities), 
+      edgeGradient: this.calculateEdgeGradient(placeholderReds),
       areaPercentage: 100, // Asumimos que el ROI definido está cubierto
-      specularRatio: 1.5, // Placeholder
-      uniformity: 0.2 // Placeholder
+      specularRatio: this.calculateSpecularRatio(placeholderReds, placeholderGreens, placeholderBlues), 
+      uniformity: this.calculateUniformity(placeholderIntensities)
     };
   }
   
@@ -193,7 +202,7 @@ export class HumanFingerDetector {
 
     if (metrics.redIntensity >= this.config.MIN_RED_INTENSITY && 
         metrics.redIntensity <= this.config.MAX_RED_INTENSITY) {
-      confidence += 0.35; // Más peso a la intensidad correcta
+      confidence += 0.35; 
       reasons.push(`✓ RInt (${metrics.redIntensity.toFixed(0)})`);
       criteriaMet++;
     } else {
@@ -202,22 +211,16 @@ export class HumanFingerDetector {
     }
     
     if (metrics.rgRatio >= this.config.MIN_RG_RATIO && metrics.rbRatio >= this.config.MIN_RB_RATIO) {
-      confidence += 0.35; // Más peso a la dominancia del rojo
-      redDominanceScore = Math.min(1, ((metrics.rgRatio - this.config.MIN_RG_RATIO) + (metrics.rbRatio - this.config.MIN_RB_RATIO)) / 3.0); // Normalizar
+      confidence += 0.35; 
+      redDominanceScore = Math.min(1, ((metrics.rgRatio - this.config.MIN_RG_RATIO) + (metrics.rbRatio - this.config.MIN_RB_RATIO)) / 3.0);
       reasons.push(`✓ RDom (R/G:${metrics.rgRatio.toFixed(1)}, R/B:${metrics.rbRatio.toFixed(1)})`);
       criteriaMet++;
     } else {
       reasons.push(`✗ RDom (R/G:${metrics.rgRatio.toFixed(1)}, R/B:${metrics.rbRatio.toFixed(1)})`);
       confidence -= 0.15;
     }
-    
-    // Otros criterios como temperatura de color, textura pueden tener menos peso o ser opcionales
-    // if (metrics.colorTemperature >= 2200 && metrics.colorTemperature <= 5500) {
-    //   confidence += 0.1;
-    //   criteriaMet++;
-    // }
 
-    const isValidSpectrum = criteriaMet >= 2 && confidence >= 0.5; // Necesita ambos criterios principales con buena confianza
+    const isValidSpectrum = criteriaMet >= 2 && confidence >= 0.5; 
     
     return {
       isValidSpectrum,
@@ -230,11 +233,11 @@ export class HumanFingerDetector {
   private detectExtremeFalsePositives(metrics: any) {
     const rejectionReasons: string[] = [];
     let isFalsePositive = false;
-    if (metrics.redIntensity > 245 && metrics.rgRatio < 0.7) { // Muy brillante y no rojizo
+    if (metrics.redIntensity > this.FALSE_POSITIVE_BLACKLIST.EXTREME_PLASTIC_RED_MIN && metrics.rgRatio < 0.7) {
       isFalsePositive = true;
       rejectionReasons.push(`✗ Plástico/Reflejo? (R=${metrics.redIntensity.toFixed(0)}, RG=${metrics.rgRatio.toFixed(1)})`);
     }
-    if (metrics.rgRatio < 0.6 || metrics.rbRatio < 0.8) { // Muy poco rojo dominante
+    if (metrics.rgRatio < this.FALSE_POSITIVE_BLACKLIST.EXTREME_GREEN_DOMINANT_THRESHOLD || metrics.rbRatio < 0.8) { 
         isFalsePositive = true;
         rejectionReasons.push(`✗ Color no piel (RG=${metrics.rgRatio.toFixed(1)}, RB=${metrics.rbRatio.toFixed(1)})`);
     }
@@ -246,31 +249,28 @@ export class HumanFingerDetector {
     let pulsatilityScore = 0;
     let stability = 0;
     let meetsPulsatility = false;
-    let meetsStabilityOverall = true; // Iniciar asumiendo estabilidad
+    let meetsStabilityOverall = true; 
 
-    // Pulsatilidad
     if (this.filteredRedHistory.length >= this.config.HISTORY_SIZE_SHORT) {
       const recentSignal = this.filteredRedHistory.slice(-this.config.HISTORY_SIZE_SHORT);
       const mean = recentSignal.reduce((s, v) => s + v, 0) / recentSignal.length;
       const stdDev = mean > 0 ? Math.sqrt(recentSignal.reduce((s, v) => s + Math.pow(v - mean, 2), 0) / recentSignal.length) : 0;
       
-      // Pulsatilidad se considera como la desviación estándar de la señal filtrada (que ya está centrada en cero por el EMA)
-      if (stdDev > this.config.PULSABILITY_THRESHOLD) { 
+      if (stdDev > this.config.PULSABILITY_STD_THRESHOLD) { 
           meetsPulsatility = true;
-          pulsatilityScore = Math.min(1, stdDev / (this.config.PULSABILITY_THRESHOLD * 4)); // Normalizar (4 veces el umbral es score 1)
+          pulsatilityScore = Math.min(1, stdDev / (this.config.PULSABILITY_STD_THRESHOLD * 4));
           reasons.push(`✓ Pulsat. (stdFilt:${stdDev.toFixed(2)})`);
       } else {
-        reasons.push(`✗ Pulsat. (stdFilt:${stdDev.toFixed(2)} < ${this.config.PULSABILITY_THRESHOLD})`);
+        reasons.push(`✗ Pulsat. (stdFilt:${stdDev.toFixed(2)} < ${this.config.PULSABILITY_STD_THRESHOLD})`);
       }
     } else {
         reasons.push(`Datos insuf. para pulsat. (${this.filteredRedHistory.length}/${this.config.HISTORY_SIZE_SHORT})`);
     }
 
-    // Estabilidad del rawRed
     if (this.rawRedHistory.length >= 2) {
       const frameDiff = Math.abs(this.rawRedHistory[this.rawRedHistory.length - 1] - this.rawRedHistory[this.rawRedHistory.length - 2]);
-      if (frameDiff > this.config.STABILITY_THRESHOLD_FRAME) {
-        reasons.push(`✗ Inest. frame (Diff:${frameDiff.toFixed(0)} > ${this.config.STABILITY_THRESHOLD_FRAME})`);
+      if (frameDiff > this.config.STABILITY_FRAME_DIFF_THRESHOLD) {
+        reasons.push(`✗ Inest. frame (Diff:${frameDiff.toFixed(0)} > ${this.config.STABILITY_FRAME_DIFF_THRESHOLD})`);
         meetsStabilityOverall = false;
       }
 
@@ -278,16 +278,16 @@ export class HumanFingerDetector {
         const longTermSignal = this.rawRedHistory;
         const mean = longTermSignal.reduce((s, v) => s + v, 0) / longTermSignal.length;
         const stdDevLong = mean > 0 ? Math.sqrt(longTermSignal.reduce((s, v) => s + Math.pow(v - mean, 2), 0) / longTermSignal.length) : 0;
-        if (stdDevLong > this.config.STABILITY_THRESHOLD_WINDOW_STDDEV) {
-          reasons.push(`✗ Inest. ventana (StdRaw:${stdDevLong.toFixed(0)} > ${this.config.STABILITY_THRESHOLD_WINDOW_STDDEV})`);
+        if (stdDevLong > this.config.STABILITY_WINDOW_STD_THRESHOLD) {
+          reasons.push(`✗ Inest. ventana (StdRaw:${stdDevLong.toFixed(0)} > ${this.config.STABILITY_WINDOW_STD_THRESHOLD})`);
           meetsStabilityOverall = false;
         }
-        stability = Math.max(0, 1 - (stdDevLong / (this.config.STABILITY_THRESHOLD_WINDOW_STDDEV * 2))); 
+        stability = Math.max(0, 1 - (stdDevLong / (this.config.STABILITY_WINDOW_STD_THRESHOLD * 2))); 
       } else {
-         stability = meetsStabilityOverall ? 0.7 : 0.3; 
+         stability = meetsStabilityOverall ? 0.6 : 0.2; // Ajustado para reflejar mejor el estado sin historial largo
       }
       if (meetsStabilityOverall) {
-        reasons.push(`✓ Estab. (stdRaw:${stability.toFixed(2)})`);
+        reasons.push(`✓ Estab. (score:${stability.toFixed(2)})`);
       }
     } else {
         meetsStabilityOverall = false; 
@@ -304,12 +304,11 @@ export class HumanFingerDetector {
   }
   
   private makeFinalDecision(spectralAnalysis: any, falsePositiveCheck: any, temporalValidation: any) {
-    const acceptanceReasons = [...spectralAnalysis.reasons, ...temporalValidation.reasons];
-    const rejectionReasons = [...falsePositiveCheck.rejectionReasons]; // Empezar con las razones de FP
+    const acceptanceReasons = [...spectralAnalysis.reasons, ...temporalValidation.reasons].filter(r => r.startsWith('✓')); // Solo razones positivas
+    const rejectionReasons = [...falsePositiveCheck.rejectionReasons]; 
 
-    // Añadir razones de rechazo si los criterios principales no se cumplen
-    if (!spectralAnalysis.isValidSpectrum) rejectionReasons.push("Espectro de color no válido");
-    if (!temporalValidation.meetsPulsatility) rejectionReasons.push("Pulsatilidad insuficiente");
+    if (!spectralAnalysis.isValidSpectrum) rejectionReasons.push("Espectro color inválido");
+    if (!temporalValidation.meetsPulsatility) rejectionReasons.push("Pulsatilidad insuf.");
     if (!temporalValidation.meetsStability) rejectionReasons.push("Señal inestable");
 
     const isHumanFinger = 
@@ -320,83 +319,82 @@ export class HumanFingerDetector {
 
     let currentConfidence = 0;
     if (isHumanFinger) {
-      // Combinar confianzas de los componentes clave
       currentConfidence = (spectralAnalysis.confidence * 0.5) + 
-                          (temporalValidation.pulsatilityScore * 0.3) + 
-                          (temporalValidation.stability * 0.2);
-      currentConfidence = Math.max(0.6, currentConfidence); // Mínimo si todos los checks pasan
+                          (temporalValidation.pulsatilityScore * 0.35) + // Más peso a pulsatilidad
+                          (temporalValidation.stability * 0.15); // Menos peso a estabilidad si ya hay pulso
+      currentConfidence = Math.max(0.55, currentConfidence); // Confianza mínima si es dedo
     } else {
-      // Confianza baja si algo falla, pero proporcional a lo que sí pasó
-      currentConfidence = (spectralAnalysis.confidence * 0.2) + 
-                          (temporalValidation.pulsatilityScore * 0.1) + 
-                          (temporalValidation.stability * 0.05);
-      currentConfidence = Math.min(0.4, currentConfidence); // Máximo si algo falló
+      currentConfidence = Math.min(0.4, 
+        (spectralAnalysis.confidence * 0.3) + 
+        (temporalValidation.pulsatilityScore * 0.15) + 
+        (temporalValidation.stability * 0.05)
+      );
     }
     
-    this.detectionConfidenceAcc = this.detectionConfidenceAcc * (1 - this.CONFIDENCE_ALPHA) + currentConfidence * this.CONFIDENCE_ALPHA;
+    this.smoothedConfidence = this.smoothedConfidence * (1 - this.config.CONFIDENCE_EMA_ALPHA) + currentConfidence * this.config.CONFIDENCE_EMA_ALPHA;
     
     return {
       isHumanFinger,
-      confidence: Math.max(0, Math.min(1, this.detectionConfidenceAcc)),
-      acceptanceReasons, // Pueden estar vacías si isHumanFinger es false
+      confidence: Math.max(0, Math.min(1, this.smoothedConfidence)),
+      acceptanceReasons,
       rejectionReasons
     };
   }
   
-  private calculateIntegratedQuality(decision: any, metrics: any, stabilityScore: number): number {
-    if (!decision.isHumanFinger) {
-      // Calidad baja, pero proporcional a la confianza de detección (hasta un máximo de ~40 si la confianza es ~0.5)
-      return Math.max(5, Math.min(40, decision.confidence * 80)); 
+  private calculateIntegratedQuality(isFinger: boolean, stabilityScore: number, pulsatilityScore: number, avgRed: number): number {
+    if (!isFinger) {
+      return Math.max(0, Math.min(35, Math.round(this.smoothedConfidence * 70))); 
     }
     
-    // Si es dedo, la calidad se basa en confianza de detección y estabilidad de la señal
-    let quality = decision.confidence * 60 + stabilityScore * 40;
-    
-    // Bonus si la señal roja está en el rango óptimo (más indirecto ahora)
-    if (metrics.redIntensity >= this.config.MIN_RED_INTENSITY + 10 && metrics.redIntensity <= this.config.MAX_RED_INTENSITY - 10) {
-      quality += 5;
+    let quality = (pulsatilityScore * 0.55 + stabilityScore * 0.30 + this.smoothedConfidence * 0.15) * 100;
+
+    if (avgRed < this.config.MIN_RED_INTENSITY + 20 || avgRed > this.config.MAX_RED_INTENSITY - 20) {
+      quality *= 0.85; // Penalizar si la intensidad está en los extremos del rango aceptable
     }
     
-    return Math.max(30, Math.min(98, Math.round(quality)));
+    return Math.max(20, Math.min(99, Math.round(quality))); // Calidad mínima de 20 si es dedo
   }
-  
-  private extractPPGSignal(imageData: ImageData, isValidFinger: boolean): number {
-    // Esta función ya no es necesaria aquí si el rawValue se toma del promedio del ROI en detectHumanFinger
-    // Se mantiene por si se quiere una extracción diferente para PPG vs detección.
-    // Por ahora, el rawValue ya es avgRed del ROI.
-    const { data, width, height } = imageData;
-    const centerX = width / 2;
-    const centerY = height / 2;
-    const size = Math.min(width, height) * 0.3; 
-    
-    let redSum = 0;
-    let pixelCount = 0;
-    
-    for (let y = centerY - size/2; y < centerY + size/2; y++) { 
-      for (let x = centerX - size/2; x < centerX + size/2; x++) {
-        if (x >= 0 && x < width && y >= 0 && y < height) {
-          const index = (Math.floor(y) * width + Math.floor(x)) * 4;
-          redSum += data[index];
-          pixelCount++;
-        }
+
+  private createDefaultResult(timestamp: number, reason: string): HumanFingerResult {
+    this.smoothedConfidence = this.smoothedConfidence * (1 - this.config.CONFIDENCE_EMA_ALPHA); 
+    return {
+      isHumanFinger: false,
+      confidence: this.smoothedConfidence,
+      quality: 0,
+      rawValue: 0,
+      filteredValue: 0,
+      timestamp,
+      debugInfo: {
+        avgRed: 0, avgGreen: 0, avgBlue: 0, rgRatio: 0, rbRatio: 0,
+        redDominanceScore: 0, pulsatilityScore: 0, stabilityScore: 0,
+        rejectionReasons: [reason],
+        acceptanceReasons: []
       }
-    }
-    return pixelCount > 0 ? redSum / pixelCount : 0;
+    };
   }
   
-  private applyAdaptiveFilter(rawValue: number): number {
-    const alpha = 0.65; 
-    // this.lastFilteredValue ya se actualiza en detectHumanFinger con this.lastRawRedValue
-    // Esta función puede ser redundante o necesitar lógica diferente si se quiere un segundo filtrado.
-    // Por ahora, la señal filtrada es this.lastRawRedValue (el EMA del avgRed).
-    return this.lastRawRedValue; 
+  reset(): void {
+    this.rawRedHistory = [];
+    this.filteredRedHistory = [];
+    // this.lastDetectionResult = null; // Ya no se usa
+    this.frameCount = 0;
+    this.lastRawRedEMA = 0;
+    this.smoothedConfidence = 0;
+    console.log("HumanFingerDetector: Estado interno reseteado.");
   }
   
-  // Las siguientes funciones de cálculo de métricas se llaman desde calculateMetricsInternal
-  // o directamente desde detectHumanFinger si se simplifica más.
+  public getStatus() {
+    return {
+      frameCount: this.frameCount,
+      config: this.config 
+    };
+  }
+
+  // --- Funciones de cálculo de métricas auxiliares (pueden simplificarse o eliminarse si no se usan) ---
   private calculateColorTemperature(r: number, g: number, b: number): number {
     if (r + g + b < 15) return 3000; 
     const sumRGB = r + g + b;
+    if (sumRGB === 0) return 3000;
     const x = r / sumRGB;
     const y = g / sumRGB;
     if (isNaN(x) || isNaN(y) || Math.abs(0.1858 - y) < 1e-6) return 3000;
@@ -430,7 +428,7 @@ export class HumanFingerDetector {
     const sortedIntensities = [...intensities].sort((a,b) => a-b);
     const topQuantileIndex = Math.floor(sortedIntensities.length * 0.95);
     const medianIndex = Math.floor(sortedIntensities.length * 0.5);
-    if (topQuantileIndex >= sortedIntensities.length || medianIndex >= sortedIntensities.length) return 1.0; // Safety check
+    if (topQuantileIndex >= sortedIntensities.length || medianIndex >= sortedIntensities.length || (sortedIntensities.length - topQuantileIndex === 0) ) return 1.0; 
     const topQuantileAvg = sortedIntensities.slice(topQuantileIndex).reduce((s,v)=>s+v,0) / (sortedIntensities.length - topQuantileIndex);
     const medianValue = sortedIntensities[medianIndex];
     return medianValue > 5 ? topQuantileAvg / medianValue : 1.0;
@@ -445,24 +443,7 @@ export class HumanFingerDetector {
     const cv = stdDev / mean;
     return Math.min(1.0, cv);
   }
-  
-  private calculateTemporalStability(): number {
-    if (this.rawRedHistory.length < 5) return 0.5; // Neutral si no hay suficientes datos
-    const mean = this.rawRedHistory.reduce((a, b) => a + b, 0) / this.rawRedHistory.length;
-    if (mean < this.config.MIN_RED_INTENSITY * 0.5) return 0.1; // Muy baja estabilidad si la señal es muy débil
-    const variance = this.rawRedHistory.reduce((acc, val) => acc + Math.pow(val - mean, 2), 0) / this.rawRedHistory.length;
-    const stdDev = Math.sqrt(variance);
-    const cv = stdDev / mean;
-    // Una mayor variación (CV alto) implica menor estabilidad. Se invierte para que un score alto sea bueno.
-    // El factor 5 es empírico para escalar el score.
-    return Math.max(0, Math.min(1, 1 - cv * 5)); 
-  }
-  
-  private updateHistories(metrics: any, detected: boolean): void {
-    // La calibración del baseline y la actualización de la señal filtrada ya ocurren en detectHumanFinger.
-    // Esta función podría usarse para lógicas de adaptación más complejas si fuera necesario.
-  }
-  
+
   private logDetectionResult(decision: any, metrics: any, quality: number): void {
     if (this.frameCount % 30 === 0) { // Loguear cada segundo (asumiendo 30fps)
       console.log("HFDetector:", {
@@ -477,61 +458,5 @@ export class HumanFingerDetector {
         Reject: decision.rejectionReasons.length > 0 ? decision.rejectionReasons[0].substring(0,15) : "-"
       });
     }
-  }
-  
-  private getEmptyMetrics() {
-    return {
-      redIntensity: 0,
-      greenIntensity: 0,
-      blueIntensity: 0,
-      rgRatio: 0,
-      rbRatio: 0,
-      gbRatio: 0,
-      colorTemperature: 3000,
-      textureScore: 0.05,
-      edgeGradient: 0.05,
-      areaPercentage: 0,
-      specularRatio: 1.0,
-      uniformity: 0.5 
-    };
-  }
-
-  reset(): void {
-    this.rawRedHistory = [];
-    this.filteredRedHistory = [];
-    this.lastDetectionResult = null;
-    this.frameCount = 0;
-    this.lastRawRedValue = 0;
-    this.detectionConfidenceAcc = 0;
-    // No reseteamos this.config aquí, ya que se establece en el constructor
-    console.log("HumanFingerDetector: Estado interno reseteado.");
-  }
-  
-  public getStatus() {
-    return {
-      frameCount: this.frameCount,
-      lastConfidence: this.detectionConfidenceAcc.toFixed(2),
-      lastQuality: this.lastDetectionResult?.quality || 0,
-      config: this.config // Exponer config actual para depuración
-    };
-  }
-
-  private createDefaultResult(timestamp: number, reason: string): HumanFingerResult {
-    const defaultResult = {
-      isHumanFinger: false,
-      confidence: 0,
-      quality: 0,
-      rawValue: 0,
-      filteredValue: 0,
-      timestamp,
-      debugInfo: {
-        avgRed: 0, avgGreen: 0, avgBlue: 0,
-        redDominanceScore: 0, pulsatilityScore: 0, stabilityScore: 0,
-        rejectionReasons: [reason],
-        acceptanceReasons: []
-      }
-    };
-    this.lastDetectionResult = defaultResult;
-    return defaultResult;
   }
 }

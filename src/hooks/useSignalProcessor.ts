@@ -1,6 +1,23 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { SignalProcessingPipeline } from '../modules/signal-processing/SignalProcessingPipeline';
+import { SignalProcessingPipeline, SignalPipelineConfig } from '../modules/signal-processing/SignalProcessingPipeline';
 import { ProcessedSignal, ProcessingError } from '../types/signal';
+
+// Tipo para el estado de calibración que se expondrá
+export interface CalibrationStatus {
+  phase: string;
+  progress: number;
+  instructions: string;
+  isComplete: boolean;
+  succeeded?: boolean; // Opcional: para indicar si la calibración fue exitosa
+  recommendations?: string[]; // Opcional: recomendaciones si falló
+}
+
+// Extender ProcessedSignal para incluir opcionalmente info de calibración si se emite durante ese proceso
+interface ExtendedProcessedSignal extends ProcessedSignal {
+  calibrationPhase?: string;
+  calibrationProgress?: number;
+  calibrationInstructions?: string;
+}
 
 /**
  * Custom hook for managing PPG signal processing using the new SignalProcessingPipeline
@@ -8,6 +25,8 @@ import { ProcessedSignal, ProcessingError } from '../types/signal';
 export const useSignalProcessor = () => {
   const processorRef = useRef<SignalProcessingPipeline | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isCalibrating, setIsCalibrating] = useState(false);
+  const [calibrationStatus, setCalibrationStatus] = useState<CalibrationStatus | null>(null);
   const [lastSignal, setLastSignal] = useState<ProcessedSignal | null>(null);
   const [error, setError] = useState<ProcessingError | null>(null);
   const [framesProcessed, setFramesProcessed] = useState(0);
@@ -31,7 +50,7 @@ export const useSignalProcessor = () => {
       sessionId
     });
 
-    const onSignalReadyCallback = (signal: ProcessedSignal) => {
+    const onSignalReadyCallback = (signal: ExtendedProcessedSignal) => {
       // console.log("[DIAG] useSignalProcessor/onSignalReady: Frame recibido desde Pipeline", {
       //   timestamp: new Date(signal.timestamp).toISOString(),
       //   fingerDetected: signal.fingerDetected,
@@ -42,7 +61,11 @@ export const useSignalProcessor = () => {
       
       setLastSignal(signal);
       setError(null);
-      setFramesProcessed(prev => prev + 1);
+      
+      // Solo contar frames si no estamos en una fase de calibración que emita señales "especiales"
+      if (!signal.calibrationPhase) {
+          setFramesProcessed(prev => prev + 1);
+      }
       
       signalHistoryRef.current.push(signal);
       if (signalHistoryRef.current.length > 100) {
@@ -88,10 +111,31 @@ export const useSignalProcessor = () => {
       setError(errorData);
     };
 
+    const onCalibrationUpdateCallback = (status: { phase: string; progress: number; instructions: string; isComplete: boolean; results?: any}) => {
+        console.log("useSignalProcessor: Actualización de calibración recibida", status);
+        const newStatus: CalibrationStatus = {
+            phase: status.phase,
+            progress: status.progress,
+            instructions: status.instructions,
+            isComplete: status.isComplete,
+        };
+        if (status.isComplete && status.results) {
+            newStatus.succeeded = status.results.success;
+            newStatus.recommendations = status.results.recommendations;
+            setIsCalibrating(false); // La calibración del pipeline terminó
+        }
+        setCalibrationStatus(newStatus);
+    };
+
     // CAMBIO: Instanciar SignalProcessingPipeline
-    processorRef.current = new SignalProcessingPipeline({}, onSignalReadyCallback, onErrorCallback);
+    processorRef.current = new SignalProcessingPipeline(
+        { /* aquí podrías pasar una config inicial si es necesario */ }, 
+        onSignalReadyCallback, 
+        onErrorCallback, 
+        onCalibrationUpdateCallback // Pasar el nuevo callback
+    );
     
-    console.log("useSignalProcessor: SignalProcessingPipeline creado con callbacks.");
+    console.log("useSignalProcessor: SignalProcessingPipeline creado con todos los callbacks.");
     
     return () => {
       if (processorRef.current) {
@@ -108,7 +152,10 @@ export const useSignalProcessor = () => {
       console.error("useSignalProcessor: No hay SignalProcessingPipeline disponible para iniciar.");
       return;
     }
-
+    if (isCalibrating) {
+        console.warn("useSignalProcessor: No se puede iniciar procesamiento de medición mientras se calibra.");
+        return;
+    }
     console.log("useSignalProcessor: Iniciando procesamiento con SignalProcessingPipeline", {
       timestamp: new Date().toISOString(),
     });
@@ -128,7 +175,7 @@ export const useSignalProcessor = () => {
     lastErrorTimeRef.current = 0;
     
     processorRef.current.start();
-  }, [isProcessing]); // isProcessing no debería estar aquí si startProcessing la modifica
+  }, [isCalibrating]);
 
   const stopProcessing = useCallback(() => {
     if (!processorRef.current) {
@@ -145,24 +192,23 @@ export const useSignalProcessor = () => {
     setIsProcessing(false);
     processorRef.current.stop();
     calibrationInProgressRef.current = false;
-  }, [isProcessing, framesProcessed, signalStats]); // isProcessing no debería estar aquí si stopProcessing la modifica
+  }, [isProcessing, framesProcessed, signalStats]);
 
-  const calibrate = useCallback(async () => {
+  const startCalibration = useCallback(() => {
     if (!processorRef.current) {
-      console.error("useSignalProcessor: No hay SignalProcessingPipeline disponible para calibrar.");
-      return false;
+      console.error("useSignalProcessor: No hay SignalProcessingPipeline para iniciar calibración.");
+      return;
     }
-    // La calibración ahora podría ser manejada internamente por SignalProcessingPipeline
-    // o este método podría pasarle datos de referencia si fuera necesario.
-    // Por ahora, asumimos que el pipeline tiene su propia lógica de calibración o no la necesita explícitamente aquí.
-    console.log("useSignalProcessor: Calibración (manejada por SignalProcessingPipeline si es necesario)");
-    calibrationInProgressRef.current = true;
-    // Simular un proceso de calibración si el pipeline no tiene uno explícito invocado desde aquí
-    // await new Promise(resolve => setTimeout(resolve, 2000)); 
-    // processorRef.current.reset(); // O un método específico de calibración
-    calibrationInProgressRef.current = false;
-    return true; 
-  }, []);
+    if (isProcessing) {
+        console.warn("useSignalProcessor: Deteniendo procesamiento de medición antes de calibrar.");
+        stopProcessing(); // Detener medición si está activa
+    }
+    console.log("useSignalProcessor: Iniciando modo calibración desde hook");
+    setIsCalibrating(true);
+    setCalibrationStatus({ phase: 'init', progress: 0, instructions: 'Preparando calibración...', isComplete: false });
+    processorRef.current.startCalibrationMode(); // Llama al método del pipeline
+    processorRef.current.start(); // Asegurar que el pipeline esté "activo" para procesar frames para la calibración
+  }, [isProcessing, stopProcessing]);
 
   const processFrame = useCallback((imageData: ImageData) => {
     if (!processorRef.current) {
@@ -183,14 +229,15 @@ export const useSignalProcessor = () => {
 
   return {
     isProcessing,
+    isCalibrating,
+    calibrationStatus,
     lastSignal,
     error,
     framesProcessed,
     signalStats,
-    isCalibrating: calibrationInProgressRef.current,
     startProcessing,
     stopProcessing,
-    calibrate,
+    startCalibration,
     processFrame,
     signalHistory: signalHistoryRef.current,
     qualityTransitions: qualityTransitionsRef.current
