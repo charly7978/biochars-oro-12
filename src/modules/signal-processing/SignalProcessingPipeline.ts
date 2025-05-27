@@ -1,9 +1,10 @@
 import { HumanFingerDetector, HumanFingerResult, HumanFingerDetectorConfig } from './HumanFingerDetector';
 import { OptimizedKalmanFilter } from './OptimizedKalmanFilter';
 import { SavitzkyGolayFilter } from './SavitzkyGolayFilter';
-import { AutoCalibrationSystem } from './AutoCalibrationSystem';
+import { AutoCalibrationSystem, CalibrationResult } from './AutoCalibrationSystem';
 import { FrameData } from './types'; // Asumiendo que FrameData se define aquí o se importa
 import { ProcessedSignal, ProcessingError } from '../../types/signal';
+import { VitalSignsReferenceData } from '../vital-signs/VitalSignsProcessor'; // Importar el nuevo tipo
 
 export interface SignalPipelineConfig {
   // Configuraciones para HumanFingerDetector
@@ -75,24 +76,27 @@ export class SignalProcessingPipeline {
 
   public onSignalReady?: (signal: ExtendedProcessedSignal) => void;
   public onError?: (error: ProcessingError) => void;
-  public onCalibrationUpdate?: (calibrationStatus: { phase: string; progress: number; instructions: string; isComplete: boolean;}) => void;
+  public onCalibrationUpdate?: (calibrationStatus: { phase: string; progress: number; instructions: string; isComplete: boolean; results?: CalibrationResult }) => void;
   public isProcessing: boolean = false;
   private isCalibrating: boolean = false;
+
+  // Callback para actualizar VitalSignsProcessor con el resultado de la calibración
+  private vitalSignsUpdateCallback?: (isSuccess: boolean, referenceData?: VitalSignsReferenceData) => void;
 
   constructor(
     config: Partial<SignalPipelineConfig> = {},
     onSignalReady?: (signal: ExtendedProcessedSignal) => void,
     onError?: (error: ProcessingError) => void,
-    onCalibrationUpdate?: (calibrationStatus: { phase: string; progress: number; instructions: string; isComplete: boolean;}) => void
+    onCalibrationUpdate?: (calibrationStatus: { phase: string; progress: number; instructions: string; isComplete: boolean; results?: CalibrationResult }) => void
   ) {
     this.config = { ...defaultConfig, ...config };
     this.humanFingerDetector = new HumanFingerDetector({
         MIN_RED_INTENSITY: this.config.minRedReflectance,
         MAX_RED_INTENSITY: this.config.maxRedReflectance,
         MIN_RG_RATIO: this.config.minRGRatio,
-        PULSABILITY_THRESHOLD: this.config.pulsatilityThreshold,
+        PULSABILITY_STD_THRESHOLD: this.config.pulsatilityThreshold,
         STABILITY_FRAME_DIFF_THRESHOLD: this.config.stabilityFrameDiffThreshold,
-        STABILITY_THRESHOLD_WINDOW_STDDEV: this.config.stabilityWindowStdThreshold,
+        STABILITY_WINDOW_STD_THRESHOLD: this.config.stabilityWindowStdThreshold,
     });
     this.kalmanFilter = new OptimizedKalmanFilter(this.config.kalmanR, this.config.kalmanQ);
     this.sgFilter = new SavitzkyGolayFilter(this.config.sgWindowSize);
@@ -102,6 +106,12 @@ export class SignalProcessingPipeline {
     this.onCalibrationUpdate = onCalibrationUpdate;
 
     console.log("SignalProcessingPipeline: Inicializado con configuración", this.config);
+  }
+
+  // Método para registrar el actualizador de VitalSignsProcessor
+  public registerVitalSignsUpdater(updater: (isSuccess: boolean, referenceData?: VitalSignsReferenceData) => void): void {
+    this.vitalSignsUpdateCallback = updater;
+    console.log("SignalProcessingPipeline: VitalSignsUpdater registrado.");
   }
 
   public startCalibrationMode(): void {
@@ -120,26 +130,33 @@ export class SignalProcessingPipeline {
     }
   }
 
-  public endCalibrationMode(calibrationResults?: any): void {
+  public endCalibrationMode(referenceDataForVitalSigns?: VitalSignsReferenceData): void {
     console.log("SignalProcessingPipeline: Finalizando modo calibración.");
     this.isCalibrating = false;
-    if (calibrationResults) {
-      this.applyCalibrationResults(calibrationResults);
-    }
+    
+    const finalCalibrationResults = this.autoCalibrationSystem.getCalibrationResults();
+    this.applyCalibrationResults(finalCalibrationResults, referenceDataForVitalSigns);
+
     if (this.onCalibrationUpdate) {
-      this.onCalibrationUpdate({ phase: 'complete', progress: 100, instructions: 'Calibración completada.', isComplete: true });
+      this.onCalibrationUpdate({ 
+        phase: 'complete', 
+        progress: 100, 
+        instructions: 'Calibración completada.', 
+        isComplete: true,
+        results: finalCalibrationResults
+      });
     }
   }
 
-  private applyCalibrationResults(results: any): void {
-    console.log("SignalProcessingPipeline: Aplicando resultados de calibración", results);
-    if (results.success) {
+  private applyCalibrationResults(calibrationResults: CalibrationResult, referenceData?: VitalSignsReferenceData): void {
+    console.log("SignalProcessingPipeline: Aplicando resultados de calibración", calibrationResults);
+    if (calibrationResults.success) {
       const newDetectorConfig: Partial<HumanFingerDetectorConfig> = {};
       let reconfigureDetector = false;
 
-      if (results.thresholds && results.thresholds.min !== undefined && results.thresholds.max !== undefined) {
-        newDetectorConfig.MIN_RED_INTENSITY = results.thresholds.min;
-        newDetectorConfig.MAX_RED_INTENSITY = results.thresholds.max;
+      if (calibrationResults.thresholds && calibrationResults.thresholds.min !== undefined && calibrationResults.thresholds.max !== undefined) {
+        newDetectorConfig.MIN_RED_INTENSITY = calibrationResults.thresholds.min;
+        newDetectorConfig.MAX_RED_INTENSITY = calibrationResults.thresholds.max;
         reconfigureDetector = true;
         console.log("SignalProcessingPipeline: Nuevos umbrales de rojo para detector:", newDetectorConfig);
       }
@@ -149,11 +166,11 @@ export class SignalProcessingPipeline {
         console.log("HumanFingerDetector reconfigurado con resultados de calibración.");
       }
 
-      if (results.signalParams) {
-        if (results.signalParams.gain !== undefined) {
-            this.config.minAmplificationFactor = Math.max(3, Math.min(20, defaultConfig.minAmplificationFactor * (results.signalParams.gain * 0.8 + 0.2)));
-            this.config.maxAmplificationFactor = Math.max(20, Math.min(60, defaultConfig.maxAmplificationFactor * (results.signalParams.gain * 0.7 + 0.3)));
-            this.config.targetAmplitude = defaultConfig.targetAmplitude * (results.signalParams.gain * 0.5 + 0.5);
+      if (calibrationResults.signalParams) {
+        if (calibrationResults.signalParams.gain !== undefined) {
+            this.config.minAmplificationFactor = Math.max(3, Math.min(20, defaultConfig.minAmplificationFactor * (calibrationResults.signalParams.gain * 0.8 + 0.2)));
+            this.config.maxAmplificationFactor = Math.max(20, Math.min(60, defaultConfig.maxAmplificationFactor * (calibrationResults.signalParams.gain * 0.7 + 0.3)));
+            this.config.targetAmplitude = defaultConfig.targetAmplitude * (calibrationResults.signalParams.gain * 0.5 + 0.5);
             console.log("SignalProcessingPipeline: Factores de amplificación ajustados por calibración:", {
                 min: this.config.minAmplificationFactor,
                 max: this.config.maxAmplificationFactor,
@@ -161,9 +178,22 @@ export class SignalProcessingPipeline {
             });
         }
       }
-       console.log("SignalProcessingPipeline: Resultados de calibración aplicados.");
+       console.log("SignalProcessingPipeline: Resultados de calibración de AutoCalSys aplicados al pipeline.");
+
+      // Notificar a VitalSignsProcessor sobre el éxito de la calibración y pasar datos de referencia si existen
+      if (this.vitalSignsUpdateCallback) {
+        console.log("SignalProcessingPipeline: Llamando a vitalSignsUpdateCallback.");
+        this.vitalSignsUpdateCallback(true, referenceData); 
+      } else {
+        console.warn("SignalProcessingPipeline: vitalSignsUpdateCallback no está registrado. VitalSignsProcessor no será notificado del estado de calibración.");
+      }
+
     } else {
-      console.warn("SignalProcessingPipeline: Calibración no exitosa, no se aplicaron resultados.", results.recommendations);
+      console.warn("SignalProcessingPipeline: Calibración no exitosa, no se aplicaron resultados.", calibrationResults.recommendations);
+      // Notificar a VitalSignsProcessor sobre el fallo de la calibración
+      if (this.vitalSignsUpdateCallback) {
+        this.vitalSignsUpdateCallback(false, referenceData); // referenceData podría ser útil incluso en fallo para logging o reintento
+      }
     }
   }
 
@@ -226,12 +256,16 @@ export class SignalProcessingPipeline {
   }
 
   public processFrame(imageData: ImageData): void {
-    if (!this.isProcessing) return;
+    if (!this.isProcessing) {
+      return;
+    }
 
     try {
+      // fingerDetectionResult se define una vez al principio del try
       const fingerDetectionResult = this.humanFingerDetector.detectHumanFinger(imageData);
 
       if (this.isCalibrating) {
+        // Lógica cuando SÍ está calibrando
         const frameDataForCalibration = {
           redValue: fingerDetectionResult.rawValue,
           avgGreen: fingerDetectionResult.debugInfo.avgGreen,
@@ -239,10 +273,10 @@ export class SignalProcessingPipeline {
           quality: fingerDetectionResult.quality,
           fingerDetected: fingerDetectionResult.isHumanFinger
         };
-        const calibrationStatus = this.autoCalibrationSystem.processSample(frameDataForCalibration);
+        const currentAutoCalStatus = this.autoCalibrationSystem.processSample(frameDataForCalibration);
 
         if (this.onCalibrationUpdate) {
-          this.onCalibrationUpdate(calibrationStatus);
+          this.onCalibrationUpdate({ ...currentAutoCalStatus, results: this.autoCalibrationSystem.getCalibrationResults() });
         }
 
         if (this.onSignalReady) {
@@ -254,120 +288,78 @@ export class SignalProcessingPipeline {
             fingerDetected: fingerDetectionResult.isHumanFinger,
             roi: { x: 0, y: 0, width: imageData.width, height: imageData.height },
             perfusionIndex: fingerDetectionResult.confidence,
-            calibrationPhase: calibrationStatus.phase,
-            calibrationProgress: calibrationStatus.progress,
-            calibrationInstructions: calibrationStatus.instructions,
-            debugInfo: fingerDetectionResult.debugInfo
+            calibrationPhase: currentAutoCalStatus.phase,
+            calibrationProgress: currentAutoCalStatus.progress,
+            calibrationInstructions: currentAutoCalStatus.instructions,
+            debugInfo: { ...fingerDetectionResult.debugInfo }
           };
           this.onSignalReady(signalDuringCalibration);
         }
 
-        if (calibrationStatus.isComplete) {
-          const calResults = this.autoCalibrationSystem.getCalibrationResults();
-          this.endCalibrationMode(calResults);
-          // No retornar inmediatamente, la señal de este frame ya fue emitida.
-          // La próxima llamada a processFrame no entrará en isCalibrating.
-        } else {
-          return; // Si la calibración está en curso y no completa, no hacer más procesamiento PPG.
+        if (currentAutoCalStatus.isComplete) {
+          console.log("SignalProcessingPipeline: AutoCalibrationSystem ha completado su proceso.");
+          this.endCalibrationMode(); // Asumiendo que esto puede tomar referenceData si es necesario
         }
-      }
+        
+        return; // Salir después de procesar el frame de calibración
 
-      // Flujo normal: No se está calibrando activamente o la calibración acaba de completarse en este ciclo.
-      const overallCalibrationResults = this.autoCalibrationSystem.getCalibrationResults();
-
-      if (!overallCalibrationResults.success) {
-        if (this.onError) {
-          this.onError({
-            code: 'CALIBRATION_FAILED_OVERALL',
-            message: 'Calibración no exitosa. Cubra la cámara con el dedo para calibrar.',
-            timestamp: Date.now()
-          });
-        }
-        if (this.onSignalReady) {
-          const signalNoPpg: ExtendedProcessedSignal = {
-            timestamp: fingerDetectionResult.timestamp,
-            rawValue: fingerDetectionResult.rawValue,
-            filteredValue: fingerDetectionResult.filteredValue,
-            quality: fingerDetectionResult.quality,
-            fingerDetected: fingerDetectionResult.isHumanFinger,
-            roi: { x: imageData.width / 4, y: imageData.height / 4, width: imageData.width / 2, height: imageData.height / 2 },
-            perfusionIndex: fingerDetectionResult.confidence,
-            calibrationPhase: 'pending_successful_calibration',
-            calibrationProgress: 0,
-            calibrationInstructions: 'Calibración requerida para medición.',
-            debugInfo: fingerDetectionResult.debugInfo
-          };
-          this.onSignalReady(signalNoPpg);
-        }
-        return; // No procesar PPG si la calibración general no es exitosa
-      }
-
-      // Calibración general exitosa, proceder a evaluar detección para procesar PPG.
-      if (fingerDetectionResult.isHumanFinger && fingerDetectionResult.quality > 30) {
-        const ppgResults = this.processPPGSignal(fingerDetectionResult.rawValue, fingerDetectionResult.quality);
-        const outputSignal: ExtendedProcessedSignal = {
-          timestamp: fingerDetectionResult.timestamp,
-          rawValue: fingerDetectionResult.rawValue,
-          filteredValue: ppgResults.amplifiedValue,
-          quality: fingerDetectionResult.quality,
-          fingerDetected: true,
-          roi: { x: imageData.width / 4, y: imageData.height / 4, width: imageData.width / 2, height: imageData.height / 2 },
-          perfusionIndex: fingerDetectionResult.confidence,
-          debugInfo: fingerDetectionResult.debugInfo
-        };
-        this.lastProcessedSignal = outputSignal;
-        if (this.onSignalReady) {
-          this.onSignalReady(outputSignal);
-        }
       } else {
-        // Calibración exitosa, pero no hay dedo o la calidad es baja en este frame.
-        if (this.onError) {
-          this.onError({
-            code: 'NO_FINGER_OR_LOW_QUALITY_POST_CALIBRATION',
-            message: 'No se detectó dedo o calidad insuficiente (post-calibración).',
-            timestamp: Date.now()
-          });
-        }
-        if (this.onSignalReady) {
-          const signalNoPpg: ExtendedProcessedSignal = {
+        // Lógica cuando NO está calibrando
+        if (fingerDetectionResult.isHumanFinger && fingerDetectionResult.quality > 30) {
+          const { filteredValue, amplifiedValue } = this.processPPGSignal(fingerDetectionResult.rawValue, fingerDetectionResult.quality);
+          const ppgSignal: ProcessedSignal = {
             timestamp: fingerDetectionResult.timestamp,
             rawValue: fingerDetectionResult.rawValue,
-            filteredValue: fingerDetectionResult.filteredValue,
+            filteredValue: amplifiedValue,
             quality: fingerDetectionResult.quality,
-            fingerDetected: fingerDetectionResult.isHumanFinger,
-            roi: { x: imageData.width / 4, y: imageData.height / 4, width: imageData.width / 2, height: imageData.height / 2 },
+            fingerDetected: true,
+            roi: { x: 0, y: 0, width: imageData.width, height: imageData.height },
             perfusionIndex: fingerDetectionResult.confidence,
             debugInfo: fingerDetectionResult.debugInfo
           };
-          this.onSignalReady(signalNoPpg);
+          this.lastProcessedSignal = ppgSignal;
+          if (this.onSignalReady) {
+            this.onSignalReady(ppgSignal);
+          }
+        } else {
+          // Dedo no detectado o calidad insuficiente (no calibrando)
+          const noFingerSignal: ExtendedProcessedSignal = {
+            timestamp: Date.now(),
+            rawValue: fingerDetectionResult.rawValue,
+            filteredValue: fingerDetectionResult.rawValue,
+            quality: fingerDetectionResult.quality,
+            fingerDetected: fingerDetectionResult.isHumanFinger,
+            roi: { x: 0, y: 0, width: imageData.width, height: imageData.height },
+            debugInfo: fingerDetectionResult.debugInfo
+          };
+          if (this.onSignalReady) {
+            this.onSignalReady(noFingerSignal);
+          }
+          if (this.onError) {
+            if (!fingerDetectionResult.isHumanFinger) {
+              this.onError({
+                code: "NO_FINGER_DETECTED_NORMAL_MODE",
+                message: "No se detecta el dedo.",
+                timestamp: Date.now(),
+              });
+            } else if (fingerDetectionResult.quality <= 30) {
+              this.onError({
+                code: "POOR_SIGNAL_QUALITY_NORMAL_MODE",
+                message: "Calidad de señal insuficiente.",
+                timestamp: Date.now(),
+              });
+            }
+          }
         }
-        this.resetFiltersAndBaseline();
       }
-    } catch (error) {
-      console.error("SignalProcessingPipeline: Error en processFrame", error);
+    } catch (error: any) {
+      console.error("SignalProcessingPipeline: Error en processFrame:", error);
       if (this.onError) {
         this.onError({
-          code: 'PROCESS_FRAME_ERROR',
-          message: error instanceof Error ? error.message : 'Error desconocido en processFrame',
-          timestamp: Date.now()
+          code: "PROCESS_FRAME_ERROR",
+          message: error.message || "Error desconocido en procesamiento de frame.",
+          timestamp: Date.now(),
         });
-      }
-      // Emitir un estado de dedo desconocido en caso de error catastrófico en el try
-      if (this.onSignalReady) {
-        const errorSignal: ExtendedProcessedSignal = {
-            timestamp: Date.now(),
-            rawValue: 0,
-            filteredValue: 0,
-            quality: 0,
-            fingerDetected: false,
-            roi: { x: 0, y:0, width: imageData.width, height: imageData.height},
-            perfusionIndex: 0,
-            calibrationPhase: 'error',
-            calibrationProgress: 0,
-            calibrationInstructions: 'Error en procesamiento.',
-            debugInfo: fingerDetectionResult ? fingerDetectionResult.debugInfo : { rejectionReasons: ['Error catastrófico'] }
-        };
-        this.onSignalReady(errorSignal);
       }
     }
   }

@@ -266,15 +266,7 @@ export class AutoCalibrationSystem {
   /**
    * Obtener resultados de calibración
    */
-  public getCalibrationResults(): {
-    success: boolean;
-    baseline: any;
-    thresholds: any;
-    signalParams: any;
-    accuracy: number;
-    stabilityScore: number; // Nuevo: score de estabilidad
-    recommendations: string[];
-  } {
+  public getCalibrationResults(): CalibrationResult {
     const recommendations: string[] = [];
     let success = true;
     
@@ -361,4 +353,16 @@ export class AutoCalibrationSystem {
     const phaseDuration = this.PHASE_DURATIONS[this.currentPhase] || 5000;
     return Math.min(100, Math.round((phaseElapsed / phaseDuration) * 100));
   }
+}
+
+// Exportar la interfaz CalibrationResult
+export interface CalibrationResult {
+  success: boolean;
+  baseline: { red: number; green: number; blue: number } | null;
+  thresholds: { min: number; max: number } | null;
+  signalParams: { gain: number; offset: number } | null;
+  accuracy: number;
+  stabilityScore: number; 
+  recommendations: string[];
+  // Podrían añadirse otros campos específicos si son relevantes
 }
