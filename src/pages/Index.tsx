@@ -664,16 +664,28 @@ const Index = () => {
             </div>
             {/* Fila adicional para debugInfo detallado */ 
             (lastSignal?.debugInfo && (
-              <div className="flex justify-around items-center w-full mt-1 text-xs text-gray-400">
-                <span>
-                  SpecConf: {lastSignal.debugInfo.dbgSpectralConfidence !== undefined ? lastSignal.debugInfo.dbgSpectralConfidence.toFixed(2) : "N/A"}
-                </span>
-                <span>
-                  PulsScore: {lastSignal.debugInfo.pulsatilityScore !== undefined ? lastSignal.debugInfo.pulsatilityScore.toFixed(2) : "N/A"}
-                </span>
-                <span>
-                  StabScore: {lastSignal.debugInfo.stabilityScore !== undefined ? lastSignal.debugInfo.stabilityScore.toFixed(2) : "N/A"}
-                </span>
+              <div className="flex flex-col items-center w-full mt-1 text-xs text-gray-400">
+                <div className="flex justify-around items-center w-full">
+                  <span>
+                    SpecConf: {lastSignal.debugInfo.dbgSpectralConfidence !== undefined ? lastSignal.debugInfo.dbgSpectralConfidence.toFixed(2) : "N/A"}
+                  </span>
+                  <span>
+                    PulsScore: {lastSignal.debugInfo.pulsatilityScore !== undefined ? lastSignal.debugInfo.pulsatilityScore.toFixed(2) : "N/A"}
+                  </span>
+                  <span>
+                    StabScore: {lastSignal.debugInfo.stabilityScore !== undefined ? lastSignal.debugInfo.stabilityScore.toFixed(2) : "N/A"}
+                  </span>
+                </div>
+                {(lastSignal.debugInfo.rejectionReasons && lastSignal.debugInfo.rejectionReasons.length > 0) && (
+                  <div className="mt-1 text-red-400 w-full text-center">
+                    Rechazado por: {lastSignal.debugInfo.rejectionReasons.join(', ')}
+                  </div>
+                )}
+                {(lastSignal.debugInfo.acceptanceReasons && lastSignal.debugInfo.acceptanceReasons.length > 0) && (
+                  <div className="mt-1 text-green-400 w-full text-center">
+                    Aceptado por: {lastSignal.debugInfo.acceptanceReasons.join(', ')}
+                  </div>
+                )}
               </div>
             ))}
           </div>
