@@ -52,26 +52,28 @@ export const useSignalProcessor = () => {
     });
 
     const onSignalReadyCallback = (signal: ExtendedProcessedSignal) => {
-      if (calibrationStatus && calibrationStatus.succeeded === false) {
-        setCriticalError('La calibración no fue exitosa. No se puede medir.');
-        setLastSignal(null);
-        return;
-      }
-      if (!signal.fingerDetected || (signal.quality !== undefined && signal.quality <= 30)) {
-        setCriticalError('No se detectó dedo humano real o la calidad es insuficiente.');
-        setLastSignal(null);
-        return;
-      }
-      setCriticalError(null);
+      // Siempre actualizar lastSignal con la información más reciente del detector
       setLastSignal(signal);
-      setError(null);
-      if (!signal.calibrationPhase) {
-          setFramesProcessed(prev => prev + 1);
+      setError(null); // Limpiar errores no críticos al recibir nueva señal
+
+      // Determinar si hay un error crítico basado en la calibración o calidad post-calibración
+      if (calibrationStatus && calibrationStatus.succeeded === false && !isCalibrating) {
+        setCriticalError('La calibración no fue exitosa. Por favor, calibre de nuevo.');
+      } else if (calibrationStatus && calibrationStatus.succeeded === true && !isCalibrating && (!signal.fingerDetected || (signal.quality !== undefined && signal.quality <= 30))) {
+        setCriticalError('No se detectó dedo o la calidad es insuficiente para medir. Asegure buen contacto.');
+      } else {
+        setCriticalError(null); // No hay error crítico o estamos calibrando (donde se espera variabilidad)
       }
+      
+      if (!signal.calibrationPhase || (signal.calibrationPhase && signal.calibrationPhase === 'complete')) {
+        setFramesProcessed(prev => prev + 1);
+      }
+      
       signalHistoryRef.current.push(signal);
       if (signalHistoryRef.current.length > 100) {
         signalHistoryRef.current.shift();
       }
+      
       const prevSignal = signalHistoryRef.current[signalHistoryRef.current.length - 2];
       if (prevSignal && Math.abs(prevSignal.quality - signal.quality) > 15) {
         qualityTransitionsRef.current.push({
@@ -83,7 +85,9 @@ export const useSignalProcessor = () => {
           qualityTransitionsRef.current.shift();
         }
       }
-      if (signal.fingerDetected && signal.quality > 30) {
+      
+      // Actualizar signalStats solo si no hay error crítico y la señal es de un dedo con calidad
+      if (!criticalError && signal.fingerDetected && signal.quality > 30) {
         setSignalStats(prev => ({
           minValue: Math.min(prev.minValue, signal.filteredValue),
           maxValue: Math.max(prev.maxValue, signal.filteredValue),
