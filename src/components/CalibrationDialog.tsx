@@ -1,10 +1,10 @@
+
 import * as React from "react";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft } from "lucide-react";
 import { motion } from "framer-motion";
 import { Input } from "@/components/ui/input";
-import { useSignalProcessor } from '../hooks/useSignalProcessor';
 
 interface CalibrationDialogProps {
   isOpen: boolean;
@@ -19,7 +19,6 @@ const CalibrationDialog: React.FC<CalibrationDialogProps> = ({
   onCalibrationStart,
   onCalibrationEnd
 }) => {
-  const { isCalibrating, calibrationStatus, startCalibration, endCalibration } = useSignalProcessor();
   const [systolic, setSystolic] = React.useState<string>("");
   const [diastolic, setDiastolic] = React.useState<string>("");
   const [isSubmitting, setIsSubmitting] = React.useState(false);
@@ -27,10 +26,19 @@ const CalibrationDialog: React.FC<CalibrationDialogProps> = ({
   const handleCalibration = async () => {
     try {
       setIsSubmitting(true);
-      startCalibration();
+      onCalibrationStart();
+
+      // Simulamos un pequeño delay para la calibración
+      await new Promise(resolve => setTimeout(resolve, 1000));
+
+      onCalibrationEnd();
+      setTimeout(() => {
+        onClose();
+      }, 500);
+
     } catch (error) {
       console.error("Error durante la calibración:", error);
-      endCalibration();
+      onCalibrationEnd();
       onClose();
     } finally {
       setIsSubmitting(false);
@@ -102,34 +110,6 @@ const CalibrationDialog: React.FC<CalibrationDialogProps> = ({
             <p className="text-sm text-gray-500 text-center">
               Ingrese los valores de su última medición de presión arterial para calibrar el sistema
             </p>
-
-            <div className="my-4">
-              {isCalibrating && calibrationStatus && (
-                <div className="space-y-2">
-                  <div className="text-sm font-medium text-blue-700">
-                    {calibrationStatus.instructions}
-                  </div>
-                  <div className="w-full bg-gray-200 rounded-full h-2.5 dark:bg-gray-700">
-                    <div className="bg-blue-600 h-2.5 rounded-full" style={{ width: `${calibrationStatus.progress}%` }}></div>
-                  </div>
-                  <div className="text-xs text-gray-500">
-                    Progreso: {calibrationStatus.progress}%
-                  </div>
-                  {calibrationStatus.isComplete && (
-                    <div className={`mt-2 text-sm font-semibold ${calibrationStatus.succeeded ? 'text-green-600' : 'text-red-600'}`}>
-                      {calibrationStatus.succeeded ? '¡Calibración exitosa!' : 'Calibración fallida'}
-                      {calibrationStatus.recommendations && (
-                        <ul className="mt-1 list-disc list-inside text-xs text-gray-700">
-                          {calibrationStatus.recommendations.map((rec, idx) => (
-                            <li key={idx}>{rec}</li>
-                          ))}
-                        </ul>
-                      )}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
           </div>
         </motion.div>
       </DialogContent>

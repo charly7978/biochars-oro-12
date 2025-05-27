@@ -210,15 +210,6 @@ export const useSignalProcessor = () => {
     processorRef.current.start(); // Asegurar que el pipeline esté "activo" para procesar frames para la calibración
   }, [isProcessing, stopProcessing]);
 
-  const endCalibration = useCallback(() => {
-    if (!processorRef.current) {
-      console.error("useSignalProcessor: No hay SignalProcessingPipeline para finalizar calibración.");
-      return;
-    }
-    processorRef.current.endCalibrationMode();
-    setIsCalibrating(false);
-  }, []);
-
   const processFrame = useCallback((imageData: ImageData) => {
     if (!processorRef.current) {
       console.error("useSignalProcessor: No hay SignalProcessingPipeline para procesar frames.");
@@ -247,7 +238,6 @@ export const useSignalProcessor = () => {
     startProcessing,
     stopProcessing,
     startCalibration,
-    endCalibration,
     processFrame,
     signalHistory: signalHistoryRef.current,
     qualityTransitions: qualityTransitionsRef.current
