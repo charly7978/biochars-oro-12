@@ -302,8 +302,17 @@ export class SignalProcessingPipeline {
     // 1. Extraer datos básicos del frame
     const currentFrameData = this.frameProcessor.extractFrameData(imageData);
 
-    // 2. Detectar dedo humano y obtener calidad inicial
-    const fingerDetectionResult = this.humanFingerDetector.detectHumanFinger(imageData);
+    // Create a cropped ImageData based on the dynamically detected ROI
+    const roi = currentFrameData.roi;
+    const croppedImageData = new ImageData(
+        new Uint8ClampedArray(imageData.data.buffer,
+                              (roi.y * imageData.width + roi.x) * 4,
+                              roi.width * roi.height * 4),
+        roi.width, roi.height
+    );
+
+    // 2. Detectar dedo humano y obtener calidad inicial using the cropped image data
+    const fingerDetectionResult = this.humanFingerDetector.detectHumanFinger(croppedImageData);
 
     // Si estamos calibrando, pasar los datos al sistema de calibración
     if (this.isCalibrating) {

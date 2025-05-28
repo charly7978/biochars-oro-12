@@ -36,8 +36,6 @@ export interface HumanFingerDetectorConfig {
   PULSABILITY_STD_THRESHOLD: number;
   STABILITY_FRAME_DIFF_THRESHOLD: number;
   STABILITY_WINDOW_STD_THRESHOLD: number;
-  ROI_WIDTH_FACTOR: number;
-  ROI_HEIGHT_FACTOR: number;
   EMA_ALPHA_RAW: number;
   CONFIDENCE_EMA_ALPHA: number;
 }
@@ -52,8 +50,6 @@ const defaultDetectorConfig: HumanFingerDetectorConfig = {
   PULSABILITY_STD_THRESHOLD: 0.06,
   STABILITY_FRAME_DIFF_THRESHOLD: 40,
   STABILITY_WINDOW_STD_THRESHOLD: 30,
-  ROI_WIDTH_FACTOR: 0.45,
-  ROI_HEIGHT_FACTOR: 0.45,
   EMA_ALPHA_RAW: 0.3,
   CONFIDENCE_EMA_ALPHA: 0.2,
 };
@@ -98,22 +94,17 @@ export class HumanFingerDetector {
     if (detailedLog) console.log(`\n--- HFD Frame: ${this.frameCount} ---`);
     
     const { width, height, data } = imageData;
-    const roiWidth = Math.floor(width * this.config.ROI_WIDTH_FACTOR);
-    const roiHeight = Math.floor(height * this.config.ROI_HEIGHT_FACTOR);
-    const roiX = Math.floor((width - roiWidth) / 2);
-    const roiY = Math.floor((height - roiHeight) / 2);
-    
+
+    // Process the entire received imageData, as it's already the ROI from FrameProcessor
     let sumR = 0, sumG = 0, sumB = 0;
     let pixelCount = 0;
 
-    for (let y = roiY; y < roiY + roiHeight; y++) {
-      for (let x = roiX; x < roiX + roiWidth; x++) {
-        const i = (y * width + x) * 4;
+    // Iterate over all pixels in the received (cropped) ImageData
+    for (let i = 0; i < data.length; i += 4) {
         sumR += data[i];
         sumG += data[i + 1];
         sumB += data[i + 2];
         pixelCount++;
-      }
     }
 
     if (pixelCount < 10) { 
@@ -203,12 +194,6 @@ export class HumanFingerDetector {
       rgRatio: rgRatio,
       rbRatio: rbRatio,
       gbRatio: avgBlue > 5 ? avgGreen / avgBlue : 0,
-      colorTemperature: this.calculateColorTemperature(avgRed, avgGreen, avgBlue),
-      textureScore: this.calculateTextureScore([avgRed]),
-      edgeGradient: this.calculateEdgeGradient([avgRed]),
-      areaPercentage: 100,
-      specularRatio: this.calculateSpecularRatio([avgRed], [avgGreen], [avgBlue]),
-      uniformity: this.calculateUniformity([avgRed]),
       perfusionIndex: perfusionIndex
     };
   }
@@ -430,39 +415,6 @@ export class HumanFingerDetector {
       lastRawRedEMA: this.lastRawRedEMA.toFixed(2),
       historyLengths: { raw: this.rawRedHistory.length, filtered: this.filteredRedHistory.length }
     };
-  }
-
-  private calculateColorTemperature(r: number, g: number, b: number): number {
-    console.warn("calculateColorTemperature es placeholder");
-    if ((r + g + b) === 0) return 0;
-    const maxVal = Math.max(r, g, b);
-    const minVal = Math.min(r, g, b);
-    const avgVal = (r + g + b) / 3;
-
-    const colorScore = (r - b) / (maxVal - minVal + 1e-5);
-    const estimatedTemp = 6000 - colorScore * 4000;
-
-    return Math.max(2000, Math.min(10000, estimatedTemp));
-  }
-  
-  private calculateTextureScore(intensities: number[]): number {
-    console.warn("calculateTextureScore es placeholder");
-    return 0.7 + Math.random() * 0.1;
-  }
-  
-  private calculateEdgeGradient(values: number[]): number {
-    console.warn("calculateEdgeGradient es placeholder");
-    return 0.1 + Math.random() * 0.05;
-  }
-  
-  private calculateSpecularRatio(reds: number[], greens: number[], blues: number[]): number {
-    console.warn("calculateSpecularRatio es placeholder");
-    return 0.2 + Math.random() * 0.1;
-  }
-  
-  private calculateUniformity(intensities: number[]): number {
-    console.warn("calculateUniformity es placeholder");
-    return 0.8 + Math.random() * 0.05;
   }
 
   private logDetectionResult(decision: any, metrics: any, quality: number): void {
