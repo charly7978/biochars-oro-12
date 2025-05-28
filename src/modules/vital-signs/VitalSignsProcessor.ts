@@ -56,7 +56,6 @@ export interface VitalSignsResult {
 
 export class VitalSignsProcessor {
   private signalBuffer: number[] = [];
-  private rrIntervals: number[] = [];
   private lastValidResults: VitalSignsResult | null = null;
   private globalCalibrationSuccess: boolean = false;
 
@@ -66,8 +65,6 @@ export class VitalSignsProcessor {
   private arrhythmiaProcessor: ArrhythmiaProcessor; // Instancia del procesador de arritmias
 
   // Propiedades para el procesamiento de latidos y calidad de señal (integrado de HeartBeatProcessor)
-  private lastPeakTime: number | null = null;
-  private previousPeakTime: number | null = null;
   private bpmHistory: number[] = [];
   private smoothBPM: number = 0;
   private readonly BPM_ALPHA = 0.3; // Factor de suavizado para BPM
@@ -75,8 +72,6 @@ export class VitalSignsProcessor {
   private recentSignalStrengths: number[] = []; // Historial para calcular calidad
   private readonly SIGNAL_STRENGTH_HISTORY = 30;
   private lastSignalStrength: number = 0;
-  private peakValidationBuffer: number[] = []; // Buffer para validar picos
-  private readonly PEAK_VALIDATION_THRESHOLD = 0.3; // Umbral de validación de picos
   private peakCandidateIndex: number | null = null;
   private peakCandidateValue: number = 0;
   private peakConfirmationBuffer: number[] = [];
@@ -90,7 +85,7 @@ export class VitalSignsProcessor {
     this.bpProcessor = new BloodPressureProcessor();
     this.glucoseProcessor = new GlucoseProcessor();
     this.arrhythmiaProcessor = new ArrhythmiaProcessor(); // Inicializar ArrhythmiaProcessor
-    this.resetDetectionStates(); // Inicializar estados de detección
+    this.reset(); // Usar el método reset completo para inicializar estados
   }
 
   /**
@@ -154,57 +149,36 @@ export class VitalSignsProcessor {
       this.signalBuffer.shift();
     }
 
-    // 2. Detección de Picos y Cálculo de RR
-    const derivative = normalizedValue - this.lastValue; // Aproximación simple de la derivada
-    this.lastValue = normalizedValue; // Actualizar lastValue para la próxima iteración
+    // Use RR Data and Quality from the pipeline
+    const currentRRData = rrData || { intervals: [], lastPeakTime: null };
+    // Assume quality is passed or can be derived from pipeline data if needed
+    const signalQualityFromPipeline = 1.0; // TODO: Replace with actual quality from pipeline
+    this.currentSignalQuality = signalQualityFromPipeline; // Update internal quality
 
-    const peakDetectionResult = this.enhancedPeakDetection(normalizedValue, derivative);
-    let isPeak = peakDetectionResult.isPeak;
-    const peakConfidence = peakDetectionResult.confidence;
-
-    // Confirmar pico basado en un buffer temporal
-    isPeak = this.confirmPeak(isPeak, normalizedValue, peakConfidence);
-
-    let currentRRData: { intervals: number[]; lastPeakTime: number | null } = { intervals: [], lastPeakTime: null };
-    if (isPeak && this.lastConfirmedPeak) {
-        const peakTime = now;
-        if (this.lastPeakTime !== null) {
-            const rrInterval = peakTime - this.lastPeakTime;
-            // Validación básica de RR interval (ej. entre 300ms y 2000ms para 30-200 BPM)
-            if (rrInterval >= 300 && rrInterval <= 2000) {
-                this.rrIntervals.push(rrInterval);
-                if (this.rrIntervals.length > 60) { // Mantener historial de 60 segundos a 60 BPM
-                    this.rrIntervals.shift();
-                }
-                console.log("VitalSignsProcessor: RR Interval detectado", rrInterval);
-            } else {
-                console.warn("VitalSignsProcessor: RR Interval fuera de rango plausible", rrInterval);
-            }
-        } else {
-           console.log("VitalSignsProcessor: Primer pico detectado.");
-        }
-        this.previousPeakTime = this.lastPeakTime;
-        this.lastPeakTime = peakTime;
-        this.updateBPM(); // Actualizar BPM basado en el nuevo RR interval
-        currentRRData = { intervals: [...this.rrIntervals], lastPeakTime: this.lastPeakTime }; // Pasar copia
-    }
-    this.lastConfirmedPeak = isPeak; // Actualizar estado del último pico confirmado
-
-    // 3. Cálculo de Calidad de Señal
-    // Usar la lógica de calculateSignalQuality de HeartBeatProcessor. Adaptarla si es necesario.
-    this.currentSignalQuality = this.calculateSignalQuality(normalizedValue, peakConfidence);
-
-    // 4. Procesar Arritmias (usando el procesador dedicado)
+    // 2. Process Arrhythmias (using the dedicated processor) with RR Data from the pipeline
     const arrhythmiaResult = this.arrhythmiaProcessor.processRRData(currentRRData);
 
-    // 5. Calcular otros Signos Vitales
-    // Asegurarse de pasar la señal procesada y los datos RR/Calidad a los sub-procesadores
-    const heartRate = this.getSmoothBPM(); // Usar el BPM suavizado
-    const spo2 = this.calculateRealSpO2(this.signalBuffer, this.currentSignalQuality); // Pasar buffer y calidad
-    const pressure = this.calculateRealBloodPressure(this.signalBuffer, heartRate); // Pasar buffer y HR
-    const glucose = this.calculateRealGlucose(this.signalBuffer, heartRate); // Pasar buffer y HR
-    const lipids = this.calculateRealLipids(this.signalBuffer, this.currentSignalQuality); // Pasar buffer y calidad
-    const hemoglobin = this.calculateRealHemoglobin(this.signalBuffer, this.currentSignalQuality); // Pasar buffer y calidad
+    // Calculate BPM from the RR Data from the pipeline
+    let heartRate = 0;
+    if (currentRRData.intervals.length > 0) {
+       const avgRR = currentRRData.intervals.slice(-Math.min(10, currentRRData.intervals.length)).reduce((a, b) => a + b, 0) / Math.min(10, currentRRData.intervals.length);
+       if (avgRR > 0) {
+         heartRate = Math.round(60000 / avgRR);
+       }
+    }
+
+    // Smooth BPM (keep smoothing logic)
+    this.bpmHistory.push(heartRate);
+    if (this.bpmHistory.length > 10) this.bpmHistory.shift(); // Keep short history for smoothing
+    this.smoothBPM = this.bpmHistory.reduce((a, b) => a + b, 0) / this.bpmHistory.length;
+
+    // 3. Calculate other Vital Signs
+    // Ensure the processed signal (ppgValue or buffer) and RR/Quality data are passed to the sub-processors
+    const spo2 = this.calculateRealSpO2(this.signalBuffer, this.currentSignalQuality); // Pass buffer and quality
+    const pressure = this.calculateRealBloodPressure(this.signalBuffer, this.getSmoothBPM()); // Pass buffer and smoothed HR
+    const glucose = this.calculateRealGlucose(this.signalBuffer, this.getSmoothBPM()); // Pass buffer and smoothed HR
+    const lipids = this.calculateRealLipids(this.signalBuffer, this.currentSignalQuality); // Pass buffer and quality
+    const hemoglobin = this.calculateRealHemoglobin(this.signalBuffer, this.currentSignalQuality); // Pass buffer and quality
 
     const result: VitalSignsResult = {
       heartRate: Math.round(heartRate), // Redondear para display
@@ -222,8 +196,8 @@ export class VitalSignsProcessor {
     };
 
     // Guardar solo resultados "razonablemente" válidos basados en calidad y valores
-    // Umbrales de validación más estrictos y basados en calidad de señal
-    if (this.currentSignalQuality > 0.5 && heartRate > 40 && heartRate < 180 && spo2 > 90 && spo2 < 100) {
+    // Validation thresholds based on pipeline signal quality and plausible values
+    if (signalQualityFromPipeline > 0.5 && this.getSmoothBPM() > 40 && this.getSmoothBPM() < 180 && spo2 > 90 && spo2 < 100) {
       this.lastValidResults = result;
       return result;
     } else {
@@ -362,8 +336,7 @@ export class VitalSignsProcessor {
   }
 
   public getSmoothBPM(): number {
-      // Asegurar que el BPM suavizado esté dentro de un rango fisiológicamente plausible
-      return Math.max(40, Math.min(180, this.smoothBPM));
+      return Math.round(this.smoothBPM);
   }
 
   private calculateSignalQuality(normalizedValue: number, confidence: number): number {
@@ -514,20 +487,25 @@ export class VitalSignsProcessor {
   }
 
   reset(): VitalSignsResult | null {
-    console.log("VitalSignsProcessor: Reset parcial (mantiene calibración)");
-    // Resetear estados de detección y buffers, pero mantener estado de calibración y sub-procesadores
-    this.resetDetectionStates();
-    return this.lastValidResults; // Opcional: devolver los últimos resultados válidos antes del reset
+    console.log("VitalSignsProcessor: Reseteando estados.");
+    this.signalBuffer = []; // Limpiar buffer de señal
+    this.bpmHistory = []; // Limpiar historial de BPM
+    this.smoothBPM = 0; // Resetear BPM suavizado
+    this.currentSignalQuality = 0; // Resetear calidad
+    this.recentSignalStrengths = []; // Resetear historial de fuerza de señal
+    this.lastSignalStrength = 0;
+    this.lastValidResults = null; // Limpiar últimos resultados válidos
+    this.globalCalibrationSuccess = false; // Resetear estado de calibración
+    // No resetear sub-procesadores aquí, se maneja en setExternalCalibration o fullReset si es necesario
+    return null; // Devolver null ya que no hay resultado válido después del reset
   }
 
   fullReset(): void {
-    console.log("VitalSignsProcessor: Reset COMPLETO (resetea todo, incluida calibración)");
-    this.resetDetectionStates();
-    this.globalCalibrationSuccess = false;
-    this.lastValidResults = null;
-    this.bpProcessor.reset(); // Resetear sub-procesadores también
-    this.glucoseProcessor.reset(); // Resetear sub-procesadores también
-    this.arrhythmiaProcessor.reset(); // Resetear sub-procesador de arritmias
+    console.log("VitalSignsProcessor: Reseteando completamente (incl. sub-procesadores). ");
+    this.reset(); // Resetear estados propios
+    this.bpProcessor.reset();
+    this.glucoseProcessor.reset();
+    this.arrhythmiaProcessor.reset();
   }
 
   // Métodos que no deberían llamarse externamente
