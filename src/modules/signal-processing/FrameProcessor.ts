@@ -1,4 +1,4 @@
-import { FrameData } from './types';
+import { FrameData, SignalProcessorConfig } from './types';
 import { ProcessedSignal } from '../../types/signal';
 
 /**
@@ -6,7 +6,7 @@ import { ProcessedSignal } from '../../types/signal';
  * PROHIBIDA LA SIMULACIÓN Y TODO TIPO DE MANIPULACIÓN FORZADA DE DATOS
  */
 export class FrameProcessor {
-  private readonly CONFIG: { TEXTURE_GRID_SIZE: number, ROI_SIZE_FACTOR: number };
+  private readonly CONFIG: SignalProcessorConfig;
   // Parámetros ajustados para mejor extracción de señal
   private readonly RED_GAIN = 1.4; // Aumentado para mejor amplificación de señal roja (antes 1.2)
   private readonly GREEN_SUPPRESSION = 0.8; // Menos supresión para mantener información (antes 0.85)
@@ -22,12 +22,28 @@ export class FrameProcessor {
   private roiHistory: Array<{x: number, y: number, width: number, height: number}> = [];
   private readonly ROI_HISTORY_SIZE = 5;
   
-  constructor(config: { TEXTURE_GRID_SIZE: number, ROI_SIZE_FACTOR: number }) {
-    // Aumentar tamaño de ROI para capturar más área
-    this.CONFIG = {
-      ...config,
-      ROI_SIZE_FACTOR: Math.min(0.8, config.ROI_SIZE_FACTOR * 1.15) // Aumentar tamaño ROI sin exceder 0.8
+  constructor(config: Partial<SignalProcessorConfig> = {}) {
+    // Merge provided config with defaults (need default values for SignalProcessorConfig)
+    // Assuming default config from SignalProcessingPipeline or define one here if needed
+    const defaultConfig: SignalProcessorConfig = {
+        BUFFER_SIZE: 120, // Example default
+        MIN_RED_THRESHOLD: 20, // Lowered from 30 for ROI detection fallback
+        MAX_RED_THRESHOLD: 255, // Example default
+        STABILITY_WINDOW: 30, // Example default
+        MIN_STABILITY_COUNT: 10, // Example default
+        HYSTERESIS: 0.05, // Example default
+        MIN_CONSECUTIVE_DETECTIONS: 5, // Example default
+        MAX_CONSECUTIVE_NO_DETECTIONS: 30, // Example default
+        QUALITY_LEVELS: 5, // Example default
+        QUALITY_HISTORY_SIZE: 60, // Example default
+        CALIBRATION_SAMPLES: 60, // Example default
+        TEXTURE_GRID_SIZE: 5, // Example default
+        ROI_SIZE_FACTOR: 0.5, // Example default
     };
+    this.CONFIG = { ...defaultConfig, ...config };
+
+    // Adjust ROI size factor based on merged config
+    this.CONFIG.ROI_SIZE_FACTOR = Math.min(0.8, this.CONFIG.ROI_SIZE_FACTOR * 1.15); // Adjust as before
   }
   
   extractFrameData(imageData: ImageData): FrameData {
@@ -290,30 +306,80 @@ export class FrameProcessor {
   }
   
   detectROI(redValue: number, imageData: ImageData): ProcessedSignal['roi'] {
-    // **ESTA FUNCIÓN ACTUALMENTE NO DETECTA ROI DINÁMICAMENTE, SOLO USA UNA ROI CENTRAL FIJA.**
-    // Es crucial implementar lógica de detección de ROI REAL para mejorar la robustez.
-    // Esto podría implicar buscar el área más roja y estable en el frame.
-    // POR AHORA, MANTENEMOS LA ROI CENTRADA POR AHORA.
-    const centerX = Math.floor(imageData.width / 2);
-    const centerY = Math.floor(imageData.height / 2);
-    const roiSize = Math.min(imageData.width, imageData.height) * this.CONFIG.ROI_SIZE_FACTOR; // Usar el factor ajustado en el constructor
+    // Implement dynamic ROI detection: Find the area with the highest average red intensity.
+    const data = imageData.data;
+    const width = imageData.width;
+    const height = imageData.height;
 
-     // Opcional: ajustar ligeramente el centro de la ROI basado en el historial reciente si hay una señal muy fuerte en un área cercana.
-     // ESTO ES COMPLEJO Y REQUIERE ANÁLISIS ESPACIAL - DEJAREMOS LA ROI CENTRADA POR AHORA.
+    let bestROI: ProcessedSignal['roi'] = { x: 0, y: 0, width: 0, height: 0 };
+    let maxAvgRed = -1;
 
-    const roi: ProcessedSignal['roi'] = {
-      x: Math.max(0, Math.floor(centerX - roiSize / 2)),
-      y: Math.max(0, Math.floor(centerY - roiSize / 2)),
-      width: Math.floor(roiSize),
-      height: Math.floor(roiSize),
-    };
+    // Define search parameters. We can iterate through potential ROI starting points.
+    // For simplicity, let's check a grid of potential ROIs.
+    const searchGridSize = 5; // Check a 5x5 grid of potential ROI centers
+    const potentialROISize = Math.min(width, height) * 0.4; // Slightly increased from 0.3
+    const stepX = Math.max(1, Math.floor((width - potentialROISize) / (searchGridSize - 1)));
+    const stepY = Math.max(1, Math.floor((height - potentialROISize) / (searchGridSize - 1)));
 
-    // Añadir ROI al historial para estabilidad (si se implementara detección dinámica, se usaría el historial aquí)
-    this.roiHistory.push(roi);
+    for (let i = 0; i < searchGridSize; i++) {
+      for (let j = 0; j < searchGridSize; j++) {
+        const currentX = Math.floor(i * stepX);
+        const currentY = Math.floor(j * stepY);
+        const currentWidth = Math.min(potentialROISize, width - currentX);
+        const currentHeight = Math.min(potentialROISize, height - currentY);
+
+        if (currentWidth <= 0 || currentHeight <= 0) continue;
+
+        let currentRedSum = 0;
+        let pixelCount = 0;
+
+        for (let y = currentY; y < currentY + currentHeight; y++) {
+          for (let x = currentX; x < currentX + currentWidth; x++) {
+            const index = (y * width + x) * 4;
+            currentRedSum += data[index];
+            pixelCount++;
+          }
+        }
+
+        if (pixelCount > 0) {
+          const currentAvgRed = currentRedSum / pixelCount;
+
+          if (currentAvgRed > maxAvgRed) {
+            maxAvgRed = currentAvgRed;
+            bestROI = {
+              x: currentX,
+              y: currentY,
+              width: Math.floor(currentWidth),
+              height: Math.floor(currentHeight),
+            };
+          }
+        }
+      }
+    }
+
+    // If no significant red area is found, fallback to the central ROI (or a default empty ROI)
+    if (maxAvgRed < this.CONFIG.MIN_RED_THRESHOLD) { // Using a configured threshold for fallback
+         const centerX = Math.floor(width / 2);
+         const centerY = Math.floor(height / 2);
+         const roiSize = Math.min(width, height) * this.CONFIG.ROI_SIZE_FACTOR; // Use the configured factor
+        bestROI = {
+           x: Math.max(0, Math.floor(centerX - roiSize / 2)),
+           y: Math.max(0, Math.floor(centerY - roiSize / 2)),
+           width: Math.floor(roiSize),
+           height: Math.floor(roiSize),
+        };
+        console.warn("FrameProcessor: No dominant red area found, falling back to central ROI.", { fallbackROI: bestROI });
+    } else {
+        console.log("FrameProcessor: Dynamic ROI found.", { dynamicROI: bestROI, maxAvgRed: maxAvgRed.toFixed(1) });
+    }
+
+    // Add ROI to history for stability (if implemented, history would be used to smooth ROI movement)
+    // This history logic is less critical with the current simple dynamic detection but kept for future enhancements.
+    this.roiHistory.push(bestROI);
     if (this.roiHistory.length > this.ROI_HISTORY_SIZE) {
         this.roiHistory.shift();
     }
 
-    return roi;
+    return bestROI;
   }
 }
