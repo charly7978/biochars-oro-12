@@ -42,6 +42,7 @@ export interface FrameData {
   rToGRatio: number;
   rToBRatio: number;
   perfusionIndex?: number;
+  roi: { x: number; y: number; width: number; height: number };
 }
 
 export interface DetectionResult {

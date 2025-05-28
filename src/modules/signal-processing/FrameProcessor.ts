@@ -203,7 +203,8 @@ export class FrameProcessor {
         avgRed: 5,
         avgGreen: 4,
         avgBlue: 4,
-        perfusionIndex: 0
+        perfusionIndex: 0,
+        roi: { x: 0, y: 0, width: 0, height: 0 }
       };
     }
     
@@ -250,6 +251,8 @@ export class FrameProcessor {
       perfusionIndex: ((avgRed - avgGreen) / (avgRed + avgGreen)) * 100
     });
     
+    const roi = this.detectROI(avgRed, imageData);
+    
     return {
       redValue: avgRed,
       textureScore,
@@ -258,7 +261,8 @@ export class FrameProcessor {
       avgRed,
       avgGreen,
       avgBlue,
-      perfusionIndex: ((avgRed - avgGreen) / (avgRed + avgGreen)) * 100
+      perfusionIndex: ((avgRed - avgGreen) / (avgRed + avgGreen)) * 100,
+      roi
     };
   }
   

@@ -122,18 +122,17 @@ export class SignalProcessingPipeline {
     this.kalmanFilter = new OptimizedKalmanFilter(this.config.kalmanR, this.config.kalmanQ);
     this.sgFilter = new SavitzkyGolayFilter(this.config.sgWindowSize);
     this.autoCalibrationSystem = new AutoCalibrationSystem();
-    this.frameProcessor = new FrameProcessor(); // Inicializar FrameProcessor
+    this.frameProcessor = new FrameProcessor({
+        TEXTURE_GRID_SIZE: this.config.TEXTURE_GRID_SIZE || 10, // Usar valor por defecto si no está en config
+        ROI_SIZE_FACTOR: this.config.ROI_SIZE_FACTOR || 0.3 // Usar valor por defecto si no está en config
+    });
     this.onSignalReady = onSignalReady;
     this.onError = onError;
     this.onCalibrationUpdate = onCalibrationUpdate;
 
     console.log("SignalProcessingPipeline: Inicializado con configuración", this.config);
     this.resetPeakDetectionStates(); // Inicializar estados de detección de picos
-    this.autoCalibrationSystem.resetData(); // Asegurarse de que este reset también limpie los datos de calibración.
-    this.baselineValue = 0;
-    this.signalHistoryForAmplification = [];
-    this.lastProcessedSignal = null;
-    this.resetPeakDetectionStates(); // Resetear también estados de detección de picos
+    this.reset(); // Usar el método reset público para inicializar estados
   }
 
   // Método para registrar el actualizador de VitalSignsProcessor
@@ -152,6 +151,7 @@ export class SignalProcessingPipeline {
     this.baselineValue = 0;
     this.signalHistoryForAmplification = [];
     this.resetPeakDetectionStates(); // Resetear al iniciar calibración
+    this.autoCalibrationSystem.reset(); // Usar método reset público de AutoCalibrationSystem
     if (this.onCalibrationUpdate) {
       const initialPhase = this.autoCalibrationSystem.getCurrentPhase ? this.autoCalibrationSystem.getCurrentPhase() : 'baseline';
       const initialProgress = this.autoCalibrationSystem.getCurrentProgress ? this.autoCalibrationSystem.getCurrentProgress() : 0;
@@ -299,7 +299,17 @@ export class SignalProcessingPipeline {
     const currentFrameData = this.frameProcessor.extractFrameData(imageData); // Renombrar para evitar conflictos si es necesario
     
     // 2. Detectar dedo humano y obtener calidad inicial
-    const fingerDetectionResult = this.humanFingerDetector.detectHumanFinger(imageData); // Pasar imageData completo
+    const fingerDetectionResult = this.humanFingerDetector.detectHumanFinger({
+        redValue: currentFrameData.redValue,
+        avgGreen: currentFrameData.avgGreen,
+        avgBlue: currentFrameData.avgBlue,
+        textureScore: currentFrameData.textureScore,
+        rToGRatio: currentFrameData.rToGRatio,
+        rToBRatio: currentFrameData.rToBRatio,
+        perfusionIndex: currentFrameData.perfusionIndex,
+        roi: currentFrameData.roi, // Pasar ROI
+        imageData: imageData // Pasar imageData si el detector lo necesita para análisis adicionales (ej. bordes)
+    });
 
     // Si estamos calibrando, pasar los datos al sistema de calibración
     if (this.isCalibrating) {
@@ -307,9 +317,9 @@ export class SignalProcessingPipeline {
             redValue: currentFrameData.redValue,
             avgGreen: currentFrameData.avgGreen,
             avgBlue: currentFrameData.avgBlue,
-            quality: fingerDetectionResult.quality, // Usar calidad del detector
-            fingerDetected: fingerDetectionResult.isHumanFinger // Usar resultado del detector
-        });
+             quality: fingerDetectionResult.quality, // Usar calidad del detector
+             fingerDetected: fingerDetectionResult.isHumanFinger // Usar resultado del detector
+         });
 
         if (this.onCalibrationUpdate) {
           this.onCalibrationUpdate({ ...calibrationUpdate, results: this.autoCalibrationSystem.getCalibrationResults() });
@@ -472,14 +482,15 @@ export class SignalProcessingPipeline {
   }
 
   public reset(): void {
+    console.log("SignalProcessingPipeline: Reseteando completamente.");
+    this.isProcessing = false;
     this.humanFingerDetector.reset();
     this.kalmanFilter.reset();
     this.sgFilter.reset();
-    this.signalHistoryForAmplification = [];
+    this.autoCalibrationSystem.reset(); // Usar método reset público de AutoCalibrationSystem
     this.baselineValue = 0;
+    this.signalHistoryForAmplification = [];
     this.lastProcessedSignal = null;
-    this.isCalibrating = false;
-    this.autoCalibrationSystem.startCalibration();
     this.resetPeakDetectionStates(); // Resetear también estados de detección de picos
     console.log("SignalProcessingPipeline: Componentes internos reseteados, calibración reiniciada.");
   }
