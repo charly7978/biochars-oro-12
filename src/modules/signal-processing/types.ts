@@ -1,4 +1,3 @@
-
 import { ProcessedSignal, ProcessingError } from '../../types/signal';
 
 export interface SignalProcessorConfig {
@@ -42,6 +41,7 @@ export interface FrameData {
   textureScore: number;
   rToGRatio: number;
   rToBRatio: number;
+  perfusionIndex?: number;
 }
 
 export interface DetectionResult {

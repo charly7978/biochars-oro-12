@@ -5,6 +5,7 @@ import { AutoCalibrationSystem, CalibrationResult } from './AutoCalibrationSyste
 import { FrameData } from './types'; // Asumiendo que FrameData se define aquí o se importa
 import { ProcessedSignal, ProcessingError } from '../../types/signal';
 import { VitalSignsReferenceData } from '../vital-signs/VitalSignsProcessor'; // Importar el nuevo tipo
+import { FrameProcessor } from './FrameProcessor'; // Importar FrameProcessor
 
 export interface SignalPipelineConfig {
   // Configuraciones para HumanFingerDetector
@@ -31,6 +32,11 @@ export interface SignalPipelineConfig {
   pulsatilityThreshold?: number;
   stabilityFrameDiffThreshold?: number;
   stabilityWindowStdThreshold?: number;
+
+  // Configuración para detección de picos y RR
+  PEAK_VALIDATION_THRESHOLD?: number;
+  RR_INTERVAL_MIN_MS?: number;
+  RR_INTERVAL_MAX_MS?: number;
 }
 
 const defaultConfig: SignalPipelineConfig = {
@@ -48,6 +54,9 @@ const defaultConfig: SignalPipelineConfig = {
   pulsatilityThreshold: undefined,
   stabilityFrameDiffThreshold: undefined,
   stabilityWindowStdThreshold: undefined,
+  PEAK_VALIDATION_THRESHOLD: 0.3, // Umbral por defecto para validación de picos
+  RR_INTERVAL_MIN_MS: 300, // 300ms (200 BPM)
+  RR_INTERVAL_MAX_MS: 2000, // 2000ms (30 BPM)
 };
 
 // Interfaz para los datos que el pipeline necesita del AutoCalibrationSystem
@@ -69,10 +78,22 @@ export class SignalProcessingPipeline {
   private kalmanFilter: OptimizedKalmanFilter;
   private sgFilter: SavitzkyGolayFilter;
   private autoCalibrationSystem: AutoCalibrationSystem;
+  private frameProcessor: FrameProcessor; // Añadir FrameProcessor
 
   private signalHistoryForAmplification: number[] = []; // Historial para amplificación dinámica
   private baselineValue: number = 0;
   private lastProcessedSignal: ProcessedSignal | null = null;
+
+  // Propiedades para detección de picos y RR (portado de VitalSignsProcessor)
+  private lastValue: number = 0; // Para cálculo de derivada
+  private peakValidationBuffer: number[] = []; // Buffer para validar picos
+  private peakCandidateIndex: number | null = null;
+  private peakCandidateValue: number = 0;
+  private peakConfirmationBuffer: Array<{ isCandidate: boolean; value: number; confidence: number; }> = []; // Buffer para confirmar picos (ahora guarda objetos)
+  private lastConfirmedPeak: boolean = false;
+  private rrIntervals: number[] = [];
+  private lastPeakTime: number | null = null;
+  private previousPeakTime: number | null = null;
 
   public onSignalReady?: (signal: ExtendedProcessedSignal) => void;
   public onError?: (error: ProcessingError) => void;
@@ -101,11 +122,18 @@ export class SignalProcessingPipeline {
     this.kalmanFilter = new OptimizedKalmanFilter(this.config.kalmanR, this.config.kalmanQ);
     this.sgFilter = new SavitzkyGolayFilter(this.config.sgWindowSize);
     this.autoCalibrationSystem = new AutoCalibrationSystem();
+    this.frameProcessor = new FrameProcessor(); // Inicializar FrameProcessor
     this.onSignalReady = onSignalReady;
     this.onError = onError;
     this.onCalibrationUpdate = onCalibrationUpdate;
 
     console.log("SignalProcessingPipeline: Inicializado con configuración", this.config);
+    this.resetPeakDetectionStates(); // Inicializar estados de detección de picos
+    this.autoCalibrationSystem.resetData(); // Asegurarse de que este reset también limpie los datos de calibración.
+    this.baselineValue = 0;
+    this.signalHistoryForAmplification = [];
+    this.lastProcessedSignal = null;
+    this.resetPeakDetectionStates(); // Resetear también estados de detección de picos
   }
 
   // Método para registrar el actualizador de VitalSignsProcessor
@@ -123,6 +151,7 @@ export class SignalProcessingPipeline {
     this.sgFilter.reset();
     this.baselineValue = 0;
     this.signalHistoryForAmplification = [];
+    this.resetPeakDetectionStates(); // Resetear al iniciar calibración
     if (this.onCalibrationUpdate) {
       const initialPhase = this.autoCalibrationSystem.getCurrentPhase ? this.autoCalibrationSystem.getCurrentPhase() : 'baseline';
       const initialProgress = this.autoCalibrationSystem.getCurrentProgress ? this.autoCalibrationSystem.getCurrentProgress() : 0;
@@ -250,33 +279,40 @@ export class SignalProcessingPipeline {
     if (currentAmplitude < 0.1) return this.config.maxAmplificationFactor;
     if (currentAmplitude > this.config.targetAmplitude * 2) return this.config.minAmplificationFactor;
 
-    let factor = this.config.targetAmplitude / currentAmplitude;
-    factor = Math.max(this.config.minAmplificationFactor, Math.min(this.config.maxAmplificationFactor, factor));
+    const targetAmp = this.config.targetAmplitude;
+    const minAmp = this.config.minAmplificationFactor;
+    const maxAmp = this.config.maxAmplificationFactor;
+
+    // Lógica de ajuste: si la amplitud es menor que el objetivo, aumentar ganancia;
+    // si es mayor, disminuir. Clamp entre minAmp y maxAmp.
+    let factor = targetAmp / currentAmplitude; // Factor ideal para alcanzar el objetivo
+    factor = Math.max(minAmp / factor, Math.min(maxAmp / factor, 1)); // Ajustar factor basándose en el valor actual
+    factor = Math.max(minAmp, Math.min(maxAmp, factor)); // Clamp final
+
     return factor;
   }
 
   public processFrame(imageData: ImageData): void {
-    if (!this.isProcessing) {
-      return;
-    }
+    if (!this.isProcessing) return; // Solo procesar si el pipeline está activo
+    
+    // 1. Extraer datos básicos del frame
+    const currentFrameData = this.frameProcessor.extractFrameData(imageData); // Renombrar para evitar conflictos si es necesario
+    
+    // 2. Detectar dedo humano y obtener calidad inicial
+    const fingerDetectionResult = this.humanFingerDetector.detectHumanFinger(imageData); // Pasar imageData completo
 
-    try {
-      // fingerDetectionResult se define una vez al principio del try
-      const fingerDetectionResult = this.humanFingerDetector.detectHumanFinger(imageData);
-
-      if (this.isCalibrating) {
-        // Lógica cuando SÍ está calibrando
-        const frameDataForCalibration = {
-          redValue: fingerDetectionResult.rawValue,
-          avgGreen: fingerDetectionResult.debugInfo.avgGreen,
-          avgBlue: fingerDetectionResult.debugInfo.avgBlue,
-          quality: fingerDetectionResult.quality,
-          fingerDetected: fingerDetectionResult.isHumanFinger
-        };
-        const currentAutoCalStatus = this.autoCalibrationSystem.processSample(frameDataForCalibration);
+    // Si estamos calibrando, pasar los datos al sistema de calibración
+    if (this.isCalibrating) {
+        const calibrationUpdate = this.autoCalibrationSystem.processSample({
+            redValue: currentFrameData.redValue,
+            avgGreen: currentFrameData.avgGreen,
+            avgBlue: currentFrameData.avgBlue,
+            quality: fingerDetectionResult.quality, // Usar calidad del detector
+            fingerDetected: fingerDetectionResult.isHumanFinger // Usar resultado del detector
+        });
 
         if (this.onCalibrationUpdate) {
-          this.onCalibrationUpdate({ ...currentAutoCalStatus, results: this.autoCalibrationSystem.getCalibrationResults() });
+          this.onCalibrationUpdate({ ...calibrationUpdate, results: this.autoCalibrationSystem.getCalibrationResults() });
         }
 
         if (this.onSignalReady) {
@@ -288,79 +324,131 @@ export class SignalProcessingPipeline {
             fingerDetected: fingerDetectionResult.isHumanFinger,
             roi: { x: 0, y: 0, width: imageData.width, height: imageData.height },
             perfusionIndex: fingerDetectionResult.confidence,
-            calibrationPhase: currentAutoCalStatus.phase,
-            calibrationProgress: currentAutoCalStatus.progress,
-            calibrationInstructions: currentAutoCalStatus.instructions,
-            debugInfo: { ...fingerDetectionResult.debugInfo }
+            calibrationPhase: calibrationUpdate.phase,
+            calibrationProgress: calibrationUpdate.progress,
+            calibrationInstructions: calibrationUpdate.instructions,
+            debugInfo: { ...fingerDetectionResult.debugInfo },
+            amplifiedValue: 0 // Asegurarse de incluir amplifiedValue
           };
           this.onSignalReady(signalDuringCalibration);
         }
 
-        if (currentAutoCalStatus.isComplete) {
+        if (calibrationUpdate.isComplete) {
           console.log("SignalProcessingPipeline: AutoCalibrationSystem ha completado su proceso.");
           this.endCalibrationMode(); // Asumiendo que esto puede tomar referenceData si es necesario
         }
         
         return; // Salir después de procesar el frame de calibración
 
-      } else {
+    } else {
         // Lógica cuando NO está calibrando
         if (fingerDetectionResult.isHumanFinger && fingerDetectionResult.quality > 30) {
-          const { filteredValue, amplifiedValue } = this.processPPGSignal(fingerDetectionResult.rawValue, fingerDetectionResult.quality);
-          const ppgSignal: ProcessedSignal = {
-            timestamp: fingerDetectionResult.timestamp,
-            rawValue: fingerDetectionResult.rawValue,
-            filteredValue: amplifiedValue,
-            quality: fingerDetectionResult.quality,
-            fingerDetected: true,
-            roi: { x: 0, y: 0, width: imageData.width, height: imageData.height },
-            perfusionIndex: fingerDetectionResult.confidence,
-            debugInfo: fingerDetectionResult.debugInfo
-          };
-          this.lastProcessedSignal = ppgSignal;
-          if (this.onSignalReady) {
-            this.onSignalReady(ppgSignal);
-          }
-        } else {
-          // Dedo no detectado o calidad insuficiente (no calibrando)
-          const noFingerSignal: ExtendedProcessedSignal = {
-            timestamp: Date.now(),
-            rawValue: fingerDetectionResult.rawValue,
-            filteredValue: fingerDetectionResult.rawValue,
-            quality: fingerDetectionResult.quality,
-            fingerDetected: fingerDetectionResult.isHumanFinger,
-            roi: { x: 0, y: 0, width: imageData.width, height: imageData.height },
-            debugInfo: fingerDetectionResult.debugInfo
-          };
-          if (this.onSignalReady) {
-            this.onSignalReady(noFingerSignal);
-          }
-          if (this.onError) {
-            if (!fingerDetectionResult.isHumanFinger) {
-              this.onError({
-                code: "NO_FINGER_DETECTED_NORMAL_MODE",
-                message: "No se detecta el dedo.",
-                timestamp: Date.now(),
-              });
-            } else if (fingerDetectionResult.quality <= 30) {
-              this.onError({
-                code: "POOR_SIGNAL_QUALITY_NORMAL_MODE",
-                message: "Calidad de señal insuficiente.",
-                timestamp: Date.now(),
-              });
+            const { filteredValue, amplifiedValue } = this.processPPGSignal(fingerDetectionResult.rawValue, fingerDetectionResult.quality);
+            const ppgSignal: ProcessedSignal = {
+                timestamp: fingerDetectionResult.timestamp,
+                rawValue: fingerDetectionResult.rawValue,
+                filteredValue: amplifiedValue,
+                quality: fingerDetectionResult.quality,
+                fingerDetected: true,
+                roi: { x: 0, y: 0, width: imageData.width, height: imageData.height },
+                perfusionIndex: fingerDetectionResult.confidence,
+                debugInfo: fingerDetectionResult.debugInfo,
+                rrData: { intervals: [], lastPeakTime: null }, // Resetear RR Data
+                calibrationPhase: this.autoCalibrationSystem.getCurrentPhase ? this.autoCalibrationSystem.getCurrentPhase() : undefined,
+                calibrationProgress: this.autoCalibrationSystem.getCurrentProgress ? this.autoCalibrationSystem.getCurrentProgress() : undefined,
+                calibrationInstructions: this.isCalibrating ? this.autoCalibrationSystem.processSample(currentFrameData).instructions : "Finger not detected or quality too low.",
+                amplifiedValue: amplifiedValue
+            };
+            this.lastProcessedSignal = ppgSignal;
+            if (this.onSignalReady) {
+                this.onSignalReady(ppgSignal as ExtendedProcessedSignal);
             }
-          }
+        } else {
+            // Dedo no detectado o calidad insuficiente (no calibrando)
+            const noFingerSignal: ExtendedProcessedSignal = {
+                timestamp: Date.now(),
+                rawValue: fingerDetectionResult.rawValue,
+                filteredValue: fingerDetectionResult.rawValue,
+                quality: fingerDetectionResult.quality,
+                fingerDetected: fingerDetectionResult.isHumanFinger,
+                roi: { x: 0, y: 0, width: imageData.width, height: imageData.height },
+                debugInfo: fingerDetectionResult.debugInfo,
+                rrData: { intervals: [], lastPeakTime: null }, // Resetear RR Data
+                calibrationPhase: this.autoCalibrationSystem.getCurrentPhase ? this.autoCalibrationSystem.getCurrentPhase() : undefined,
+                calibrationProgress: this.autoCalibrationSystem.getCurrentProgress ? this.autoCalibrationSystem.getCurrentProgress() : undefined,
+                calibrationInstructions: this.isCalibrating ? this.autoCalibrationSystem.processSample(currentFrameData).instructions : "Finger not detected or quality too low.",
+                amplifiedValue: 0 // Asegurarse de incluir amplifiedValue
+            };
+            if (this.onSignalReady) {
+                this.onSignalReady(noFingerSignal as ExtendedProcessedSignal);
+            }
+            if (this.onError) {
+                if (!fingerDetectionResult.isHumanFinger) {
+                    this.onError({
+                        code: "NO_FINGER_DETECTED_NORMAL_MODE",
+                        message: "No se detecta el dedo.",
+                        timestamp: Date.now(),
+                    });
+                } else if (fingerDetectionResult.quality <= 30) {
+                    this.onError({
+                        code: "POOR_SIGNAL_QUALITY_NORMAL_MODE",
+                        message: "Calidad de señal insuficiente.",
+                        timestamp: Date.now(),
+                    });
+                }
+            }
         }
-      }
-    } catch (error: any) {
-      console.error("SignalProcessingPipeline: Error en processFrame:", error);
-      if (this.onError) {
-        this.onError({
-          code: "PROCESS_FRAME_ERROR",
-          message: error.message || "Error desconocido en procesamiento de frame.",
-          timestamp: Date.now(),
-        });
-      }
+    }
+
+    // Usar el rawValue (promedio rojo) del FrameProcessor para el procesamiento de señal
+    const processedSignalValues = this.processPPGSignal(currentFrameData.redValue, fingerDetectionResult.quality); // Pasar quality
+
+    // 4. Detección de picos y cálculo de intervalos RR (NUEVO: Centralizado en Pipeline)
+    const peakDetectionResult = this.enhancedPeakDetectionInternal(processedSignalValues.filteredValue, processedSignalValues.filteredValue - this.lastValue);
+    this.lastValue = processedSignalValues.filteredValue;
+
+    if (peakDetectionResult.isPeak) {
+        this.peakCandidateIndex = this.peakValidationBuffer.length;
+        this.peakCandidateValue = processedSignalValues.filteredValue;
+        this.peakConfirmationBuffer.push({ isCandidate: true, value: processedSignalValues.filteredValue, confidence: peakDetectionResult.confidence });
+    } else {
+        this.peakConfirmationBuffer.push({ isCandidate: false, value: processedSignalValues.filteredValue, confidence: 0 });
+    }
+
+    if (this.peakCandidateIndex !== null && this.peakConfirmationBuffer[this.peakCandidateIndex].isCandidate) {
+        const confirmedPeak = this.confirmPeakInternal(this.peakCandidateIndex !== null, this.peakCandidateValue, this.peakConfirmationBuffer[this.peakCandidateIndex].confidence);
+        if (confirmedPeak) {
+            const peakRRInterval = this.calculateRRInterval(this.lastPeakTime, fingerDetectionResult.timestamp);
+            this.rrIntervals.push(peakRRInterval);
+            this.lastPeakTime = fingerDetectionResult.timestamp;
+            this.previousPeakTime = this.lastPeakTime;
+        }
+    }
+
+    // 5. Construir señal procesada
+    const now = Date.now();
+    const currentRRData = {
+        intervals: this.rrIntervals,
+        lastPeakTime: this.lastPeakTime
+    };
+    this.lastProcessedSignal = {
+        timestamp: now,
+        rawValue: currentFrameData.redValue,
+        filteredValue: processedSignalValues.filteredValue,
+        amplifiedValue: processedSignalValues.amplifiedValue,
+        quality: fingerDetectionResult.quality, // Usar calidad del detector
+        fingerDetected: fingerDetectionResult.isHumanFinger,
+        roi: currentFrameData.roi || { x: 0, y: 0, width: 0, height: 0 }, // Usar ROI del FrameProcessor si existe, sino default
+        perfusionIndex: currentFrameData.perfusionIndex, // Pasar PI si está disponible
+        debugInfo: fingerDetectionResult.debugInfo,
+        rrData: currentRRData, // Incluir RR Data
+        calibrationPhase: this.isCalibrating ? this.autoCalibrationSystem.getCurrentPhase() : undefined, // Estado de calibración
+        calibrationProgress: this.isCalibrating ? this.autoCalibrationSystem.getCurrentProgress() : undefined, // Progreso
+        calibrationInstructions: this.isCalibrating && this.autoCalibrationSystem.getCurrentPhase() ? this.autoCalibrationSystem.processSample(currentFrameData).instructions : undefined // Usar instrucciones de calibración si está calibrando y hay fase, sino undefined
+    };
+
+    if (this.onSignalReady) {
+        this.onSignalReady(this.lastProcessedSignal as ExtendedProcessedSignal);
     }
   }
 
@@ -392,6 +480,7 @@ export class SignalProcessingPipeline {
     this.lastProcessedSignal = null;
     this.isCalibrating = false;
     this.autoCalibrationSystem.startCalibration();
+    this.resetPeakDetectionStates(); // Resetear también estados de detección de picos
     console.log("SignalProcessingPipeline: Componentes internos reseteados, calibración reiniciada.");
   }
 
@@ -399,4 +488,101 @@ export class SignalProcessingPipeline {
   public getLastProcessedSignal(): ProcessedSignal | null {
     return this.lastProcessedSignal;
   }
+
+  // --- Lógica de detección de picos y RR (Portado de VitalSignsProcessor) ---
+
+  private enhancedPeakDetectionInternal(normalizedValue: number, derivative: number): {
+      isPeak: boolean;
+      confidence: number;
+      rawDerivative?: number;
+  } {
+      // Lógica de detección de picos portada de VitalSignsProcessor (simplificada o adaptada)
+      let isPeakCandidate = false;
+      let confidence = 0;
+
+      // Criterio 1: Derivada cruza de positivo a negativo (punto de inflexión/máximo)
+      if (derivative < 0 && (normalizedValue - (this.lastValue + derivative)) > 0) { // Derivada negativa actual, derivada anterior positiva
+           isPeakCandidate = true;
+           confidence += 0.4;
+      }
+
+      // Criterio 2: Valor actual es un máximo local en un pequeño buffer
+      this.peakValidationBuffer.push(normalizedValue);
+      if (this.peakValidationBuffer.length > 5) { // Buffer de 5 muestras (ajustable)
+          this.peakValidationBuffer.shift();
+      }
+      if (this.peakValidationBuffer.length === 5) {
+          const middleIndex = Math.floor(this.peakValidationBuffer.length / 2);
+          if (this.peakValidationBuffer[middleIndex] > Math.max(...this.peakValidationBuffer.slice(0, middleIndex), ...this.peakValidationBuffer.slice(middleIndex + 1))) {
+              // Es un máximo local
+              isPeakCandidate = true;
+              confidence += 0.3;
+              // Calcular confianza basada en la prominencia del pico
+              const prominence = this.peakValidationBuffer[middleIndex] - Math.min(...this.peakValidationBuffer.slice(0, middleIndex), ...this.peakValidationBuffer.slice(middleIndex + 1));
+              confidence += Math.min(0.3, prominence / this.config.PEAK_VALIDATION_THRESHOLD); // Ajustar umbral de confianza
+          }
+      }
+
+      // Criterio 3: Combinación de forma de onda y velocidad de cambio (ej. upstroke rápido)
+      // Esto es más avanzado y podría requerir un análisis morfológico más profundo. 
+      // Por ahora, nos basaremos en los primeros dos criterios principalmente.
+      // Si se implementara, añadiría más confianza.
+
+      confidence = Math.min(1, confidence); // Clamp confianza a 1
+
+      // Lógica de histéresis o confirmación adicional si es necesario
+
+      return {
+          isPeak: isPeakCandidate && confidence > 0.5, // Solo considerar pico si hay confianza mínima
+          confidence: confidence,
+          rawDerivative: derivative
+      };
+  }
+
+  private confirmPeakInternal(
+      isPeakCandidate: boolean,
+      normalizedValue: number,
+      confidence: number
+  ): boolean {
+      // Lógica de confirmación de pico portada de VitalSignsProcessor (simplificada o adaptada)
+      // Usar un buffer para confirmar que el pico es persistente o cumple criterios adicionales.
+      this.peakConfirmationBuffer.push({ isCandidate: isPeakCandidate, value: normalizedValue, confidence: confidence });
+      if (this.peakConfirmationBuffer.length > 3) { // Buffer de 3 muestras (ajustable)
+          this.peakConfirmationBuffer.shift();
+      }
+
+      if (this.peakConfirmationBuffer.length < 3) return false; // No hay suficientes datos para confirmar
+
+      // Criterio de confirmación: Al menos 2 de las últimas 3 muestras son candidatos con confianza razonable
+      const confirmedCount = this.peakConfirmationBuffer.filter(p => p.isCandidate && p.confidence > 0.4).length;
+
+      // Criterio adicional: El pico actual (si es candidato) es el valor más alto en el buffer de confirmación
+      const currentCandidate = this.peakConfirmationBuffer[this.peakConfirmationBuffer.length - 1];
+      const isHighestInBuffer = currentCandidate.isCandidate && currentCandidate.value >= Math.max(...this.peakConfirmationBuffer.map(p => p.value));
+
+      return confirmedCount >= 2 || isHighestInBuffer; // Confirmar si cumple el criterio de conteo o es el más alto
+  }
+
+  private resetPeakDetectionStates(){
+      this.lastValue = 0;
+      this.peakValidationBuffer = [];
+      this.peakCandidateIndex = null;
+      this.peakCandidateValue = 0;
+      this.peakConfirmationBuffer = []; // Resetear como array de objetos
+      this.lastConfirmedPeak = false;
+      this.rrIntervals = []; // Resetear también intervalos RR
+      this.lastPeakTime = null;
+      this.previousPeakTime = null;
+      console.log("Pipeline: Estados de detección de picos reseteados.");
+  }
+
+  private calculateRRInterval(lastPeakTime: number | null, currentPeakTime: number): number {
+    if (lastPeakTime === null || currentPeakTime === null) {
+        return 0; // Si no hay información suficiente, devolver 0
+    }
+    const interval = currentPeakTime - lastPeakTime;
+    return Math.max(this.config.RR_INTERVAL_MIN_MS, Math.min(this.config.RR_INTERVAL_MAX_MS, interval));
+  }
+
+  // --- Fin Lógica de detección de picos y RR ---
 } 

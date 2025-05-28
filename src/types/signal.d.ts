@@ -4,6 +4,7 @@ export interface ProcessedSignal {
   timestamp: number;
   rawValue: number;
   filteredValue: number;
+  amplifiedValue: number;
   quality: number;
   fingerDetected: boolean;
   roi: {
@@ -30,6 +31,7 @@ export interface ProcessedSignal {
     dbgRawQuality?: number;
     [key: string]: any;
   };
+  rrData?: { intervals: number[]; lastPeakTime: number | null };
   calibrationPhase?: string;
   calibrationProgress?: number;
   calibrationInstructions?: string;
@@ -39,10 +41,4 @@ export interface ProcessingError {
   code: string;
   message: string;
   timestamp: number;
-}
-
-declare global {
-  interface Window {
-    heartBeatProcessor: HeartBeatProcessor;
-  }
 }

@@ -1,3 +1,5 @@
+import { VitalSignsReferenceData } from '../vital-signs/VitalSignsProcessor'; // Importar la interfaz
+
 /**
  * Sistema de calibración automática médica para PPG
  */
@@ -312,7 +314,8 @@ export class AutoCalibrationSystem {
       signalParams: this.calibrationData.signalParams,
       accuracy: Math.round(accuracy),
       stabilityScore: Math.round(stabilityScore),
-      recommendations
+      recommendations,
+      referenceData: undefined // Añadir datos de referencia para procesadores de SV
     };
   }
   
@@ -364,5 +367,5 @@ export interface CalibrationResult {
   accuracy: number;
   stabilityScore: number; 
   recommendations: string[];
-  // Podrían añadirse otros campos específicos si son relevantes
+  referenceData?: VitalSignsReferenceData; // Añadir datos de referencia para procesadores de SV
 }

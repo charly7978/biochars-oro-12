@@ -11,7 +11,7 @@ export class FrameProcessor {
   private readonly RED_GAIN = 1.4; // Aumentado para mejor amplificación de señal roja (antes 1.2)
   private readonly GREEN_SUPPRESSION = 0.8; // Menos supresión para mantener información (antes 0.85)
   private readonly SIGNAL_GAIN = 1.3; // Aumentado para mejor detección (antes 1.1)
-  private readonly EDGE_ENHANCEMENT = 0.15; // Ajustado para mejor detección de bordes (antes 0.12)
+  private readonly EDGE_ENHANCEMENT_FACTOR = 0.15; // Ajustado para mejor detección de bordes (antes 0.12)
   
   // Historia para calibración adaptativa
   private lastFrames: Array<{red: number, green: number, blue: number}> = [];
@@ -50,9 +50,9 @@ export class FrameProcessor {
     
     // Grid for texture analysis
     const gridSize = this.CONFIG.TEXTURE_GRID_SIZE;
-    const cells: Array<{ red: number, green: number, blue: number, count: number, edgeScore: number }> = [];
+    const cells: Array<{ red: number, green: number, blue: number, count: number, edgeScore: number, avgLuminance: number }> = [];
     for (let i = 0; i < gridSize * gridSize; i++) {
-      cells.push({ red: 0, green: 0, blue: 0, count: 0, edgeScore: 0 });
+      cells.push({ red: 0, green: 0, blue: 0, count: 0, edgeScore: 0, avgLuminance: 0 });
     }
     
     // Edge detection matrices - Kernel mejorado
@@ -103,6 +103,7 @@ export class FrameProcessor {
         cells[cellIdx].red += enhancedR;
         cells[cellIdx].green += attenuatedG;
         cells[cellIdx].blue += b;
+        cells[cellIdx].avgLuminance += luminance;
         cells[cellIdx].count++;
         
         // Ganancia adaptativa basada en ratio r/g fisiológico - más permisiva
@@ -139,7 +140,8 @@ export class FrameProcessor {
           red: cell.red / cell.count,
           green: cell.green / cell.count,
           blue: cell.blue / cell.count,
-          edgeScore: cell.edgeScore / Math.max(1, cell.count)
+          edgeScore: cell.edgeScore / Math.max(1, cell.count),
+          avgLuminance: cell.avgLuminance / Math.max(1, cell.count)
         }));
       
       if (normCells.length > 1) {
@@ -158,7 +160,7 @@ export class FrameProcessor {
             const blueDiff = Math.abs(cell1.blue - cell2.blue) * 0.6; // Menor énfasis
             
             // Include edge information in texture calculation
-            const edgeDiff = Math.abs(cell1.edgeScore - cell2.edgeScore) * this.EDGE_ENHANCEMENT;
+            const edgeDiff = Math.abs(cell1.edgeScore - cell2.edgeScore) * this.EDGE_ENHANCEMENT_FACTOR;
             
             // Weighted average of differences
             const avgDiff = (redDiff + greenDiff + blueDiff + edgeDiff) / 2.7;
@@ -200,7 +202,8 @@ export class FrameProcessor {
         rToBRatio: 1.2,
         avgRed: 5,
         avgGreen: 4,
-        avgBlue: 4
+        avgBlue: 4,
+        perfusionIndex: 0
       };
     }
     
@@ -243,17 +246,19 @@ export class FrameProcessor {
       dynamicGain: dynamicGain.toFixed(2),
       pixelCount,
       frameSize: `${imageData.width}x${imageData.height}`,
-      roiSize: `${roiSize.toFixed(1)}`
+      roiSize: `${roiSize.toFixed(1)}`,
+      perfusionIndex: ((avgRed - avgGreen) / (avgRed + avgGreen)) * 100
     });
     
     return {
       redValue: avgRed,
+      textureScore,
+      rToGRatio,
+      rToBRatio,
       avgRed,
       avgGreen,
       avgBlue,
-      textureScore,
-      rToGRatio,
-      rToBRatio
+      perfusionIndex: ((avgRed - avgGreen) / (avgRed + avgGreen)) * 100
     };
   }
   
@@ -262,73 +267,49 @@ export class FrameProcessor {
    * Both too dark and too bright conditions reduce signal quality
    */
   private getLightLevelQualityFactor(lightLevel: number): number {
-    // Rango óptimo ampliado - más permisivo
-    if (lightLevel >= 25 && lightLevel <= 85) { // Antes 30-80
-      return 1.0; // Optimal lighting
-    } else if (lightLevel < 25) {
-      // Too dark - reducción lineal en calidad pero más permisiva
-      return Math.max(0.4, lightLevel / 25); // Mínimo aumentado (antes 0.3)
-    } else {
-      // Too bright - penalización reducida
-      return Math.max(0.4, 1.0 - (lightLevel - 85) / 60); // Límites más permisivos
+    // Lógica para determinar un factor de calidad basado en el nivel de luz.
+    // Valores demasiado bajos (oscuridad) o demasiado altos (sobreexposición del flash) reducen la calidad.
+    // Umbrales y curva deben ajustarse a pruebas reales.
+    const MIN_OPTIMAL = 30; // Nivel mínimo de luz óptimo
+    const MAX_OPTIMAL = 80; // Nivel máximo de luz óptimo
+    const FALLOFF_RATE = 0.05; // Qué tan rápido cae la calidad fuera del rango óptimo
+
+    if (lightLevel >= MIN_OPTIMAL && lightLevel <= MAX_OPTIMAL) {
+      return 1.0; // Calidad óptima
+    } else if (lightLevel < MIN_OPTIMAL) {
+      // Caída de calidad lineal por debajo del mínimo óptimo
+      return Math.max(0, 1 - (MIN_OPTIMAL - lightLevel) * FALLOFF_RATE);
+    } else { // lightLevel > MAX_OPTIMAL
+      // Caída de calidad lineal por encima del máximo óptimo
+      return Math.max(0, 1 - (lightLevel - MAX_OPTIMAL) * FALLOFF_RATE);
     }
   }
   
   detectROI(redValue: number, imageData: ImageData): ProcessedSignal['roi'] {
-    // Centered ROI by default with adaptive size
+    // **ESTA FUNCIÓN ACTUALMENTE NO DETECTA ROI DINÁMICAMENTE, SOLO USA UNA ROI CENTRAL FIJA.**
+    // Es crucial implementar lógica de detección de ROI REAL para mejorar la robustez.
+    // Esto podría implicar buscar el área más roja y estable en el frame.
+    // POR AHORA, MANTENEMOS LA ROI CENTRADA POR AHORA.
     const centerX = Math.floor(imageData.width / 2);
     const centerY = Math.floor(imageData.height / 2);
-    
-    // Factor ROI adaptativo mejorado
-    let adaptiveROISizeFactor = this.CONFIG.ROI_SIZE_FACTOR;
-    
-    // Ajustar ROI basado en valor rojo detectado - más permisivo
-    if (redValue < 25) { // Umbral reducido (antes 30)
-      // Señal débil - aumentar ROI para capturar más área
-      adaptiveROISizeFactor = Math.min(0.8, adaptiveROISizeFactor * 1.1); // Mayor aumento
-    } else if (redValue > 120) { // Umbral aumentado (antes 100)
-      // Señal fuerte - enfocar ROI en área central
-      adaptiveROISizeFactor = Math.max(0.35, adaptiveROISizeFactor * 0.97); // Menos reducción
-    }
-    
-    // Ensure ROI is appropriate to image size
-    const minDimension = Math.min(imageData.width, imageData.height);
-    const maxRoiSize = minDimension * 0.85; // Máximo aumentado (antes 0.8)
-    const minRoiSize = minDimension * 0.25; // Mínimo reducido (antes 0.3)
-    
-    let roiSize = minDimension * adaptiveROISizeFactor;
-    roiSize = Math.max(minRoiSize, Math.min(maxRoiSize, roiSize));
-    
-    // Nuevo ROI calculado
-    const newROI = {
-      x: centerX - roiSize / 2,
-      y: centerY - roiSize / 2,
-      width: roiSize,
-      height: roiSize
+    const roiSize = Math.min(imageData.width, imageData.height) * this.CONFIG.ROI_SIZE_FACTOR; // Usar el factor ajustado en el constructor
+
+     // Opcional: ajustar ligeramente el centro de la ROI basado en el historial reciente si hay una señal muy fuerte en un área cercana.
+     // ESTO ES COMPLEJO Y REQUIERE ANÁLISIS ESPACIAL - DEJAREMOS LA ROI CENTRADA POR AHORA.
+
+    const roi: ProcessedSignal['roi'] = {
+      x: Math.max(0, Math.floor(centerX - roiSize / 2)),
+      y: Math.max(0, Math.floor(centerY - roiSize / 2)),
+      width: Math.floor(roiSize),
+      height: Math.floor(roiSize),
     };
-    
-    // Guardar historia de ROIs para estabilidad
-    this.roiHistory.push(newROI);
+
+    // Añadir ROI al historial para estabilidad (si se implementara detección dinámica, se usaría el historial aquí)
+    this.roiHistory.push(roi);
     if (this.roiHistory.length > this.ROI_HISTORY_SIZE) {
-      this.roiHistory.shift();
+        this.roiHistory.shift();
     }
-    
-    // Si tenemos suficiente historia, promediar para estabilidad
-    if (this.roiHistory.length >= 3) {
-      const avgX = this.roiHistory.reduce((sum, roi) => sum + roi.x, 0) / this.roiHistory.length;
-      const avgY = this.roiHistory.reduce((sum, roi) => sum + roi.y, 0) / this.roiHistory.length;
-      const avgWidth = this.roiHistory.reduce((sum, roi) => sum + roi.width, 0) / this.roiHistory.length;
-      const avgHeight = this.roiHistory.reduce((sum, roi) => sum + roi.height, 0) / this.roiHistory.length;
-      
-      return {
-        x: avgX,
-        y: avgY,
-        width: avgWidth,
-        height: avgHeight
-      };
-    }
-    
-    // Si no hay suficiente historia, usar el nuevo ROI directamente
-    return newROI;
+
+    return roi;
   }
 }

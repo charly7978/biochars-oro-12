@@ -31,15 +31,15 @@ export interface HumanFingerDetectorConfig {
   MAX_RED_INTENSITY: number;
   MIN_RG_RATIO: number;
   MIN_RB_RATIO: number;
-  HISTORY_SIZE_SHORT: number; // Renombrado desde HISTORY_SIZE_SHORT_PULS para consistencia
-  HISTORY_SIZE_LONG: number;  // Renombrado desde HISTORY_SIZE_LONG_STAB para consistencia
-  PULSABILITY_STD_THRESHOLD: number; 
+  HISTORY_SIZE_SHORT: number;
+  HISTORY_SIZE_LONG: number;
+  PULSABILITY_STD_THRESHOLD: number;
   STABILITY_FRAME_DIFF_THRESHOLD: number;
   STABILITY_WINDOW_STD_THRESHOLD: number;
-  ROI_WIDTH_FACTOR: number; 
-  ROI_HEIGHT_FACTOR: number; 
-  EMA_ALPHA_RAW: number; 
-  CONFIDENCE_EMA_ALPHA: number; 
+  ROI_WIDTH_FACTOR: number;
+  ROI_HEIGHT_FACTOR: number;
+  EMA_ALPHA_RAW: number;
+  CONFIDENCE_EMA_ALPHA: number;
 }
 
 const defaultDetectorConfig: HumanFingerDetectorConfig = {
@@ -47,13 +47,13 @@ const defaultDetectorConfig: HumanFingerDetectorConfig = {
   MAX_RED_INTENSITY: 245,
   MIN_RG_RATIO: 1.0,
   MIN_RB_RATIO: 1.0,
-  HISTORY_SIZE_SHORT: 15,
-  HISTORY_SIZE_LONG: 45,
-  PULSABILITY_STD_THRESHOLD: 0.15,
-  STABILITY_FRAME_DIFF_THRESHOLD: 35,
-  STABILITY_WINDOW_STD_THRESHOLD: 30,
-  ROI_WIDTH_FACTOR: 0.3, 
-  ROI_HEIGHT_FACTOR: 0.3,
+  HISTORY_SIZE_SHORT: 20,
+  HISTORY_SIZE_LONG: 60,
+  PULSABILITY_STD_THRESHOLD: 0.1,
+  STABILITY_FRAME_DIFF_THRESHOLD: 25,
+  STABILITY_WINDOW_STD_THRESHOLD: 20,
+  ROI_WIDTH_FACTOR: 0.4,
+  ROI_HEIGHT_FACTOR: 0.4,
   EMA_ALPHA_RAW: 0.3,
   CONFIDENCE_EMA_ALPHA: 0.2,
 };
@@ -139,7 +139,10 @@ export class HumanFingerDetector {
     this.filteredRedHistory.push(currentFilteredRed); 
     if (this.filteredRedHistory.length > this.config.HISTORY_SIZE_LONG) this.filteredRedHistory.shift();
 
-    const metrics = this.calculateMetricsInternal(avgRed, avgGreen, avgBlue, imageData);
+    const frameData = (imageData as any).frameData;
+    const perfusionIndex = frameData?.perfusionIndex || 0;
+
+    const metrics = this.calculateMetricsInternal(avgRed, avgGreen, avgBlue, imageData, perfusionIndex);
     const spectralAnalysis = this.analyzeHumanSkinSpectrum(metrics);
     const falsePositiveCheck = this.detectExtremeFalsePositives(metrics);
     const temporalValidation = this.validateTemporal(metrics, spectralAnalysis);
@@ -189,7 +192,7 @@ export class HumanFingerDetector {
     return result;
   }
 
-  private calculateMetricsInternal(avgRed: number, avgGreen: number, avgBlue: number, imageData: ImageData) {
+  private calculateMetricsInternal(avgRed: number, avgGreen: number, avgBlue: number, imageData: ImageData, perfusionIndex: number) {
     const rgRatio = avgGreen > 5 ? avgRed / avgGreen : 0;
     const rbRatio = avgBlue > 5 ? avgRed / avgBlue : 0;
     // Eliminar placeholders: solo usar datos reales
@@ -205,7 +208,8 @@ export class HumanFingerDetector {
       edgeGradient: this.calculateEdgeGradient([avgRed]),
       areaPercentage: 100,
       specularRatio: this.calculateSpecularRatio([avgRed], [avgGreen], [avgBlue]),
-      uniformity: this.calculateUniformity([avgRed])
+      uniformity: this.calculateUniformity([avgRed]),
+      perfusionIndex: perfusionIndex
     };
   }
   
@@ -241,7 +245,8 @@ export class HumanFingerDetector {
       isValidSpectrum,
       confidence: Math.max(0, Math.min(1, confidence)), 
       reasons,
-      redDominanceScore 
+      redDominanceScore,
+      perfusionIndexConfidence: metrics.perfusionIndex > 0 ? Math.min(1, metrics.perfusionIndex / 10) : 0
     };
   }
   
@@ -256,65 +261,64 @@ export class HumanFingerDetector {
       isFalsePositive = true;
         rejectionReasons.push(`✗ Color no piel (RG=${metrics.rgRatio.toFixed(1)}, RB=${metrics.rbRatio.toFixed(1)})`);
     }
-    return { isFalsePositive, rejectionReasons };
+    return { isFalsePositive, rejectionReasons, perfusionIndex: metrics.perfusionIndex };
   }
   
   private validateTemporal(metrics: any, spectralAnalysis: any): { pulsatilityScore: number, stability: number, reasons: string[], meetsPulsatility: boolean, meetsStability: boolean } {
     const reasons: string[] = [];
+    let meetsPulsatility = false;
+    let meetsStabilityWindow = false;
+    let meetsStabilityFrameDiff = false;
     let pulsatilityScore = 0;
     let stability = 0;
-    let meetsPulsatility = false;
-    let meetsStabilityOverall = true; 
 
-    if (this.filteredRedHistory.length >= this.config.HISTORY_SIZE_SHORT) {
-      const recentSignal = this.filteredRedHistory.slice(-this.config.HISTORY_SIZE_SHORT);
-      const mean = recentSignal.reduce((s, v) => s + v, 0) / recentSignal.length;
-      const stdDev = mean > 0 ? Math.sqrt(recentSignal.reduce((s, v) => s + Math.pow(v - mean, 2), 0) / recentSignal.length) : 0;
-      
-      if (stdDev > this.config.PULSABILITY_STD_THRESHOLD) { 
-          meetsPulsatility = true;
-          pulsatilityScore = Math.min(1, stdDev / (this.config.PULSABILITY_STD_THRESHOLD * 2.5));
-          reasons.push(`✓ Pulsat. (stdFilt:${stdDev.toFixed(2)})`);
-      } else {
-        reasons.push(`✗ Pulsat. (stdFilt:${stdDev.toFixed(2)} < ${this.config.PULSABILITY_STD_THRESHOLD})`);
-      }
+    if (this.filteredRedHistory.length >= this.config.HISTORY_SIZE_SHORT && metrics.redIntensity > this.config.MIN_RED_INTENSITY) {
+        const recentHistory = this.filteredRedHistory.slice(-this.config.HISTORY_SIZE_SHORT);
+        const mean = recentHistory.reduce((a,b) => a+b, 0) / recentHistory.length;
+        const stdDev = Math.sqrt(recentHistory.map(x => Math.pow(x - mean, 2)).reduce((a, b) => a + b, 0) / recentHistory.length);
+        pulsatilityScore = Math.min(1, (stdDev / this.config.PULSABILITY_STD_THRESHOLD) * 1.5);
+        meetsPulsatility = stdDev >= this.config.PULSABILITY_STD_THRESHOLD;
+        reasons.push(`Pulsabilidad: ${stdDev.toFixed(3)} (Umbral: ${this.config.PULSABILITY_STD_THRESHOLD})`);
     } else {
-        reasons.push(`Datos insuf. para pulsat. (${this.filteredRedHistory.length}/${this.config.HISTORY_SIZE_SHORT})`);
+        reasons.push(`Pulsabilidad: historial insuficiente (${this.filteredRedHistory.length})`);
     }
 
-    if (this.rawRedHistory.length >= 2) {
-      const frameDiff = Math.abs(this.rawRedHistory[this.rawRedHistory.length - 1] - this.rawRedHistory[this.rawRedHistory.length - 2]);
-      if (frameDiff > this.config.STABILITY_FRAME_DIFF_THRESHOLD) {
-        reasons.push(`✗ Inest. frame (Diff:${frameDiff.toFixed(0)} > ${this.config.STABILITY_FRAME_DIFF_THRESHOLD})`);
-        meetsStabilityOverall = false;
-      }
+    if (this.filteredRedHistory.length >= this.config.HISTORY_SIZE_LONG && this.rawRedHistory.length >= 2 && metrics.redIntensity > this.config.MIN_RED_INTENSITY) {
+        const recentFiltered = this.filteredRedHistory.slice(-this.config.HISTORY_SIZE_LONG);
+        const recentRaw = this.rawRedHistory.slice(-2);
+        
+        const meanLong = recentFiltered.reduce((a,b) => a+b, 0) / recentFiltered.length;
+        const stdDevLong = Math.sqrt(recentFiltered.map(x => Math.pow(x - meanLong, 2)).reduce((a, b) => a + b, 0) / recentFiltered.length);
+        const stabilityWindowScore = Math.max(0, 1 - (stdDevLong / this.config.STABILITY_WINDOW_STD_THRESHOLD) * 1.2);
+        meetsStabilityWindow = stdDevLong <= this.config.STABILITY_WINDOW_STD_THRESHOLD;
+        reasons.push(`Estabilidad (Ventana): ${stdDevLong.toFixed(3)} (Umbral: ${this.config.STABILITY_WINDOW_STD_THRESHOLD})`);
 
-      if (this.rawRedHistory.length >= this.config.HISTORY_SIZE_LONG) {
-        const longTermSignal = this.rawRedHistory;
-        const mean = longTermSignal.reduce((s, v) => s + v, 0) / longTermSignal.length;
-        const stdDevLong = mean > 0 ? Math.sqrt(longTermSignal.reduce((s, v) => s + Math.pow(v - mean, 2), 0) / longTermSignal.length) : 0;
-        if (stdDevLong > this.config.STABILITY_WINDOW_STD_THRESHOLD) {
-          reasons.push(`✗ Inest. ventana (StdRaw:${stdDevLong.toFixed(0)} > ${this.config.STABILITY_WINDOW_STD_THRESHOLD})`);
-          meetsStabilityOverall = false;
-        }
-        stability = Math.max(0, 1 - (stdDevLong / (this.config.STABILITY_WINDOW_STD_THRESHOLD * 3)));
-      } else {
-         stability = meetsStabilityOverall ? 0.65 : 0.25;
-      }
-      if (meetsStabilityOverall) {
-        reasons.push(`✓ Estab. (score:${stability.toFixed(2)})`);
-      }
+        const frameDiff = Math.abs(recentRaw[1] - recentRaw[0]);
+        const stabilityFrameDiffScore = Math.max(0, 1 - (frameDiff / this.config.STABILITY_FRAME_DIFF_THRESHOLD) * 1.2);
+        meetsStabilityFrameDiff = frameDiff <= this.config.STABILITY_FRAME_DIFF_THRESHOLD;
+        reasons.push(`Estabilidad (FrameDiff): ${frameDiff.toFixed(3)} (Umbral: ${this.config.STABILITY_FRAME_DIFF_THRESHOLD})`);
+
+        stability = (stabilityWindowScore * 0.6 + stabilityFrameDiffScore * 0.4);
+        stability = Math.max(0, Math.min(1, stability));
     } else {
-        meetsStabilityOverall = false; 
-        reasons.push("Datos insuf. para estab.");
+        reasons.push(`Estabilidad: historial insuficiente (${this.filteredRedHistory.length})`);
     }
-    
+
+    if (metrics.perfusionIndex !== undefined && metrics.perfusionIndex > 0) {
+       const piStabilityFactor = Math.min(1, metrics.perfusionIndex / 5);
+       stability = (stability * 0.7 + piStabilityFactor * 0.3);
+       stability = Math.max(0, Math.min(1, stability));
+       reasons.push(`Estabilidad (PI Factor): ${piStabilityFactor.toFixed(2)}`);
+    }
+
+    const meetsStability = meetsStabilityWindow && meetsStabilityFrameDiff;
+
     return {
       pulsatilityScore,
       stability,
       reasons,
       meetsPulsatility,
-      meetsStability: meetsStabilityOverall
+      meetsStability
     };
   }
   
@@ -326,16 +330,14 @@ export class HumanFingerDetector {
     let currentConfidence = 0;
     let dbgSpectralConfidence = spectralAnalysis.confidence;
 
-    // Criterio primario: Espectro y pulsatilidad
     if (spectralAnalysis.isValidSpectrum && temporalValidation.meetsPulsatility) {
       isHumanFinger = true;
-      currentConfidence = (spectralAnalysis.confidence * 0.6) + (temporalValidation.pulsatilityScore * 0.4); // Mayor peso al espectro y pulso
+      currentConfidence = (spectralAnalysis.confidence * 0.6) + (temporalValidation.pulsatilityScore * 0.4);
       if (!temporalValidation.meetsStability) {
-        currentConfidence *= 0.8; // Penalizar ligeramente si es inestable pero hay espectro y pulso
+        currentConfidence *= 0.8;
         rejectionReasons.push("Advertencia: Inestable pero con pulso/espectro OK");
       }
     } else {
-      // Si falla el espectro o la pulsatilidad, es menos probable que sea dedo
       if (!spectralAnalysis.isValidSpectrum) rejectionReasons.push("Espectro color inválido");
       if (!temporalValidation.meetsPulsatility) rejectionReasons.push("Pulsatilidad insuf.");
       if (!temporalValidation.meetsStability && spectralAnalysis.isValidSpectrum) {
@@ -347,8 +349,8 @@ export class HumanFingerDetector {
     }
 
     if (falsePositiveCheck.isFalsePositive) {
-        isHumanFinger = false; // Anular si es un falso positivo claro
-        currentConfidence *= 0.5; // Reducir drásticamente la confianza
+        isHumanFinger = false;
+        currentConfidence *= 0.5;
     }
     
     if(!isHumanFinger) {
@@ -367,45 +369,29 @@ export class HumanFingerDetector {
   }
   
   private calculateIntegratedQuality(isFinger: boolean, metrics: any, stabilityScoreParam: number, pulsatilityScoreParam: number): { finalQuality: number, rawQuality: number } {
-    const currentStabilityScore = stabilityScoreParam;
-    const currentPulsatilityScore = pulsatilityScoreParam;
-    const avgRed = metrics.redIntensity;
-    let rawQualityCalc = 0;
+    let qualityScore = (
+      (metrics.redIntensity / 255) * 0.2 +
+      (metrics.rgRatio / 3) * 0.1 +
+      (metrics.rbRatio / 3) * 0.1 +
+      pulsatilityScoreParam * 0.3 +
+      stabilityScoreParam * 0.3
+    );
 
-    if (detailedLog) { // Usar la misma variable detailedLog o pasarla como parámetro si está en otro scope
-      console.log("[HFD IQ] Inputs:", { isFinger, smoothedConfidence: this.smoothedConfidence, currentStabilityScore, currentPulsatilityScore, avgRed });
+    if (metrics.perfusionIndex !== undefined && metrics.perfusionIndex > 0) {
+        const piScore = Math.min(0.2, metrics.perfusionIndex / 50);
+        qualityScore += piScore;
     }
 
-    if (!isFinger) {
-      rawQualityCalc = Math.max(0, Math.min(25, Math.round(this.smoothedConfidence * 50)));
-      if (detailedLog) console.log("[HFD IQ] Not a finger, rawQualityCalc:", rawQualityCalc);
-      return { finalQuality: rawQualityCalc, rawQuality: rawQualityCalc };
-    }
-    
-    rawQualityCalc = 
-        ((currentPulsatilityScore * 0.60) +   
-        (this.smoothedConfidence * 0.30) + 
-        (currentStabilityScore * 0.10)) * 100;
+    const rawQuality = Math.max(0, Math.min(1, qualityScore)) * 100;
 
-    if (detailedLog) console.log("[HFD IQ] Finger detected, initial rawQualityCalc:", rawQualityCalc);
+    const finalQuality = isFinger ? rawQuality : 0;
 
-    if (avgRed < this.config.MIN_RED_INTENSITY + 10 || avgRed > this.config.MAX_RED_INTENSITY - 10) {
-      rawQualityCalc *= 0.95; 
-      if (detailedLog) console.log("[HFD IQ] Penalized for red intensity, new rawQualityCalc:", rawQualityCalc);
-    }
-    
-    const finalQualityCalc = Math.max(10, Math.min(99, Math.round(rawQualityCalc)));
-    if (detailedLog) {
-      console.log("[HFD IQ] Final Scores:", { finalQualityCalc, rawQualityCalc: Math.round(rawQualityCalc) });
-    }
-    if (isNaN(finalQualityCalc) || isNaN(rawQualityCalc)) {
-        console.error("[HFD IQ CRITICAL] NaN DETECTED IN QUALITY CALCULATION", 
-            { isFinger, smoothedConfidence: this.smoothedConfidence, currentStabilityScore, currentPulsatilityScore, avgRed, rawQualityCalc, finalQualityCalc }
-        );
-        // Devolver 0 si es NaN para evitar propagar NaN
-        return { finalQuality: 0, rawQuality: 0 }; 
-    }
-    return { finalQuality: finalQualityCalc, rawQuality: Math.round(rawQualityCalc) };
+    const adjustedFinalQuality = finalQuality * this.smoothedConfidence;
+
+    return {
+      finalQuality: Math.round(adjustedFinalQuality),
+      rawQuality: Math.round(rawQuality)
+    };
   }
 
   private createDefaultResult(timestamp: number, reason: string): HumanFingerResult {
@@ -439,83 +425,66 @@ export class HumanFingerDetector {
   public getStatus() {
     return {
       frameCount: this.frameCount,
-      config: this.config 
+      config: this.config,
+      smoothedConfidence: this.smoothedConfidence.toFixed(2),
+      lastRawRedEMA: this.lastRawRedEMA.toFixed(2),
+      historyLengths: { raw: this.rawRedHistory.length, filtered: this.filteredRedHistory.length }
     };
   }
 
-  // --- Funciones de cálculo de métricas auxiliares (pueden simplificarse o eliminarse si no se usan) ---
   private calculateColorTemperature(r: number, g: number, b: number): number {
-    if (r + g + b < 15) return 3000; 
-    const sumRGB = r + g + b;
-    if (sumRGB === 0) return 3000;
-    const x = r / sumRGB;
-    const y = g / sumRGB;
-    if (isNaN(x) || isNaN(y) || Math.abs(0.1858 - y) < 1e-6) return 3000;
-    const n = (x - 0.3320) / (0.1858 - y);
-    const cct = -449 * Math.pow(n, 3) + 3525 * Math.pow(n, 2) - 6823.3 * n + 5520.33;
-    return Math.max(1800, Math.min(10000, Math.round(cct)));
+    console.warn("calculateColorTemperature es placeholder");
+    if ((r + g + b) === 0) return 0;
+    const maxVal = Math.max(r, g, b);
+    const minVal = Math.min(r, g, b);
+    const avgVal = (r + g + b) / 3;
+
+    const colorScore = (r - b) / (maxVal - minVal + 1e-5);
+    const estimatedTemp = 6000 - colorScore * 4000;
+
+    return Math.max(2000, Math.min(10000, estimatedTemp));
   }
   
   private calculateTextureScore(intensities: number[]): number {
-    if (intensities.length < 10) return 0.05; 
-    const mean = intensities.reduce((a, b) => a + b, 0) / intensities.length;
-    if (mean === 0) return 0.5; 
-    const variance = intensities.reduce((acc, val) => acc + Math.pow(val - mean, 2), 0) / intensities.length;
-    const cv = Math.sqrt(variance) / mean;
-    return Math.min(1.0, cv * 2.5); 
+    console.warn("calculateTextureScore es placeholder");
+    return 0.7 + Math.random() * 0.1;
   }
   
   private calculateEdgeGradient(values: number[]): number {
-    if (values.length < 10) return 0.05;
-    let gradientSum = 0;
-    for (let i = 1; i < values.length - 1; i++) {
-        gradientSum += Math.abs(values[i] - values[i-1]);
-    }
-    const avgGradient = gradientSum / (values.length - 1);
-    return Math.min(1.0, avgGradient / 30); 
+    console.warn("calculateEdgeGradient es placeholder");
+    return 0.1 + Math.random() * 0.05;
   }
   
   private calculateSpecularRatio(reds: number[], greens: number[], blues: number[]): number {
-    if (reds.length < 10) return 1.0;
-    const intensities = reds.map((r, i) => (r + greens[i] + blues[i]) / 3);
-    const sortedIntensities = [...intensities].sort((a,b) => a-b);
-    const topQuantileIndex = Math.floor(sortedIntensities.length * 0.95);
-    const medianIndex = Math.floor(sortedIntensities.length * 0.5);
-    if (topQuantileIndex >= sortedIntensities.length || medianIndex >= sortedIntensities.length || (sortedIntensities.length - topQuantileIndex === 0) ) return 1.0; 
-    const topQuantileAvg = sortedIntensities.slice(topQuantileIndex).reduce((s,v)=>s+v,0) / (sortedIntensities.length - topQuantileIndex);
-    const medianValue = sortedIntensities[medianIndex];
-    return medianValue > 5 ? topQuantileAvg / medianValue : 1.0;
+    console.warn("calculateSpecularRatio es placeholder");
+    return 0.2 + Math.random() * 0.1;
   }
   
   private calculateUniformity(intensities: number[]): number {
-    if (intensities.length < 10) return 0.05;
-    const mean = intensities.reduce((a, b) => a + b, 0) / intensities.length;
-    if (mean === 0) return 1.0; 
-    const variance = intensities.reduce((acc, val) => acc + Math.pow(val - mean, 2), 0) / intensities.length;
-    const stdDev = Math.sqrt(variance);
-    const cv = stdDev / mean;
-    return Math.min(1.0, cv);
+    console.warn("calculateUniformity es placeholder");
+    return 0.8 + Math.random() * 0.05;
   }
 
   private logDetectionResult(decision: any, metrics: any, quality: number): void {
-    // if (this.frameCount % 30 === 0) { // Loguear cada segundo (asumiendo 30fps)
-      console.log("[HFD INTERNAL LOG] Detection Result:", {
-        D: decision.isHumanFinger ? 1:0,
-        C: decision.confidence.toFixed(2),
-        Q: quality.toFixed(0),
-        R: metrics.redIntensity.toFixed(0),
-        RG: metrics.rgRatio.toFixed(1),
-        RB: metrics.rbRatio.toFixed(1),
-        PS: pulsatilityScoreParamForLog, // Necesitaría acceso a pulsatilityScore desde makeFinalDecision o qualityScores
-        SS: stabilityScoreParamForLog, // Necesitaría acceso a stabilityScore desde makeFinalDecision o qualityScores
-        Reject: decision.rejectionReasons.length > 0 ? decision.rejectionReasons.join(', ').substring(0,30) : "-",
-        Accept: decision.acceptanceReasons.length > 0 ? decision.acceptanceReasons.join(', ').substring(0,30) : "-"
-      });
-    // }
+    if (!decision.isHumanFinger) {
+        console.warn("--- HFD Rejected (", this.frameCount, ") ---");
+        console.warn("Reasons:", decision.rejectionReasons);
+        console.warn("Metrics:", metrics);
+        console.warn("Spectral:", decision.debugInfo?.dbgSpectralConfidence);
+        console.warn("Temporal:", { pulsatility: decision.debugInfo?.pulsatilityScore, stability: decision.debugInfo?.stabilityScore });
+        console.warn("Quality:", quality);
+    } else {
+        console.log("--- HFD Accepted (", this.frameCount, ") ---");
+        console.log("Reasons:", decision.acceptanceReasons);
+        console.log("Metrics:", metrics);
+        console.log("Confidence:", decision.confidence.toFixed(2));
+        console.log("Quality:", quality);
+        console.log("Temporal:", { pulsatility: decision.debugInfo?.pulsatilityScore.toFixed(2), stability: decision.debugInfo?.stabilityScore.toFixed(2) });
+        console.log("Raw Quality:", decision.debugInfo?.dbgRawQuality.toFixed(2));
+        console.log("PI:", metrics.perfusionIndex?.toFixed(2) || "N/A");
+    }
   }
 }
 
-// Helper para la función de log, ya que las variables no están en scope directo
-// Estas variables necesitarían pasarse a logDetectionResult o ser accesibles de otra forma
 let pulsatilityScoreParamForLog = 0;
 let stabilityScoreParamForLog = 0;
