@@ -296,20 +296,53 @@ export class SignalProcessingPipeline {
     return factor;
   }
 
-  public processFrame(imageData: ImageData): void {
-    if (!this.isProcessing) return; // Solo procesar si el pipeline está activo
+  public async processFrame(imageData: ImageData): Promise<void> {
+    if (!this.isProcessing) return;
 
-    // 1. Extraer datos básicos del frame
+    // 1. Extraer datos básicos del frame, including the dynamic ROI
     const currentFrameData = this.frameProcessor.extractFrameData(imageData);
 
-    // Create a cropped ImageData based on the dynamically detected ROI
+    // Use a temporary canvas to get the cropped ImageData for the HumanFingerDetector
     const roi = currentFrameData.roi;
-    const croppedImageData = new ImageData(
-        new Uint8ClampedArray(imageData.data.buffer,
-                              (roi.y * imageData.width + roi.x) * 4,
-                              roi.width * roi.height * 4),
-        roi.width, roi.height
-    );
+    let croppedImageData: ImageData;
+
+    // Ensure ROI is valid before attempting to crop
+    if (roi && roi.width > 0 && roi.height > 0) {
+        try {
+            const tempCanvas = document.createElement('canvas');
+            const tempCtx = tempCanvas.getContext('2d');
+            if (!tempCtx) {
+                console.error("SignalProcessingPipeline: Could not get temporary canvas context");
+                // Fallback to processing the whole image or skip processing
+                // For now, let's process the whole image as a fallback
+                 croppedImageData = imageData;
+            } else {
+                tempCanvas.width = roi.width;
+                tempCanvas.height = roi.height;
+
+                // Draw the ROI from the original imageData onto the temporary canvas
+                const imageBitmap = await createImageBitmap(imageData); // Await the ImageBitmap
+                tempCtx.drawImage(
+                    imageBitmap, // Use the awaited ImageBitmap
+                    roi.x, roi.y, roi.width, roi.height, // Source rectangle (the ROI)
+                    0, 0, roi.width, roi.height // Destination rectangle (the whole temp canvas)
+                );
+                imageBitmap.close(); // Release the ImageBitmap resources
+
+                // Get the ImageData from the temporary canvas
+                croppedImageData = tempCtx.getImageData(0, 0, roi.width, roi.height);
+                 console.log("SignalProcessingPipeline: Created cropped ImageData using temporary canvas.", { roi, croppedSize: `${croppedImageData.width}x${croppedImageData.height}` });
+            }
+        } catch (error) {
+             console.error("SignalProcessingPipeline: Error creating cropped ImageData with canvas:", error);
+            // Fallback to processing the whole image in case of error
+             croppedImageData = imageData;
+        }
+    } else {
+        console.warn("SignalProcessingPipeline: Invalid ROI from FrameProcessor, processing full image.", { roi });
+        // If ROI is invalid, process the whole image
+        croppedImageData = imageData;
+    }
 
     // 2. Detectar dedo humano y obtener calidad inicial using the cropped image data
     const fingerDetectionResult = this.humanFingerDetector.detectHumanFinger(croppedImageData);

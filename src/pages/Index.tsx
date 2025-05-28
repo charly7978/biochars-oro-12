@@ -458,11 +458,28 @@ const Index = () => {
             // Obtener datos de la imagen mejorada
             const imageData = enhanceCtx.getImageData(0, 0, enhanceCanvas.width, enhanceCanvas.height);
             
+            // --- ADDED LOGGING ---
+            console.log("Index.tsx: Image data captured from enhanceCanvas", {
+                width: imageData.width,
+                height: imageData.height,
+                dataLength: imageData.data.length,
+            });
+            // --- END ADDED LOGGING ---
+
             // Procesar el frame mejorado
             processFrame(imageData);
           } else {
             // Fallback a procesamiento normal
             const imageData = tempCtx.getImageData(0, 0, targetWidth, targetHeight);
+            
+            // --- ADDED LOGGING (Fallback) ---
+             console.log("Index.tsx: Image data captured from tempCanvas (fallback)", {
+                width: imageData.width,
+                height: imageData.height,
+                dataLength: imageData.data.length,
+            });
+            // --- END ADDED LOGGING (Fallback) ---
+
             processFrame(imageData);
           }
           
