@@ -392,12 +392,6 @@ const Index = () => {
     let consecutiveErrors = 0;
     const maxConsecutiveErrors = 5;
     
-    // Crearemos un contexto dedicado para el procesamiento de imagen
-    const enhanceCanvas = document.createElement('canvas');
-    const enhanceCtx = enhanceCanvas.getContext('2d', {willReadFrequently: true});
-    enhanceCanvas.width = 320;  // Tamaño óptimo para procesamiento PPG
-    enhanceCanvas.height = 240;
-    
     // Activar el flag de procesamiento
     isProcessingFramesRef.current = true;
     
@@ -441,47 +435,18 @@ const Index = () => {
             0, 0, targetWidth, targetHeight
           );
           
-          // Mejorar la imagen para detección PPG
-          if (enhanceCtx) {
-            // Resetear canvas
-            enhanceCtx.clearRect(0, 0, enhanceCanvas.width, enhanceCanvas.height);
-            
-            // Dibujar en el canvas de mejora
-            enhanceCtx.drawImage(tempCanvas, 0, 0, targetWidth, targetHeight);
-            
-            // Opcionales: Ajustes para mejorar la señal roja
-            enhanceCtx.globalCompositeOperation = 'source-over';
-            enhanceCtx.fillStyle = 'rgba(255,0,0,0.05)';  // Sutil refuerzo del canal rojo
-            enhanceCtx.fillRect(0, 0, enhanceCanvas.width, enhanceCanvas.height);
-            enhanceCtx.globalCompositeOperation = 'source-over';
-          
-            // Obtener datos de la imagen mejorada
-            const imageData = enhanceCtx.getImageData(0, 0, enhanceCanvas.width, enhanceCanvas.height);
-            
-            // --- ADDED LOGGING ---
-            console.log("Index.tsx: Image data captured from enhanceCanvas", {
-                width: imageData.width,
-                height: imageData.height,
-                dataLength: imageData.data.length,
-            });
-            // --- END ADDED LOGGING ---
+          // Directamente obtener datos del tempCanvas
+          const imageData = tempCtx.getImageData(0, 0, targetWidth, targetHeight);
 
-            // Procesar el frame mejorado
-            processFrame(imageData);
-          } else {
-            // Fallback a procesamiento normal
-            const imageData = tempCtx.getImageData(0, 0, targetWidth, targetHeight);
-            
-            // --- ADDED LOGGING (Fallback) ---
-             console.log("Index.tsx: Image data captured from tempCanvas (fallback)", {
-                width: imageData.width,
-                height: imageData.height,
-                dataLength: imageData.data.length,
-            });
-            // --- END ADDED LOGGING (Fallback) ---
+          // --- Keep the logging here to see tempCanvas data ---
+          console.log("Index.tsx: Image data captured from tempCanvas (simplified)", {
+              width: imageData.width,
+              height: imageData.height,
+              dataLength: imageData.data.length,
+          });
+          // --- END ADDED LOGGING ---
 
-            processFrame(imageData);
-          }
+          processFrame(imageData); // Process the data from tempCanvas
           
           // Actualizar contadores para monitoreo de rendimiento
           frameCount++;
