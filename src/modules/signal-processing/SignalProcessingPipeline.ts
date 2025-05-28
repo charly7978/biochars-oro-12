@@ -37,6 +37,8 @@ export interface SignalPipelineConfig {
   PEAK_VALIDATION_THRESHOLD?: number;
   RR_INTERVAL_MIN_MS?: number;
   RR_INTERVAL_MAX_MS?: number;
+  TEXTURE_GRID_SIZE?: number; // Añadir configuración para FrameProcessor
+  ROI_SIZE_FACTOR?: number;   // Añadir configuración para FrameProcessor
 }
 
 const defaultConfig: SignalPipelineConfig = {
@@ -57,6 +59,8 @@ const defaultConfig: SignalPipelineConfig = {
   PEAK_VALIDATION_THRESHOLD: 0.3, // Umbral por defecto para validación de picos
   RR_INTERVAL_MIN_MS: 300, // 300ms (200 BPM)
   RR_INTERVAL_MAX_MS: 2000, // 2000ms (30 BPM)
+  TEXTURE_GRID_SIZE: 10, // Valor por defecto
+  ROI_SIZE_FACTOR: 0.3, // Valor por defecto
 };
 
 // Interfaz para los datos que el pipeline necesita del AutoCalibrationSystem
@@ -151,7 +155,7 @@ export class SignalProcessingPipeline {
     this.baselineValue = 0;
     this.signalHistoryForAmplification = [];
     this.resetPeakDetectionStates(); // Resetear al iniciar calibración
-    this.autoCalibrationSystem.reset(); // Usar método reset público de AutoCalibrationSystem
+    this.autoCalibrationSystem.reset(); // Usar método reset público
     if (this.onCalibrationUpdate) {
       const initialPhase = this.autoCalibrationSystem.getCurrentPhase ? this.autoCalibrationSystem.getCurrentPhase() : 'baseline';
       const initialProgress = this.autoCalibrationSystem.getCurrentProgress ? this.autoCalibrationSystem.getCurrentProgress() : 0;
@@ -299,117 +303,80 @@ export class SignalProcessingPipeline {
     const currentFrameData = this.frameProcessor.extractFrameData(imageData); // Renombrar para evitar conflictos si es necesario
     
     // 2. Detectar dedo humano y obtener calidad inicial
-    const fingerDetectionResult = this.humanFingerDetector.detectHumanFinger({
-        redValue: currentFrameData.redValue,
-        avgGreen: currentFrameData.avgGreen,
-        avgBlue: currentFrameData.avgBlue,
-        textureScore: currentFrameData.textureScore,
-        rToGRatio: currentFrameData.rToGRatio,
-        rToBRatio: currentFrameData.rToBRatio,
-        perfusionIndex: currentFrameData.perfusionIndex,
-        roi: currentFrameData.roi, // Pasar ROI
-        imageData: imageData // Pasar imageData si el detector lo necesita para análisis adicionales (ej. bordes)
-    });
+    const fingerDetectionResult = this.humanFingerDetector.detectHumanFinger(imageData);
 
     // Si estamos calibrando, pasar los datos al sistema de calibración
     if (this.isCalibrating) {
-        const calibrationUpdate = this.autoCalibrationSystem.processSample({
-            redValue: currentFrameData.redValue,
-            avgGreen: currentFrameData.avgGreen,
-            avgBlue: currentFrameData.avgBlue,
-             quality: fingerDetectionResult.quality, // Usar calidad del detector
-             fingerDetected: fingerDetectionResult.isHumanFinger // Usar resultado del detector
-         });
+        // Combinar datos del frame y del detector para pasar a processSample
+        const dataForCalibration = {
+            redValue: currentFrameData.redValue, // Del FrameData
+            avgGreen: currentFrameData.avgGreen || 0, // Del FrameData (usar 0 si undefined)
+            avgBlue: currentFrameData.avgBlue || 0,   // Del FrameData (usar 0 si undefined)
+            quality: fingerDetectionResult.quality, // Usar calidad del detector
+            fingerDetected: fingerDetectionResult.isHumanFinger // Usar resultado del detector
+        };
+        const calibrationUpdate = this.autoCalibrationSystem.processSample(dataForCalibration);
 
         if (this.onCalibrationUpdate) {
-          this.onCalibrationUpdate({ ...calibrationUpdate, results: this.autoCalibrationSystem.getCalibrationResults() });
-        }
-
-        if (this.onSignalReady) {
-          const signalDuringCalibration: ExtendedProcessedSignal = {
-            timestamp: fingerDetectionResult.timestamp,
-            rawValue: fingerDetectionResult.rawValue,
-            filteredValue: fingerDetectionResult.filteredValue,
-            quality: fingerDetectionResult.quality,
-            fingerDetected: fingerDetectionResult.isHumanFinger,
-            roi: { x: 0, y: 0, width: imageData.width, height: imageData.height },
-            perfusionIndex: fingerDetectionResult.confidence,
-            calibrationPhase: calibrationUpdate.phase,
-            calibrationProgress: calibrationUpdate.progress,
-            calibrationInstructions: calibrationUpdate.instructions,
-            debugInfo: { ...fingerDetectionResult.debugInfo },
-            amplifiedValue: 0 // Asegurarse de incluir amplifiedValue
-          };
-          this.onSignalReady(signalDuringCalibration);
+          const fullResults = this.autoCalibrationSystem.getCalibrationResults();
+          this.onCalibrationUpdate({ ...calibrationUpdate, results: fullResults });
         }
 
         if (calibrationUpdate.isComplete) {
           console.log("SignalProcessingPipeline: AutoCalibrationSystem ha completado su proceso.");
-          this.endCalibrationMode(); // Asumiendo que esto puede tomar referenceData si es necesario
+          // endCalibrationMode podría requerir referenceData, manejar esto en la UI o en otro lugar si es necesario
+          this.endCalibrationMode(); 
         }
-        
-        return; // Salir después de procesar el frame de calibración
 
-    } else {
-        // Lógica cuando NO está calibrando
-        if (fingerDetectionResult.isHumanFinger && fingerDetectionResult.quality > 30) {
-            const { filteredValue, amplifiedValue } = this.processPPGSignal(fingerDetectionResult.rawValue, fingerDetectionResult.quality);
-            const ppgSignal: ProcessedSignal = {
-                timestamp: fingerDetectionResult.timestamp,
-                rawValue: fingerDetectionResult.rawValue,
-                filteredValue: amplifiedValue,
-                quality: fingerDetectionResult.quality,
-                fingerDetected: true,
-                roi: { x: 0, y: 0, width: imageData.width, height: imageData.height },
-                perfusionIndex: fingerDetectionResult.confidence,
-                debugInfo: fingerDetectionResult.debugInfo,
-                rrData: { intervals: [], lastPeakTime: null }, // Resetear RR Data
-                calibrationPhase: this.autoCalibrationSystem.getCurrentPhase ? this.autoCalibrationSystem.getCurrentPhase() : undefined,
-                calibrationProgress: this.autoCalibrationSystem.getCurrentProgress ? this.autoCalibrationSystem.getCurrentProgress() : undefined,
-                calibrationInstructions: this.isCalibrating ? this.autoCalibrationSystem.processSample(currentFrameData).instructions : "Finger not detected or quality too low.",
-                amplifiedValue: amplifiedValue
-            };
-            this.lastProcessedSignal = ppgSignal;
-            if (this.onSignalReady) {
-                this.onSignalReady(ppgSignal as ExtendedProcessedSignal);
-            }
-        } else {
-            // Dedo no detectado o calidad insuficiente (no calibrando)
-            const noFingerSignal: ExtendedProcessedSignal = {
-                timestamp: Date.now(),
-                rawValue: fingerDetectionResult.rawValue,
-                filteredValue: fingerDetectionResult.rawValue,
-                quality: fingerDetectionResult.quality,
-                fingerDetected: fingerDetectionResult.isHumanFinger,
-                roi: { x: 0, y: 0, width: imageData.width, height: imageData.height },
-                debugInfo: fingerDetectionResult.debugInfo,
-                rrData: { intervals: [], lastPeakTime: null }, // Resetear RR Data
-                calibrationPhase: this.autoCalibrationSystem.getCurrentPhase ? this.autoCalibrationSystem.getCurrentPhase() : undefined,
-                calibrationProgress: this.autoCalibrationSystem.getCurrentProgress ? this.autoCalibrationSystem.getCurrentProgress() : undefined,
-                calibrationInstructions: this.isCalibrating ? this.autoCalibrationSystem.processSample(currentFrameData).instructions : "Finger not detected or quality too low.",
-                amplifiedValue: 0 // Asegurarse de incluir amplifiedValue
-            };
-            if (this.onSignalReady) {
-                this.onSignalReady(noFingerSignal as ExtendedProcessedSignal);
-            }
-            if (this.onError) {
-                if (!fingerDetectionResult.isHumanFinger) {
-                    this.onError({
-                        code: "NO_FINGER_DETECTED_NORMAL_MODE",
-                        message: "No se detecta el dedo.",
-                        timestamp: Date.now(),
-                    });
-                } else if (fingerDetectionResult.quality <= 30) {
-                    this.onError({
-                        code: "POOR_SIGNAL_QUALITY_NORMAL_MODE",
-                        message: "Calidad de señal insuficiente.",
-                        timestamp: Date.now(),
-                    });
-                }
-            }
+        // No procesar señal ni signos vitales durante la calibración activa, solo emitir estado de calibración
+        const signalDuringCalibration: ExtendedProcessedSignal = {
+             timestamp: Date.now(),
+             rawValue: currentFrameData.redValue, // Raw del frame
+             filteredValue: 0, // Resetear valores procesados
+             amplifiedValue: 0,
+             quality: fingerDetectionResult.quality, // Calidad del detector
+             fingerDetected: fingerDetectionResult.isHumanFinger,
+             roi: currentFrameData.roi || { x: 0, y: 0, width: 0, height: 0 }, // ROI del frame data (con fallback)
+             perfusionIndex: currentFrameData.perfusionIndex, // PI del frame data
+             rrData: { intervals: [], lastPeakTime: null }, // No hay RR data durante calibración
+             calibrationPhase: calibrationUpdate.phase,
+             calibrationProgress: calibrationUpdate.progress,
+             calibrationInstructions: calibrationUpdate.instructions,
+             debugInfo: { ...fingerDetectionResult.debugInfo } // Pasar info de debug del detector
+        };
+         if (this.onSignalReady) {
+            this.onSignalReady(signalDuringCalibration);
         }
+        return; // Detener procesamiento de señal si está calibrando
     }
 
+    // Solo continuar si el dedo es detectado y la calidad es razonable (ej. > 20)
+    if (!fingerDetectionResult.isHumanFinger || fingerDetectionResult.quality < 20) {
+        // Si se pierde el dedo o la calidad cae, emitir una señal con detección = false
+        const noFingerSignal: ExtendedProcessedSignal = {
+             timestamp: Date.now(),
+             rawValue: currentFrameData.redValue, // Raw del frame
+             filteredValue: 0, // Resetear valores procesados
+             amplifiedValue: 0,
+             quality: fingerDetectionResult.quality, // Calidad del detector
+             fingerDetected: false,
+             roi: currentFrameData.roi || { x: 0, y: 0, width: 0, height: 0 }, // ROI del frame data (con fallback)
+             perfusionIndex: currentFrameData.perfusionIndex, // PI del frame data
+             debugInfo: fingerDetectionResult.debugInfo, // Pasar info de debug del detector
+             rrData: { intervals: [], lastPeakTime: null }, // Resetear RR Data
+             calibrationPhase: this.autoCalibrationSystem.getCurrentPhase ? this.autoCalibrationSystem.getCurrentPhase() : undefined,
+             calibrationProgress: this.autoCalibrationSystem.getCurrentProgress ? this.autoCalibrationSystem.getCurrentProgress() : undefined,
+             calibrationInstructions: this.autoCalibrationSystem.getCurrentPhase ? this.autoCalibrationSystem.getCurrentPhase() : "Finger not detected or quality too low.", // Mostrar fase de calibración si está en ella, sino mensaje fijo
+        };
+         if (this.onSignalReady) {
+            this.onSignalReady(noFingerSignal);
+        }
+        // Resetear estados de detección de picos cuando se pierde el dedo
+        this.resetPeakDetectionStates();
+        return; // Detener procesamiento si no hay dedo o calidad baja
+    }
+
+    // 3. Procesar la señal PPG (filtrado, amplificación, etc.)
     // Usar el rawValue (promedio rojo) del FrameProcessor para el procesamiento de señal
     const processedSignalValues = this.processPPGSignal(currentFrameData.redValue, fingerDetectionResult.quality); // Pasar quality
 
@@ -454,7 +421,7 @@ export class SignalProcessingPipeline {
         rrData: currentRRData, // Incluir RR Data
         calibrationPhase: this.isCalibrating ? this.autoCalibrationSystem.getCurrentPhase() : undefined, // Estado de calibración
         calibrationProgress: this.isCalibrating ? this.autoCalibrationSystem.getCurrentProgress() : undefined, // Progreso
-        calibrationInstructions: this.isCalibrating && this.autoCalibrationSystem.getCurrentPhase() ? this.autoCalibrationSystem.processSample(currentFrameData).instructions : undefined // Usar instrucciones de calibración si está calibrando y hay fase, sino undefined
+        calibrationInstructions: this.isCalibrating && this.autoCalibrationSystem.getCurrentPhase() ? this.autoCalibrationSystem.getCurrentPhase() : undefined // Simplificar a solo mostrar la fase durante calibración
     };
 
     if (this.onSignalReady) {

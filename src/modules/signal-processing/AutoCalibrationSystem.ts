@@ -356,6 +356,16 @@ export class AutoCalibrationSystem {
     const phaseDuration = this.PHASE_DURATIONS[this.currentPhase] || 5000;
     return Math.min(100, Math.round((phaseElapsed / phaseDuration) * 100));
   }
+  
+  /**
+   * Resetear el sistema de calibración a su estado inicial.
+   */
+  public reset(): void {
+    console.log("AutoCalibrationSystem: Reseteando estado.");
+    this.resetData();
+    this.currentPhase = this.CALIBRATION_PHASES.BASELINE; // Volver a la fase inicial
+    this.phaseStartTime = Date.now(); // Reiniciar tiempo de fase
+  }
 }
 
 // Exportar la interfaz CalibrationResult
