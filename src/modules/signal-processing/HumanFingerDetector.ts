@@ -94,23 +94,23 @@ export class HumanFingerDetector {
     const timestamp = Date.now();
 
     // --- TEMPORARY DIAGNOSTIC OVERRIDE: Force finger detected ---
-    const tempResult: HumanFingerResult = {
-      isHumanFinger: true, // Force true
-      confidence: 1.0,     // High confidence
-      quality: 80,         // High quality
-      rawValue: 150,       // Placeholder value
-      filteredValue: 150,  // Placeholder value
-      timestamp,
-      roi: { x: 0, y: 0, width: imageData.width, height: imageData.height }, // Default ROI
-      debugInfo: {
-        avgRed: 150, avgGreen: 100, avgBlue: 80, rgRatio: 1.5, rbRatio: 1.8,
-        redDominanceScore: 1.0, pulsatilityScore: 1.0, stabilityScore: 1.0,
-        rejectionReasons: [],
-        acceptanceReasons: ['TEMPORARY_OVERRIDE']
-      }
-    };
-    // console.log("HFDetector: Returning TEMPORARY_OVERRIDE result"); // Optional: re-add if logs are available later
-    return tempResult;
+    // const tempResult: HumanFingerResult = {
+    //   isHumanFinger: true, // Force true
+    //   confidence: 1.0,     // High confidence
+    //   quality: 80,         // High quality
+    //   rawValue: 150,       // Placeholder value
+    //   filteredValue: 150,  // Placeholder value
+    //   timestamp,
+    //   roi: { x: 0, y: 0, width: imageData.width, height: imageData.height }, // Default ROI
+    //   debugInfo: {
+    //     avgRed: 150, avgGreen: 100, avgBlue: 80, rgRatio: 1.5, rbRatio: 1.8,
+    //     redDominanceScore: 1.0, pulsatilityScore: 1.0, stabilityScore: 1.0,
+    //     rejectionReasons: [],
+    //     acceptanceReasons: ['TEMPORARY_OVERRIDE']
+    //   }
+    // };
+    // // console.log("HFDetector: Returning TEMPORARY_OVERRIDE result"); // Optional: re-add if logs are available later
+    // return tempResult;
     // --- END TEMPORARY OVERRIDE ---
   }
 
