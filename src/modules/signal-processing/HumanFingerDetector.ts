@@ -139,7 +139,7 @@ export class HumanFingerDetector {
       temporalValidation
     );
     
-    const quality = this.calculateIntegratedQuality(finalDecision, metrics, temporalValidation.stability);
+    const quality = this.calculateIntegratedQuality(finalDecision.isHumanFinger, temporalValidation.stability, temporalValidation.pulsatilityScore, metrics.redIntensity);
     
     this.logDetectionResult(finalDecision, metrics, quality);
     

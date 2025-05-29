@@ -1,4 +1,3 @@
-
 import React, { useRef, useEffect, useState } from 'react';
 import { toast } from "@/components/ui/use-toast";
 
@@ -27,6 +26,9 @@ const CameraView = ({
   const requestedTorch = useRef<boolean>(false);
   const attemptCount = useRef<number>(0);
   const streamRef = useRef<MediaStream | null>(null);
+  const torchRetryTimer = useRef<number | null>(null);
+  const MAX_TORCH_ATTEMPTS = 5;
+  const TORCH_RETRY_DELAY_MS = 500;
 
   const stopCamera = () => {
     if (stream) {
@@ -243,29 +245,8 @@ const CameraView = ({
           
           // Esperar un momento antes de activar la linterna
           setTimeout(() => {
-            videoTrack.applyConstraints({
-              advanced: [{ torch: true }]
-            }).then(() => {
-              setTorchEnabled(true);
-              requestedTorch.current = true;
-              console.log("CameraView: Linterna activada para medición PPG");
-            }).catch(err => {
-              console.error("CameraView: Error activando linterna:", err);
-              torchAttempts.current++;
-              
-              // Intentarlo de nuevo después de un tiempo
-              setTimeout(() => {
-                videoTrack.applyConstraints({
-                  advanced: [{ torch: true }]
-                }).then(() => {
-                  setTorchEnabled(true);
-                  console.log("CameraView: Linterna activada en segundo intento");
-                }).catch(retryErr => {
-                  console.error("CameraView: Error en segundo intento de linterna:", retryErr);
-                });
-              }, 1500); // Tiempo de espera mayor
-            });
-          }, 500);
+            attemptToEnableTorch(videoTrack);
+          }, 300);
         } else {
           console.log("CameraView: Este dispositivo no tiene linterna disponible");
           setDeviceSupportsTorch(false);
@@ -406,6 +387,77 @@ const CameraView = ({
       clearInterval(focusInterval);
     };
   }, [stream, isMonitoring, isFingerDetected, deviceSupportsAutoFocus]);
+
+  const attemptToEnableTorch = (videoTrack: MediaStreamTrack) => {
+    if (!videoTrack || !videoTrack.getCapabilities()?.torch) {
+      console.warn("CameraView: No se puede intentar activar la linterna: track o capacidad no disponible.");
+      return;
+    }
+
+    if (torchAttempts.current >= MAX_TORCH_ATTEMPTS) {
+      console.error(`CameraView: Máximo número de intentos de linterna alcanzado (${MAX_TORCH_ATTEMPTS}). Falló la activación.`);
+      // Mostrar mensaje al usuario si es crucial
+      toast({
+        title: "Linterna Requerida",
+        description: "No se pudo activar la linterna. La medición puede no ser posible o fiable.",
+        variant: "destructive"
+      });
+      requestedTorch.current = false; // Reset para permitir reintentos si se llama startCamera de nuevo
+      setTorchEnabled(false);
+      return;
+    }
+
+    torchAttempts.current++;
+    console.log(`CameraView: Intentando activar linterna (Intento ${torchAttempts.current}/${MAX_TORCH_ATTEMPTS})`);
+
+    videoTrack.applyConstraints({
+      advanced: [{ torch: true }]
+    }).then(() => {
+      console.log("CameraView: Linterna activada exitosamente.");
+      setTorchEnabled(true);
+      requestedTorch.current = true;
+      // Limpiar timer si estaba programado un reintento
+      if (torchRetryTimer.current) {
+        clearTimeout(torchRetryTimer.current);
+        torchRetryTimer.current = null;
+      }
+    }).catch(err => {
+      console.warn(`CameraView: Falló la activación de linterna (Intento ${torchAttempts.current}):`, err);
+      setTorchEnabled(false);
+      requestedTorch.current = false; // Considerar si esto debe ser true para seguir reintentando
+      
+      // Programar próximo reintento
+      torchRetryTimer.current = window.setTimeout(() => {
+        attemptToEnableTorch(videoTrack);
+      }, TORCH_RETRY_DELAY_MS);
+    });
+  };
+
+  useEffect(() => {
+    // Este effect ahora solo maneja la limpieza del timer de reintento
+    return () => {
+      if (torchRetryTimer.current) {
+        clearTimeout(torchRetryTimer.current);
+        torchRetryTimer.current = null;
+      }
+    };
+  }, []);
+
+  // Mantener la linterna encendida si está monitoreando y la linterna está soportada
+  useEffect(() => {
+    if (isMonitoring && deviceSupportsTorch && streamRef.current) {
+      const videoTrack = streamRef.current.getVideoTracks()[0];
+      if (videoTrack && videoTrack.getCapabilities()?.torch && !torchEnabled && requestedTorch.current) {
+        console.log("CameraView: Detectada linterna apagada, intentando reactivar...");
+        // Limpiar intentos anteriores antes de reintentar activarla aquí
+        torchAttempts.current = 0;
+        attemptToEnableTorch(videoTrack);
+      }
+    } else if (!isMonitoring && torchEnabled) {
+      // Si deja de monitorear y la linterna está encendida, apagarla
+      stopCamera(); // stopCamera ya maneja apagar la linterna
+    }
+  }, [isMonitoring, deviceSupportsTorch, streamRef, torchEnabled, requestedTorch]);
 
   return (
     <video
