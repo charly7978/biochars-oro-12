@@ -48,9 +48,9 @@ const defaultDetectorConfig: HumanFingerDetectorConfig = {
   MIN_RB_RATIO: 1.2,
   HISTORY_SIZE_SHORT: 10,      // Coincide con HISTORY_SIZE_SHORT_PULS
   HISTORY_SIZE_LONG: 30,       // Coincide con HISTORY_SIZE_LONG_STAB
-  PULSABILITY_STD_THRESHOLD: 0.6, 
-  STABILITY_FRAME_DIFF_THRESHOLD: 15,
-  STABILITY_WINDOW_STD_THRESHOLD: 10,
+  PULSABILITY_STD_THRESHOLD: 0.4, // Reducido para aceptar menor pulsatilidad
+  STABILITY_FRAME_DIFF_THRESHOLD: 25, // Aumentado para tolerar más diferencia entre frames
+  STABILITY_WINDOW_STD_THRESHOLD: 15, // Aumentado para tolerar más variabilidad en ventana larga
   ROI_WIDTH_FACTOR: 0.3, 
   ROI_HEIGHT_FACTOR: 0.3,
   EMA_ALPHA_RAW: 0.35, 
@@ -93,25 +93,74 @@ export class HumanFingerDetector {
     this.frameCount++;
     const timestamp = Date.now();
 
-    // --- TEMPORARY DIAGNOSTIC OVERRIDE: Force finger detected ---
-    const tempResult: HumanFingerResult = {
-      isHumanFinger: true, // Force true
-      confidence: 1.0,     // High confidence
-      quality: 80,         // High quality
-      rawValue: 150,       // Placeholder value
-      filteredValue: 150,  // Placeholder value
+    const { width, height, data } = imageData;
+    const roiWidth = Math.floor(width * this.config.ROI_WIDTH_FACTOR);
+    const roiHeight = Math.floor(height * this.config.ROI_HEIGHT_FACTOR);
+    const roiX = Math.floor((width - roiWidth) / 2);
+    const roiY = Math.floor((height - roiHeight) / 2);
+    
+    let sumR = 0, sumG = 0, sumB = 0;
+    let pixelCount = 0;
+
+    for (let y = roiY; y < roiY + roiHeight; y++) {
+      for (let x = roiX; x < roiX + roiWidth; x++) {
+        const i = (y * width + x) * 4;
+        sumR += data[i];
+        sumG += data[i + 1];
+        sumB += data[i + 2];
+        pixelCount++;
+      }
+    }
+
+    if (pixelCount < 10) { 
+      return this.createDefaultResult(timestamp, "ROI con muy pocos píxeles");
+    }
+
+    const avgRed = sumR / pixelCount;
+    const avgGreen = sumG / pixelCount;
+    const avgBlue = sumB / pixelCount;
+
+    if (this.lastRawRedEMA === 0) this.lastRawRedEMA = avgRed;
+    const currentFilteredRed = this.lastRawRedEMA * (1 - this.config.EMA_ALPHA_RAW) + avgRed * this.config.EMA_ALPHA_RAW;
+    this.lastRawRedEMA = currentFilteredRed;
+
+    this.rawRedHistory.push(avgRed); 
+    if (this.rawRedHistory.length > this.config.HISTORY_SIZE_LONG) this.rawRedHistory.shift();
+    
+    this.filteredRedHistory.push(currentFilteredRed); 
+    if (this.filteredRedHistory.length > this.config.HISTORY_SIZE_LONG) this.filteredRedHistory.shift();
+
+    const metrics = this.calculateMetricsInternal(avgRed, avgGreen, avgBlue, imageData);
+    const spectralAnalysis = this.analyzeHumanSkinSpectrum(metrics);
+    const falsePositiveCheck = this.detectExtremeFalsePositives(metrics);
+    const temporalValidation = this.validateTemporal(metrics, spectralAnalysis);
+    const finalDecision = this.makeFinalDecision(
+      spectralAnalysis, 
+      falsePositiveCheck, 
+      temporalValidation
+    );
+    
+    const quality = this.calculateIntegratedQuality(finalDecision.isHumanFinger, temporalValidation.stability, temporalValidation.pulsatilityScore, metrics.redIntensity);
+    
+    this.logDetectionResult(finalDecision, metrics, quality);
+    
+    const result: HumanFingerResult = {
+      isHumanFinger: finalDecision.isHumanFinger,
+      confidence: finalDecision.confidence,
+      quality: Math.round(quality),
+      rawValue: avgRed, 
+      filteredValue: currentFilteredRed, 
       timestamp,
-      roi: { x: 0, y: 0, width: imageData.width, height: imageData.height }, // Default ROI
+      roi: { x: roiX, y: roiY, width: roiWidth, height: roiHeight },
       debugInfo: {
-        avgRed: 150, avgGreen: 100, avgBlue: 80, rgRatio: 1.5, rbRatio: 1.8,
-        redDominanceScore: 1.0, pulsatilityScore: 1.0, stabilityScore: 1.0,
-        rejectionReasons: [],
-        acceptanceReasons: ['TEMPORARY_OVERRIDE']
+        avgRed, avgGreen, avgBlue, rgRatio: metrics.rgRatio, rbRatio: metrics.rbRatio,
+        redDominanceScore: spectralAnalysis.redDominanceScore, pulsatilityScore: temporalValidation.pulsatilityScore, stabilityScore: temporalValidation.stability,
+        rejectionReasons: finalDecision.rejectionReasons,
+        acceptanceReasons: finalDecision.acceptanceReasons 
       }
     };
-    // console.log("HFDetector: Returning TEMPORARY_OVERRIDE result"); // Optional: re-add if logs are available later
-    return tempResult;
-    // --- END TEMPORARY OVERRIDE ---
+    // this.lastDetectionResult = result; // Ya no parece usarse este miembro de clase
+    return result;
   }
 
   private calculateMetricsInternal(avgRed: number, avgGreen: number, avgBlue: number, imageData: ImageData) {
