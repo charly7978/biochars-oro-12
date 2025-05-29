@@ -192,7 +192,7 @@ export class HumanFingerDetector {
     const decision = this.makeFinalDecision(spectralAnalysis, falsePositiveCheck, temporalValidation);
 
     // 7. Calculate integrated quality score
-    const quality = this.calculateIntegratedQuality(decision.isHumanFinger, temporalValidation.stability, temporalValidation.pulsatilityScore, metrics.redIntensity);
+    const quality = this.calculateIntegratedQuality(decision.isHumanFinger, temporalValidation.stability, temporalValidation.pulsatilityScore, metrics.redIntensity, temporalValidation, spectralAnalysis);
 
     // 8. Log result periodically for debugging
     this.logDetectionResult(decision, metrics, quality);
@@ -369,11 +369,15 @@ export class HumanFingerDetector {
     if (!temporalValidation.meetsPulsatility) rejectionReasons.push("Pulsatilidad insuf.");
     if (!temporalValidation.meetsStability) rejectionReasons.push("Señal inestable");
 
+    // Criterios para considerar que es un dedo (ajustados para ser más tolerantes inicialmente):
     const isHumanFinger =
       spectralAnalysis.isValidSpectrum && // Debe cumplir criterios de color
       !falsePositiveCheck.isFalsePositive && // No debe ser un falso positivo extremo
-      (temporalValidation.meetsPulsatility || temporalValidation.meetsStability) && // Debe mostrar pulsatilidad *o* ser estable (menos estricto)
-      spectralAnalysis.redDominanceScore > 0.5; // Reducir ligeramente el requisito de dominancia roja
+      (
+        (temporalValidation.meetsPulsatility && spectralAnalysis.redDominanceScore > 0.4) || // Si hay pulso y algo de dominancia roja
+        (temporalValidation.meetsStability && spectralAnalysis.redDominanceScore > 0.6) || // O si es muy estable y con buena dominancia roja
+        (this.frameCount < this.config.HISTORY_SIZE_LONG && spectralAnalysis.redDominanceScore > 0.7) // O si es muy al principio y hay mucha dominancia roja
+      );
 
     let currentConfidence = 0;
     if (isHumanFinger) {
@@ -400,14 +404,19 @@ export class HumanFingerDetector {
     };
   }
   
-  private calculateIntegratedQuality(isFinger: boolean, stabilityScore: number, pulsatilityScore: number, avgRed: number): number {
+  private calculateIntegratedQuality(isFinger: boolean, stabilityScore: number, pulsatilityScore: number, avgRed: number, temporalValidation: any, spectralAnalysis: any): number {
     if (!isFinger) {
       // Si no es un dedo detectado, la calidad es muy baja
       return Math.max(0, Math.min(20, Math.round(this.smoothedConfidence * 40))); // Ajustar ligeramente el rango si no es dedo
     }
     
-    // Calcular calidad combinada, dando más peso a la pulsatilidad y estabilidad
-    let quality = (pulsatilityScore * 0.6 + stabilityScore * 0.3 + this.smoothedConfidence * 0.1) * 100;
+    // Calcular calidad combinada, reflejando la fortaleza de las características PPG
+    let quality = (
+      pulsatilityScore * 0.5 + // Gran peso a la pulsatilidad
+      stabilityScore * 0.3 + // Peso a la estabilidad
+      spectralAnalysis.redDominanceScore * 0.1 + // Peso a la dominancia roja como indicador de contacto/iluminación
+      this.smoothedConfidence * 0.1 // Peso a la confianza general suavizada
+    ) * 100;
 
     if (avgRed < this.config.MIN_RED_INTENSITY + 20 || avgRed > this.config.MAX_RED_INTENSITY - 20) {
       quality *= 0.85; // Penalizar si la intensidad está en los extremos del rango aceptable
