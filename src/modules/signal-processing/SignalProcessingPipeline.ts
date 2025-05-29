@@ -107,6 +107,7 @@ export class SignalProcessingPipeline {
 
   public startCalibrationMode(): void {
     console.log("SignalProcessingPipeline: Iniciando modo calibración.");
+    this.isProcessing = true;
     this.isCalibrating = true;
     this.autoCalibrationSystem.startCalibration();
     this.humanFingerDetector.reset();
