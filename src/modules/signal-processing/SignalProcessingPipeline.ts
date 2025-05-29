@@ -246,22 +246,35 @@ export class SignalProcessingPipeline {
     const normalizedForKalman = rawValue - this.baselineValue;
     const kalmanFiltered = this.kalmanFilter.filter(normalizedForKalman);
     const sgFiltered = this.sgFilter.filter(kalmanFiltered); // Savitzky-Golay sobre la señal ya normalizada y filtrada por Kalman
-    
     const filteredValueRebased = sgFiltered + this.baselineValue; // Re-añadir baseline para tener valor absoluto
-
     // Normalización respecto al baseline para amplificación
     const normalizedForAmplification = sgFiltered; // Usamos la señal ya filtrada y normalizada (sin baseline)
-    
-    // Amplificación dinámica basada en la varianza de la señal reciente
-    const amplificationFactor = this.calculateDynamicAmplification();
-    const amplifiedValue = normalizedForAmplification * amplificationFactor; // Este valor es AC
+
+    // --- OPTIMIZACIÓN: Penalizar frames saturados y señales planas ---
+    let isSaturated = false;
+    if (rawValue > 250 || rawValue < 10) isSaturated = true;
+    // Si la señal reciente tiene muy poca variación, también penalizar
+    const recent = this.signalHistoryForAmplification.slice(-20);
+    const minR = Math.min(...recent, rawValue);
+    const maxR = Math.max(...recent, rawValue);
+    const ampR = maxR - minR;
+    let lowVariation = ampR < 2;
+
+    // Amplificación dinámica más sensible a señales bajas
+    let amplificationFactor = this.calculateDynamicAmplification();
+    if (ampR < 5) amplificationFactor *= 1.5; // Si la variación es muy baja, amplificar más
+    if (isSaturated) amplificationFactor = 1; // No amplificar si está saturado
+    if (lowVariation) amplificationFactor *= 2; // Si la señal es muy plana, amplificar más
+    amplificationFactor = Math.max(this.config.minAmplificationFactor, Math.min(this.config.maxAmplificationFactor, amplificationFactor));
+
+    const amplifiedValue = normalizedForAmplification * amplificationFactor;
 
     // Actualizar historial de señal *amplificada y AC* para el cálculo de la amplificación dinámica
     this.signalHistoryForAmplification.push(amplifiedValue);
-    if (this.signalHistoryForAmplification.length > this.config.historySize) { // Usa historySize de config
+    if (this.signalHistoryForAmplification.length > this.config.historySize) {
       this.signalHistoryForAmplification.shift();
     }
-    
+
     return {
       filteredValue: filteredValueRebased, // Este es el valor filtrado pero en escala original
       amplifiedValue: amplifiedValue + this.baselineValue, // Este es el valor AC amplificado, re-baseado para la salida

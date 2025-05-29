@@ -78,9 +78,21 @@ export class HumanFingerDetector {
   
   private isHighLightCondition = false; // Nuevo flag para detectar condición de alta luz
   
+  // 1. Cambios en la clase HumanFingerDetector:
+  // Agregar variables para umbrales adaptativos
+  private adaptiveRedMin: number = 0;
+  private adaptiveRedMax: number = 255;
+  private adaptiveRgRatioMin: number = 0.7;
+  private adaptiveRbRatioMin: number = 0.7;
+  
   constructor(config: Partial<HumanFingerDetectorConfig> = {}) {
     this.config = { ...defaultDetectorConfig, ...config };
     this.reset();
+    // Inicializar umbrales adaptativos con valores por defecto
+    this.adaptiveRedMin = this.config.MIN_RED_INTENSITY;
+    this.adaptiveRedMax = this.config.MAX_RED_INTENSITY;
+    this.adaptiveRgRatioMin = this.config.MIN_RG_RATIO;
+    this.adaptiveRbRatioMin = this.config.MIN_RB_RATIO;
     console.log("HumanFingerDetector: Inicializado con config:", this.config);
   }
 
@@ -128,8 +140,36 @@ export class HumanFingerDetector {
     // Detect high light condition (potential flash)
     this.isHighLightCondition = avgRed > 200 && avgGreen > 180 && avgBlue > 150; // Heurística: valores altos en todos los canales
 
+    // Actualizar historiales
+    this.rawRedHistory.push(avgRed);
+    if (this.rawRedHistory.length > 120) this.rawRedHistory.shift();
+    // Calcular umbrales adaptativos cada 10 frames
+    if (this.frameCount % 10 === 0 && this.rawRedHistory.length > 30) {
+      const sortedRed = [...this.rawRedHistory].sort((a, b) => a - b);
+      this.adaptiveRedMin = Math.max(10, sortedRed[Math.floor(sortedRed.length * 0.05)] - 5);
+      this.adaptiveRedMax = Math.min(255, sortedRed[Math.floor(sortedRed.length * 0.95)] + 5);
+      // Ratios RG/RB adaptativos
+      const rgRatios = this.rawRedHistory.map((r, i) => {
+        const g = avgGreen; // Aproximación rápida
+        return g > 0 ? r / g : 0;
+      });
+      const rbRatios = this.rawRedHistory.map((r, i) => {
+        const b = avgBlue; // Aproximación rápida
+        return b > 0 ? r / b : 0;
+      });
+      rgRatios.sort((a, b) => a - b);
+      rbRatios.sort((a, b) => a - b);
+      this.adaptiveRgRatioMin = Math.max(0.6, rgRatios[Math.floor(rgRatios.length * 0.05)] - 0.05);
+      this.adaptiveRbRatioMin = Math.max(0.6, rbRatios[Math.floor(rbRatios.length * 0.05)] - 0.05);
+    }
+
     // Use the metrics calculation from the original code, passing extracted values
-    const metrics = this.calculateMetricsInternal(avgRed, avgGreen, avgBlue, imageData, 0); // Pass 0 for perfusionIndex for now if not calculated here
+    const metrics = this.calculateMetricsInternal(avgRed, avgGreen, avgBlue, imageData, 0, {
+      adaptiveRedMin: this.adaptiveRedMin,
+      adaptiveRedMax: this.adaptiveRedMax,
+      adaptiveRgRatioMin: this.adaptiveRgRatioMin,
+      adaptiveRbRatioMin: this.adaptiveRbRatioMin,
+    });
     // console.log(`[FingerDetector] Frame ${this.frameCount} - Metrics:`, metrics); // Comentado
 
     // Use the spectral analysis
@@ -188,12 +228,14 @@ export class HumanFingerDetector {
     };
   }
 
-  private calculateMetricsInternal(avgRed: number, avgGreen: number, avgBlue: number, imageData: ImageData, perfusionIndex: number) {
+  private calculateMetricsInternal(avgRed: number, avgGreen: number, avgBlue: number, imageData: ImageData, perfusionIndex: number, adaptive?: any) {
     const rgRatio = (avgGreen > 0) ? avgRed / avgGreen : 0;
     const rbRatio = (avgBlue > 0) ? avgRed / avgBlue : 0;
-    // Add log here to see calculated ratios
-    // console.log(`[FingerDetector] Frame ${this.frameCount} - Ratios: RG=${rgRatio.toFixed(2)}, RB=${rbRatio.toFixed(2)}`); // Comentado
-    // Eliminar placeholders: solo usar datos reales
+    // Usar umbrales adaptativos si están presentes
+    const redMin = adaptive?.adaptiveRedMin ?? this.config.MIN_RED_INTENSITY;
+    const redMax = adaptive?.adaptiveRedMax ?? this.config.MAX_RED_INTENSITY;
+    const rgMin = adaptive?.adaptiveRgRatioMin ?? this.config.MIN_RG_RATIO;
+    const rbMin = adaptive?.adaptiveRbRatioMin ?? this.config.MIN_RB_RATIO;
     return {
       redIntensity: avgRed,
       greenIntensity: avgGreen,
@@ -201,7 +243,11 @@ export class HumanFingerDetector {
       rgRatio: rgRatio,
       rbRatio: rbRatio,
       gbRatio: avgBlue > 5 ? avgGreen / avgBlue : 0,
-      perfusionIndex: perfusionIndex
+      perfusionIndex: perfusionIndex,
+      adaptiveRedMin: redMin,
+      adaptiveRedMax: redMax,
+      adaptiveRgRatioMin: rgMin,
+      adaptiveRbRatioMin: rbMin,
     };
   }
   
@@ -210,9 +256,12 @@ export class HumanFingerDetector {
     let confidence = 0.0; 
     let criteriaMet = 0;
     let redDominanceScore = 0;
-
-    if (metrics.redIntensity >= this.config.MIN_RED_INTENSITY && 
-        metrics.redIntensity <= this.config.MAX_RED_INTENSITY) {
+    // Usar umbrales adaptativos
+    const minRed = metrics.adaptiveRedMin ?? this.config.MIN_RED_INTENSITY;
+    const maxRed = metrics.adaptiveRedMax ?? this.config.MAX_RED_INTENSITY;
+    const minRG = metrics.adaptiveRgRatioMin ?? this.config.MIN_RG_RATIO;
+    const minRB = metrics.adaptiveRbRatioMin ?? this.config.MIN_RB_RATIO;
+    if (metrics.redIntensity >= minRed && metrics.redIntensity <= maxRed) {
       confidence += 0.35; 
       reasons.push(`✓ RInt (${metrics.redIntensity.toFixed(0)})`);
       criteriaMet++;
@@ -221,9 +270,9 @@ export class HumanFingerDetector {
       confidence -= 0.1;
     }
     
-    if (metrics.rgRatio >= this.config.MIN_RG_RATIO && metrics.rbRatio >= this.config.MIN_RB_RATIO) {
+    if (metrics.rgRatio >= minRG && metrics.rbRatio >= minRB) {
       confidence += 0.35; 
-      redDominanceScore = Math.min(1, ((metrics.rgRatio - this.config.MIN_RG_RATIO) + (metrics.rbRatio - this.config.MIN_RB_RATIO)) / 3.0);
+      redDominanceScore = Math.min(1, ((metrics.rgRatio - minRG) + (metrics.rbRatio - minRB)) / 3.0);
       reasons.push(`✓ RDom (R/G:${metrics.rgRatio.toFixed(1)}, R/B:${metrics.rbRatio.toFixed(1)})`);
       criteriaMet++;
     } else {
@@ -239,8 +288,8 @@ export class HumanFingerDetector {
     // Añadir una pequeña tolerancia si estamos en alta luz para el criterio espectral
     const spectralTolerance = this.isHighLightCondition ? 0.1 : 0; // Ajuste menor para alta luz
     const isDominantlyRed = redDominanceScore > (0.3 - spectralTolerance); // Ajuste umbral de dominancia
-    const isRGOK = metrics.rgRatio > (this.config.MIN_RG_RATIO - spectralTolerance);
-    const isRBOk = metrics.rbRatio > (this.config.MIN_RB_RATIO - spectralTolerance);
+    const isRGOK = metrics.rgRatio > (minRG - spectralTolerance);
+    const isRBOk = metrics.rbRatio > (minRB - spectralTolerance);
 
     let criteriaMet = 0;
     if (isDominantlyRed) criteriaMet++
@@ -285,16 +334,27 @@ export class HumanFingerDetector {
     let meetsStabilityFrameDiff = false;
     let pulsatilityScore = 0;
     let stability = 0;
-
+    // Validar pulsatilidad con autocorrelación si hay suficiente historial
     if (this.filteredRedHistory.length >= this.config.HISTORY_SIZE_SHORT && metrics.redIntensity > this.config.MIN_RED_INTENSITY) {
-        const recentHistory = this.filteredRedHistory.slice(-this.config.HISTORY_SIZE_SHORT);
-        const mean = recentHistory.reduce((a,b) => a+b, 0) / recentHistory.length;
-        const stdDev = Math.sqrt(recentHistory.map(x => Math.pow(x - mean, 2)).reduce((a, b) => a + b, 0) / recentHistory.length);
-        pulsatilityScore = Math.min(1, (stdDev / this.config.PULSABILITY_STD_THRESHOLD) * 1.5);
-        meetsPulsatility = stdDev >= this.config.PULSABILITY_STD_THRESHOLD;
-        reasons.push(`Pulsabilidad: ${stdDev.toFixed(3)} (Umbral: ${this.config.PULSABILITY_STD_THRESHOLD})`);
+      const recentHistory = this.filteredRedHistory.slice(-this.config.HISTORY_SIZE_SHORT);
+      // Calcular autocorrelación para detectar periodicidad
+      let mean = recentHistory.reduce((a, b) => a + b, 0) / recentHistory.length;
+      let autocorr = 0;
+      for (let lag = 1; lag < Math.floor(recentHistory.length / 2); lag++) {
+        let sum = 0;
+        for (let i = 0; i < recentHistory.length - lag; i++) {
+          sum += (recentHistory[i] - mean) * (recentHistory[i + lag] - mean);
+        }
+        autocorr = Math.max(autocorr, sum / (recentHistory.length - lag));
+      }
+      // Normalizar autocorrelación
+      const stdDev = Math.sqrt(recentHistory.map(x => Math.pow(x - mean, 2)).reduce((a, b) => a + b, 0) / recentHistory.length);
+      const normAutocorr = stdDev > 0 ? autocorr / (stdDev * stdDev) : 0;
+      pulsatilityScore = Math.min(1, (stdDev / this.config.PULSABILITY_STD_THRESHOLD) * 1.5) * normAutocorr;
+      meetsPulsatility = stdDev >= this.config.PULSABILITY_STD_THRESHOLD && normAutocorr > 0.3;
+      reasons.push(`Pulsabilidad: std=${stdDev.toFixed(3)}, autocorr=${normAutocorr.toFixed(2)} (Umbral: ${this.config.PULSABILITY_STD_THRESHOLD})`);
     } else {
-        reasons.push(`Pulsabilidad: historial insuficiente (${this.filteredRedHistory.length})`);
+      reasons.push(`Pulsabilidad: historial insuficiente (${this.filteredRedHistory.length})`);
     }
 
     if (this.filteredRedHistory.length >= this.config.HISTORY_SIZE_LONG && this.rawRedHistory.length >= 2 && metrics.redIntensity > this.config.MIN_RED_INTENSITY) {
