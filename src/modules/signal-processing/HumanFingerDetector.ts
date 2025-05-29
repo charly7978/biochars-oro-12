@@ -42,10 +42,10 @@ export interface HumanFingerDetectorConfig {
 }
 
 const defaultDetectorConfig: HumanFingerDetectorConfig = {
-  MIN_RED_INTENSITY: 50,
-  MAX_RED_INTENSITY: 240,
-  MIN_RG_RATIO: 1.1,
-  MIN_RB_RATIO: 1.5,
+  MIN_RED_INTENSITY: 40,
+  MAX_RED_INTENSITY: 230,
+  MIN_RG_RATIO: 1.0,
+  MIN_RB_RATIO: 1.2,
   HISTORY_SIZE_SHORT: 10,      // Coincide con HISTORY_SIZE_SHORT_PULS
   HISTORY_SIZE_LONG: 30,       // Coincide con HISTORY_SIZE_LONG_STAB
   PULSABILITY_STD_THRESHOLD: 0.6, 
