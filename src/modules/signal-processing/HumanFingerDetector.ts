@@ -278,7 +278,8 @@ export class HumanFingerDetector {
       confidence -= 0.15;
     }
 
-    const isValidSpectrum = criteriaMet >= 2 && confidence >= 0.5; 
+    // Criterio de espectro más laxo: pasa si cumple al menos 1 criterio y la confianza no es negativa
+    const isValidSpectrum = criteriaMet >= 1 && confidence >= -0.1;
     
     return {
       isValidSpectrum,
@@ -369,22 +370,21 @@ export class HumanFingerDetector {
     if (!temporalValidation.meetsPulsatility) rejectionReasons.push("Pulsatilidad insuf.");
     if (!temporalValidation.meetsStability) rejectionReasons.push("Señal inestable");
 
-    // Criterios extremadamente laxos: básicamente, si no es un falso positivo obvio y pasa espectralmente con umbrales bajos.
-    const isHumanFinger =
-      spectralAnalysis.isValidSpectrum &&
-      !falsePositiveCheck.isFalsePositive;
+    // Criterios extremadamente laxos con fallback:
+    (spectralAnalysis.isValidSpectrum && !falsePositiveCheck.isFalsePositive) || // Pasa si cumple espectro relajado y no es falso positivo obvio
+    (metrics.redIntensity > 10 && metrics.greenIntensity > 10 && metrics.blueIntensity > 10); // O pasa como fallback si hay datos de color no nulos
     // NOTA: La validación temporal y la dominancia roja no determinan AHORA la decisión binaria isHumanFinger.
     // La calidad (quality) y la confianza (confidence) SÍ las reflejarán.
 
     let currentConfidence = 0;
     if (isHumanFinger) {
-      // Confianza basada en criterios laxos
-      currentConfidence = (spectralAnalysis.confidence * 0.7) + // Gran peso al espectro base
-                          (1 - (falsePositiveCheck.isFalsePositive ? 1 : 0)) * 0.3; // Peso si no es falso positivo obvio
-      currentConfidence = Math.max(0.5, currentConfidence); // Asegurar una confianza base si es 'dedo'
+      // Confianza basada en criterios extremadamente laxos
+      currentConfidence = (spectralAnalysis.confidence * 0.5) + // Peso al espectro base
+                          (1 - (falsePositiveCheck.isFalsePositive ? 1 : 0)) * 0.2 + // Peso si no es falso positivo obvio
+                          (metrics.redIntensity > 10 ? 0.3 : 0); // Peso si hay datos de color (para el fallback)
+      currentConfidence = Math.max(0.3, currentConfidence); // Base de confianza muy baja si es 'dedo'
     } else {
       currentConfidence = Math.min(0.4,
-        (spectralAnalysis.confidence * 0.3) +
         (temporalValidation.pulsatilityScore * 0.15) +
         (temporalValidation.stability * 0.05)
       );
