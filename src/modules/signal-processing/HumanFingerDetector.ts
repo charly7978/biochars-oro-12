@@ -373,7 +373,7 @@ export class HumanFingerDetector {
     const isHumanFinger =
       spectralAnalysis.isValidSpectrum && // Debe cumplir criterios de color básicos
       !falsePositiveCheck.isFalsePositive && // No debe ser un falso positivo extremo (e.g., plástico)
-      spectralAnalysis.redDominanceScore > 0.5; // Debe tener una dominancia roja clara (indica piel/sangre)
+      spectralAnalysis.redDominanceScore > 0.4; // Reducir ligeramente el requisito de dominancia roja para aumentar sensibilidad
       // NOTA: Se elimina la dependencia estricta de la validación temporal para la decisión binaria isHumanFinger.
       // La calidad (quality) aún usará los datos temporales.
       
