@@ -87,21 +87,32 @@ export class AutoCalibrationSystem {
         instructions = "Coloque su dedo sobre la cámara y manténgalo firme";
         this.processFingerDetectionPhase(frameData);
         // Avanzar si se completa el tiempo Y el dedo ha sido consistentemente detectado recientemente
-        // (Esta lógica de "consistentemente detectado" podría necesitar más elaboración aquí o basarse en la calidad)
-        shouldAdvance = phaseElapsed >= phaseDuration && frameData.fingerDetected && frameData.quality > 30;
-        if (phaseElapsed >= phaseDuration && !(frameData.fingerDetected && frameData.quality > 30)) {
-            console.log("AutoCalibrationSystem: Detección de dedo fallida/calidad baja al final de la fase, extendiendo...");
-            this.phaseStartTime = Date.now() - (phaseDuration * 0.8); // Retroceder un poco el tiempo para dar más oportunidad
+        const minFingerDetectionTime = phaseDuration * 0.8; // Asegurar detección en el 80% del tiempo o más
+        const requiredQuality = 40; // Exigir una calidad mínima para avanzar
+        const hasConsistentDetection = this.samples.fingerDetection.slice(-30).filter(q => q > requiredQuality).length >= 20; // Al menos 20 frames con buena calidad en los últimos 30
+
+        shouldAdvance = phaseElapsed >= phaseDuration && hasConsistentDetection && frameData.fingerDetected && frameData.quality > requiredQuality;
+
+        if (phaseElapsed >= phaseDuration && !hasConsistentDetection) {
+            console.log(`AutoCalibrationSystem: Detección de dedo o calidad insuficiente (${frameData.quality}) al final de la fase, extendiendo. Requiere calidad > ${requiredQuality} consistentemente.`);
+            this.phaseStartTime = Date.now() - (phaseDuration * 0.5); // Retroceder el tiempo para dar más oportunidad con feedback
+            instructions = `Mantenga el dedo firme. Calidad actual: ${Math.round(frameData.quality)}. Requiere calidad > ${requiredQuality}.`;
         }
         break;
         
       case this.CALIBRATION_PHASES.SIGNAL_OPTIMIZATION:
         instructions = "Mantenga el dedo quieto mientras optimizamos la señal";
         this.processSignalOptimizationPhase(frameData);
-        shouldAdvance = phaseElapsed >= phaseDuration && frameData.quality > 50; // Exigir mejor calidad para avanzar
-         if (phaseElapsed >= phaseDuration && !(frameData.quality > 50)) {
-            console.log("AutoCalibrationSystem: Calidad de señal insuficiente para optimización, extendiendo...");
-            this.phaseStartTime = Date.now() - (phaseDuration * 0.8);
+        const requiredOptQuality = 60; // Exigir calidad aún mejor
+        const minOptQualityTime = phaseDuration * 0.8;
+        const hasHighQuality = this.samples.signalQuality.slice(-30).filter(q => q > requiredOptQuality).length >= 25; // Al menos 25 frames con alta calidad en los últimos 30
+
+        shouldAdvance = phaseElapsed >= phaseDuration && hasHighQuality && frameData.quality > requiredOptQuality;
+
+        if (phaseElapsed >= phaseDuration && !hasHighQuality) {
+             console.log(`AutoCalibrationSystem: Calidad de señal insuficiente (${frameData.quality}) para optimización, extendiendo. Requiere calidad > ${requiredOptQuality} consistentemente.`);
+             this.phaseStartTime = Date.now() - (phaseDuration * 0.5);
+             instructions = `Calidad insuficiente. Asegure contacto firme y uniforme. Calidad actual: ${Math.round(frameData.quality)}. Requiere calidad > ${requiredOptQuality}.`;
         }
         break;
         
@@ -113,6 +124,7 @@ export class AutoCalibrationSystem {
     }
     
     if (shouldAdvance) {
+      console.log(`AutoCalibrationSystem: Fase '${this.currentPhase}' completada. Avanzando a la siguiente.`);
       this.advancePhase();
       // Si avanzamos a COMPLETE, recalcular progreso para que sea 100%
       if (this.currentPhase === this.CALIBRATION_PHASES.COMPLETE) {

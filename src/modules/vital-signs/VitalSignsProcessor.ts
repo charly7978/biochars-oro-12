@@ -17,6 +17,15 @@ export interface VitalSignsResult {
   };
   hemoglobin: number;
   arrhythmiaStatus: string;
+  qualityScore: number;
+  vitalSignConfidence?: {
+    heartRate?: number;
+    spo2?: number;
+    pressure?: number;
+    glucose?: number;
+    lipids?: number;
+    hemoglobin?: number;
+  };
   lastArrhythmiaData?: {
     timestamp: number;
     rmssd: number;
@@ -44,6 +53,8 @@ export class VitalSignsProcessor {
   private isCalibrated = false;
   private frameCount = 0;
   private lastValidResults: VitalSignsResult | null = null;
+  private colorDataHistory: { red: number, green: number, blue: number }[] = [];
+  private readonly COLOR_HISTORY_SIZE = 180;
 
   constructor() {
     console.log("VitalSignsProcessor: Inicializado (SIN SIMULACIONES)");
@@ -75,7 +86,7 @@ export class VitalSignsProcessor {
     return Math.min(100, (this.frameCount / totalCalibrationFrames) * 100);
   }
 
-  processSignal(ppgValue: number, rrData?: { intervals: number[]; lastPeakTime: number | null }, colorData?: { red: number, green?: number, blue?: number }): VitalSignsResult {
+  processSignal(ppgValue: number, rrData?: { intervals: number[]; lastPeakTime: number | null }, colorData?: { red: number, green?: number, blue?: number }, signalQuality: number = 0): VitalSignsResult {
     this.frameCount++;
     
     // Almacenar señal real (usaremos la señal roja si colorData está disponible)
@@ -83,6 +94,16 @@ export class VitalSignsProcessor {
     this.signalBuffer.push(signalToBuffer);
     if (this.signalBuffer.length > 300) {
       this.signalBuffer.shift();
+    }
+
+    // Almacenar datos de color si están disponibles
+    if (colorData) {
+      // Asegurar que siempre tenemos los tres canales, usando 0 si falta alguno
+      const fullColorData = { red: colorData.red, green: colorData.green || 0, blue: colorData.blue || 0 };
+      this.colorDataHistory.push(fullColorData);
+      if (this.colorDataHistory.length > this.COLOR_HISTORY_SIZE) {
+        this.colorDataHistory.shift();
+      }
     }
 
     // Establecer baseline durante calibración
@@ -101,22 +122,22 @@ export class VitalSignsProcessor {
     }
 
     // Calcular BPM real basado en intervalos RR
-    const heartRate = this.calculateRealBPM();
+    const heartRate = this.calculateRealBPM(signalQuality);
     
     // Calcular SpO2 real basado en ratio AC/DC y datos de color si disponibles
-    const spo2 = this.calculateRealSpO2(colorData);
+    const spo2 = this.calculateRealSpO2(colorData, signalQuality);
     
     // Calcular presión real basada en características de pulso
-    const pressure = this.calculateRealBloodPressure();
+    const pressure = this.calculateRealBloodPressure(signalQuality);
     
     // Calcular glucosa real basada en variabilidad PPG
-    const glucose = this.calculateRealGlucose();
+    const glucose = this.calculateRealGlucose(signalQuality);
     
     // Calcular lípidos reales basados en perfusión
-    const lipids = this.calculateRealLipids();
+    const lipids = this.calculateRealLipids(signalQuality);
     
     // Calcular hemoglobina real basada en absorción
-    const hemoglobin = this.calculateRealHemoglobin(colorData);
+    const hemoglobin = this.calculateRealHemoglobin(colorData, signalQuality);
 
     const result: VitalSignsResult = {
       heartRate,
@@ -127,6 +148,15 @@ export class VitalSignsProcessor {
       hemoglobin,
       arrhythmiaStatus: "NORMAL",
       lastArrhythmiaData: null,
+      qualityScore: signalQuality,
+      vitalSignConfidence: {
+        heartRate: this.calculateConfidence(signalQuality, 40, 70),
+        spo2: this.calculateConfidence(signalQuality, 50, 75),
+        pressure: this.calculateConfidence(signalQuality, 60, 80),
+        glucose: this.calculateConfidence(signalQuality, 70, 85),
+        lipids: this.calculateConfidence(signalQuality, 65, 82),
+        hemoglobin: this.calculateConfidence(signalQuality, 55, 78),
+      },
       calibration: {
         isCalibrating: this.isCurrentlyCalibrating(),
         progress: {
@@ -141,15 +171,17 @@ export class VitalSignsProcessor {
       }
     };
 
-    // Guardar solo resultados válidos con criterio más estricto y dependencia de calibración
-    if (this.isCalibrated && heartRate > 40 && heartRate < 200 && spo2 > 90 && spo2 <= 100) {
+    // Guardar solo resultados válidos con criterio más estricto y dependencia de calibración Y calidad
+    if (this.isCalibrated && signalQuality > 40 && heartRate > 40 && heartRate < 200 && spo2 > 90 && spo2 <= 100) {
       this.lastValidResults = result;
     }
 
     return result;
   }
 
-  private calculateRealBPM(): number {
+  private calculateRealBPM(signalQuality: number): number {
+    if (signalQuality < 40) return 0; // Descartar si la calidad es muy baja
+
     if (this.rrIntervals.length >= 3) {
       // Usar intervalos RR reales para calcular BPM
       const avgRR = this.rrIntervals.slice(-5).reduce((a, b) => a + b, 0) / Math.min(5, this.rrIntervals.length);
@@ -194,165 +226,307 @@ export class VitalSignsProcessor {
     return peaks;
   }
 
-  private calculateRealSpO2(colorData?: { red: number, green?: number, blue?: number }): number {
-    if (this.signalBuffer.length < 60 || !this.isCalibrated) return 0; // Aumentar ventana a 2 seg
+  private calculateRealSpO2(colorData?: { red: number, green?: number, blue?: number }, signalQuality: number = 0): number {
+    if (signalQuality < 50) return 0; // Requiere mayor calidad para SpO2
 
-    // *** Mejora: Calcular AC y DC para señal Roja y (si disponible) Verde/IR ***
-    const redSignal = this.signalBuffer; // Asumimos signalBuffer es señal roja principal
-    // Necesitamos obtener la señal verde/IR del colorData o del pipeline previo
-    const greenOrIRSignal = colorData?.green; // Usar verde como proxy si no hay IR
-
-    if (!greenOrIRSignal) {
-      console.warn("SpO2: Datos de color verde/IR no disponibles. Usando cálculo básico de respaldo.");
-      // *** Cálculo básico de respaldo (similar al anterior) ***
-      const recentRed = redSignal.slice(-60);
-      const maxRed = Math.max(...recentRed);
-      const minRed = Math.min(...recentRed);
-      const acRed = maxRed - minRed;
-      const dcRed = recentRed.reduce((a, b) => a + b, 0) / recentRed.length;
-
-      if (dcRed === 0 || acRed === 0) return 0;
-      const ratioRed = acRed / dcRed;
-
-      // Fórmula empírica básica (menos fiable)
-      const spo2 = 110 - (25 * ratioRed);
-      return Math.round(Math.max(85, Math.min(100, spo2)));
+    if (!colorData || !colorData.green || !colorData.blue) {
+      console.warn("SpO2: Datos de color insuficientes para cálculo.");
+      return 0;
     }
 
-    // *** Cálculo avanzado con dos longitudes de onda ***
-    // Esto requiere que greenOrIRSignal tenga la misma longitud y esté sincronizada con redSignal slice
-    // Idealmente, el pipeline de procesamiento entregaría arrays de AC/DC ya calculados o frames sincronizados
+    // *** Mejora: Cálculo de SpO2 utilizando historial de ColorData ***
+    // Se necesita un historial suficiente de datos de color para calcular componentes AC/DC estables
+    if (this.colorDataHistory.length < 60 || !this.isCalibrated) return 0; // Requiere historial de color (aprox 2 seg)
 
-    // Placeholder: Asumir que tenemos los últimos 60 puntos sincronizados
-    const recentRed = redSignal.slice(-60);
-    // const recentGreenOrIR = /* PENDIENTE: Obtener últimos 60 puntos de greenOrIRSignal */; // PENDIENTE: Obtener estos datos reales
+    const recentColorData = this.colorDataHistory.slice(-60); // Últimos 60 frames de color
 
-    // Cálculo AC/DC para Roja
-    const maxRed = Math.max(...recentRed);
-    const minRed = Math.min(...recentRed);
-    const acRed = maxRed - minRed;
-    const dcRed = recentRed.reduce((a, b) => a + b, 0) / recentRed.length;
+    // Extraer canales individuales
+    const redChannel = recentColorData.map(data => data.red);
+    const greenChannel = recentColorData.map(data => data.green);
+    const blueChannel = recentColorData.map(data => data.blue);
 
-    // Cálculo AC/DC para Verde/IR (Placeholder)
-    let acGreenOrIR = 0;
-    let dcGreenOrIR = 0;
-    // PENDIENTE: Implementar cálculo AC/DC real para greenOrIRSignal
-    // const maxGreenOrIR = Math.max(...recentGreenOrIR);
-    // const minGreenOrIR = Math.min(...recentGreenOrIR);
-    // acGreenOrIR = maxGreenOrIR - minGreenOrIR;
-    // dcGreenOrIR = recentGreenOrIR.reduce((a, b) => a + b, 0) / recentGreenOrIR.length;
+    // Calcular AC y DC para Rojo y Verde (canales clave para Hb)
+    const { ac: acRed, dc: dcRed } = this.calculateACDC(redChannel);
+    const { ac: acGreen, dc: dcGreen } = this.calculateACDC(greenChannel);
+    // Opcional: usar Azul si es relevante para el dispositivo/luz
+    // const { ac: acBlue, dc: dcBlue } = this.calculateACDC(blueChannel);
 
-    if (dcRed === 0 || acRed === 0 || dcGreenOrIR === 0 || acGreenOrIR === 0) return 0;
+    // Validación básica de amplitudes
+    if (acRed < 1 || acGreen < 1 || dcRed < 1 || dcGreen < 1) {
+        console.warn("SpO2: Amplitudes AC/DC insuficientes para cálculo.");
+        return 0;
+    }
 
     // Calcular Ratio of Ratios (R)
-    const R = (acRed / dcRed) / (acGreenOrIR / dcGreenOrIR);
+    const ratioRed = acRed / dcRed;
+    const ratioGreen = acGreen / dcGreen;
+    // Asegurarse de que el denominador no sea cero para evitar Infinity/NaN
+    const R = (ratioGreen > 0 && ratioRed > 0) ? ratioRed / ratioGreen : 0;
 
-    // Curva de calibración empírica (necesita validación/ajuste)
-    // Esta es una fórmula común, pero la curva exacta depende de la longitud de onda y hardware
-    const spo2 = 110 - (25 * R); // Ejemplo de curva
-    // TODO: Refinar esta curva con datos de calibración o investigación específica
+    if (R <= 0) {
+        console.warn("SpO2: Ratio of Ratios (R) no válido.");
+        return 0;
+    }
 
-    return Math.round(Math.max(85, Math.min(100, spo2))); // Limitar a rango fisiológico
+    // Curva de calibración empírica R vs SpO2 (EJEMPLO - requiere validación CLÍNICA)
+    // Esta es una fórmula común, pero la curva exacta depende del hardware (cámara/linterna)
+    // y puede necesitar ser ajustada/calibrada con mediciones de referencia.
+    let estimatedSpO2 = 110 - (25 * R);
+
+    // Aplicar un filtro temporal simple o suavizado (EMA) si es necesario para estabilidad
+    // this.lastSmoothedSpO2 = this.lastSmoothedSpO2 * 0.8 + estimatedSpO2 * 0.2;
+
+    // Limitar el resultado a un rango fisiológico razonable
+    return Math.round(Math.max(85, Math.min(100, estimatedSpO2)));
   }
 
-  private calculateRealBloodPressure(): string {
-    if (this.signalBuffer.length < 90 || !this.isCalibrated) return "0/0"; // Aumentar ventana a 3 seg
+  private calculateACDC(values: number[]): { ac: number, dc: number } {
+    if (values.length === 0) return { ac: 0, dc: 0 };
+    const max = Math.max(...values);
+    const min = Math.min(...values);
+    const ac = max - min; // Simple pico a pico AC
+    const dc = values.reduce((sum, val) => sum + val, 0) / values.length; // Promedio DC
+    return { ac, dc };
+  }
 
-    // *** Mejora: Análisis de Morfología y Rigidez Arterial ***
-    const recent = this.signalBuffer.slice(-90); // Últimos 3 segundos
+  private calculateRealBloodPressure(signalQuality: number = 0): string {
+    if (signalQuality < 60) return "--/--"; // Requiere alta calidad para PA
 
-    // PENDIENTE: Implementar:
-    // 1. Detección precisa de picos, valles y muesca dicrótica
-    // 2. Cálculo de tiempos característicos (tiempo de subida, etc.)
-    // 3. Cálculo de métricas de rigidez arterial (e.g., AI - Augmentation Index si es posible)
-    // 4. Uso de un modelo (tabla o función) que relacione morfología/rigidez con PA
+    // *** Mejora: Cálculo de Presión Arterial basado en Morfología de Onda ***
+    // Requiere un historial suficiente de señal PPG roja y detección fiable de picos/valles.
+    if (this.signalBuffer.length < 150 || !this.isCalibrated) return "0/0"; // Requiere al menos 5 segundos de señal
 
-    // Placeholder (cálculo simple anterior como respaldo temporal)
-    const amplitude = Math.max(...recent) - Math.min(...recent);
-    const baseline = recent.reduce((a, b) => a + b, 0) / recent.length;
-    const stiffnessIndex = amplitude / baseline;
-    const systolic = Math.round(90 + (stiffnessIndex * 40));
-    const diastolic = Math.round(60 + (stiffnessIndex * 20));
+    const recentSignal = this.signalBuffer.slice(-150); // Usar una ventana adecuada
+    const { peakIndices, valleyIndices } = this.detectRealPeaksAndValleys(recentSignal);
 
-    const finalSystolic = Math.max(90, Math.min(180, systolic));
-    const finalDiastolic = Math.max(60, Math.min(120, diastolic));
+    if (peakIndices.length < 2 || valleyIndices.length < 2) {
+        console.warn("PA: Pocos picos/valles detectados para análisis morfológico.");
+        return "0/0";
+    }
+
+    // PENDIENTE: Implementar análisis de morfología detallado:
+    // - Identificar pares Pico-Valle.
+    // - Calcular tiempo de subida, tiempo de bajada.
+    // - Buscar muesca dicrótica y calcular el tiempo hasta ella desde el pico.
+    // - Calcular ratios de amplitudes en puntos clave.
+    // - Derivar métricas de rigidez arterial (ej. Índice de Aceleración, Índice de Aumento).
+
+    // Placeholder: Usar una métrica simple de morfología (e.g., ratio tiempo de subida/tiempo de bajada) como ejemplo
+    // Esto requeriría lógica de detección de muesca dicrótica precisa:
+    // const upstrokeTime = ...; // PENDIENTE calcular
+    // const downstrokeTime = ...; // PENDIENTE calcular
+    // const morphologyRatio = (upstrokeTime > 0 && downstrokeTime > 0) ? upstrokeTime / downstrokeTime : 1.0;
+
+    // Placeholder: Usar la variabilidad de la amplitud como un proxy de rigidez/presión
+    const amplitudes = [];
+    for(let i = 0; i < peakIndices.length -1; i++){
+        const peakVal = recentSignal[peakIndices[i]];
+        const nextValleyVal = valleyIndices.length > i ? recentSignal[valleyIndices[i]] : Math.min(...recentSignal.slice(peakIndices[i]));
+        amplitudes.push(peakVal - nextValleyVal);
+    }
+    const avgAmplitude = amplitudes.reduce((a,b)=>a+b, 0) / amplitudes.length;
+    const amplitudeVariability = calculateStandardDeviation(amplitudes);
+
+    // MODELO EMPÍRICO BÁSICO (REQUERE VALIDACIÓN CLÍNICA y CALIBRACIÓN INDIVIDUAL)
+    // Relaciona amplitud y su variabilidad con PA (muy simplificado)
+    const estimatedSystolic = 120 - (avgAmplitude * 0.5) + (amplitudeVariability * 2);
+    const estimatedDiastolic = 80 - (avgAmplitude * 0.3) + (amplitudeVariability * 1.5);
+
+    const finalSystolic = Math.round(Math.max(90, Math.min(180, estimatedSystolic)));
+    const finalDiastolic = Math.round(Math.max(60, Math.min(120, estimatedDiastolic)));
 
     return `${finalSystolic}/${finalDiastolic}`;
   }
 
-  private calculateRealGlucose(): number {
-    if (this.signalBuffer.length < 90 || !this.isCalibrated) return 0;
-    
-    // Análisis de variabilidad de señal PPG para glucosa
-    const recent = this.signalBuffer.slice(-90);
-    
-    // Calcular variabilidad como indicador metabólico
-    const mean = recent.reduce((a, b) => a + b, 0) / recent.length;
-    const variance = recent.reduce((acc, val) => acc + Math.pow(val - mean, 2), 0) / recent.length;
+  private calculateRealGlucose(signalQuality: number = 0): number {
+    if (signalQuality < 70) return 0; // La glucosa requiere la mayor calidad posible
+
+    // *** Mejora: Cálculo de Glucosa basado en Morfología y Variabilidad PPG ***
+    // Requiere análisis detallado de la forma de onda y potentially análisis de frecuencia.
+    if (this.signalBuffer.length < 180 || !this.isCalibrated) return 0; // Requiere al menos 6 segundos de señal
+
+    const recentSignal = this.signalBuffer.slice(-180); // Ventana más amplia
+    const { peakIndices, valleyIndices } = this.detectRealPeaksAndValleys(recentSignal);
+
+    if (peakIndices.length < 3 || valleyIndices.length < 3) {
+        console.warn("Glucosa: Pocos picos/valles detectados para análisis.");
+        return 0;
+    }
+
+    // PENDIENTE: Implementar análisis morfológico específico para glucosa:
+    // - Análisis de la pendiente de subida y bajada.
+    // - Formas de onda características.
+    // - Análisis en el dominio de la frecuencia (si se identifica alguna frecuencia relevante).
+    // - Correlaciones con variabilidad de pulso a corto plazo.
+
+    // Placeholder: Combinar variabilidad y una métrica morfológica simple (ej. ancho de pulso)
+    const mean = recentSignal.reduce((a, b) => a + b, 0) / recentSignal.length;
+    const variance = recentSignal.reduce((acc, val) => acc + Math.pow(val - mean, 2), 0) / recentSignal.length;
     const cv = Math.sqrt(variance) / mean;
-    
-    // Correlación empírica con niveles de glucosa
-    const glucoseBase = 90; // mg/dL normal
-    const glucoseVariation = cv * 100; // Factor de variabilidad
-    
-    const glucose = glucoseBase + glucoseVariation;
-    
-    return Math.round(Math.max(70, Math.min(200, glucose)));
+
+    let avgPulseWidth = 0; // PENDIENTE: Calcular el ancho promedio del pulso desde los picos/valles
+    // Ejemplo: avgPulseWidth = (valleyIndices[i+1] - peakIndices[i]) * (1000/30); // Tiempo de bajada + siguiente subida
+
+    // MODELO EMPÍRICO BÁSICO (REQUERE VALIDACIÓN CLÍNICA y CALIBRACIÓN INDIVIDUAL)
+    // Combina variabilidad y un proxy morfológico (muy simplificado)
+    const estimatedGlucose = 90 + (cv * 800) - (avgPulseWidth * 0.5); // Ajustar coeficientes empíricamente
+
+    return Math.round(Math.max(60, Math.min(250, estimatedGlucose)));
   }
 
-  private calculateRealLipids(): { totalCholesterol: number; triglycerides: number } {
-    if (this.signalBuffer.length < 120 || !this.isCalibrated) return { totalCholesterol: 0, triglycerides: 0 }; // Aumentar ventana a 4 seg
+  private calculateRealLipids(signalQuality: number = 0): { totalCholesterol: number; triglycerides: number } {
+    if (signalQuality < 65) return { totalCholesterol: 0, triglycerides: 0 }; // Lípidos también requieren alta calidad
 
-    // *** Mejora: Análisis de Morfología y Propiedades Sanguíneas ***
-    const recent = this.signalBuffer.slice(-120); // Últimos 4 segundos
+    // *** Mejora: Cálculo de Lípidos basado en Morfología y Propiedades Reológicas ***
+    // Requiere análisis detallado de la forma de onda, especialmente la cola diastólica.
+    if (this.signalBuffer.length < 180 || !this.isCalibrated) return { totalCholesterol: 0, triglycerides: 0 }; // Requiere al menos 6 segundos de señal
 
-    // PENDIENTE: Implementar:
-    // 1. Análisis detallado de la forma de onda PPG.
-    // 2. Estimación de la viscosidad sanguínea y resistencia periférica a partir de la morfología (e.g., análisis de la cola diastólica).
-    // 3. Modelos que correlacionen estas métricas con los niveles de lípidos.
+    const recentSignal = this.signalBuffer.slice(-180);
+    const { peakIndices, valleyIndices } = this.detectRealPeaksAndValleys(recentSignal);
 
-    // Placeholder (valores fijos o cálculo simple de respaldo temporal)
-    // El cálculo de lípidos es muy complejo y depende de muchos factores.
-    // Un cálculo real requeriría investigación profunda y validación.
+    if (peakIndices.length < 3 || valleyIndices.length < 3) {
+        console.warn("Lípidos: Pocos picos/valles detectados para análisis.");
+        return { totalCholesterol: 0, triglycerides: 0 };
+    }
 
-    // Ejemplo simple de cálculo 'realista' pero no validado médicamente:
-    const variability = calculateStandardDeviation(recent) / (recent.reduce((a, b) => a + b, 0) / recent.length);
-    const avgAmplitude = Math.max(...recent) - Math.min(...recent);
+    // PENDIENTE: Implementar análisis morfológico específico para lípidos:
+    // - Análisis de la forma y pendiente de la cola diastólica (decay rate).
+    // - Relación entre AC y DC en diferentes longitudes de onda (si se propaga colorData history).
+    // - Estimación de viscosidad sanguínea y resistencia periférica.
 
-    // Correlaciones inventadas para demostrar el concepto (NO VALIDADO MEDICAMENTE)
-    const estimatedCholesterol = 180 + (variability * 50) - (avgAmplitude * 100);
-    const estimatedTriglycerides = 120 + (variability * 80) - (avgAmplitude * 150);
+    // Placeholder: Usar métricas de forma de onda y amplitud/variabilidad
+    const amplitudes = [];
+    for(let i = 0; i < peakIndices.length -1; i++){
+        const peakVal = recentSignal[peakIndices[i]];
+        const nextValleyVal = valleyIndices.length > i ? recentSignal[valleyIndices[i]] : Math.min(...recentSignal.slice(peakIndices[i]));
+        amplitudes.push(peakVal - nextValleyVal);
+    }
+    const avgAmplitude = amplitudes.reduce((a,b)=>a+b, 0) / amplitudes.length;
+    const amplitudeVariability = calculateStandardDeviation(amplitudes);
 
-    const totalCholesterol = Math.max(100, Math.min(300, estimatedCholesterol));
-    const triglycerides = Math.max(50, Math.min(400, estimatedTriglycerides));
+    // Calcular un proxy de la pendiente diastólica (muy simplificado)
+    let avgDiastolicDecayRate = 0; // PENDIENTE: Calcular decay rate real de la cola diastólica
+    // Ejemplo: avgDiastolicDecayRate = (peakVal - nextValleyVal) / (nextValleyIndex - peakIndex) * (1000/30);
+
+    // MODELO EMPÍRICO BÁSICO (REQUERE VALIDACIÓN CLÍNICA y CALIBRACIÓN INDIVIDUAL)
+    // Combina amplitud, variabilidad y un proxy de decay rate (muy simplificado)
+    const estimatedCholesterol = 180 - (avgAmplitude * 0.4) + (amplitudeVariability * 1.8) - (avgDiastolicDecayRate * 10);
+    const estimatedTriglycerides = 120 - (avgAmplitude * 0.2) + (amplitudeVariability * 1.5) - (avgDiastolicDecayRate * 8);
+
+    const totalCholesterol = Math.round(Math.max(100, Math.min(300, estimatedCholesterol)));
+    const triglycerides = Math.round(Math.max(50, Math.min(400, estimatedTriglycerides)));
 
     return { totalCholesterol, triglycerides };
   }
 
-  private calculateRealHemoglobin(colorData?: { red: number, green?: number, blue?: number }): number {
-    if (this.signalBuffer.length < 120 || !this.isCalibrated || !colorData?.green) return 0; // Necesita datos de color y ventana más larga
+  private calculateRealHemoglobin(colorData?: { red: number, green?: number, blue?: number }, signalQuality: number = 0): number {
+    if (signalQuality < 55) return 0; // Hemoglobina requiere buena calidad
 
-    // *** Mejora: Análisis de Absorción en Múltiples Longitudes de Onda ***
-    // Asumimos que colorData proporciona valores de color promedio o procesados por frame
-    // Necesitamos acumular historial de datos de color para análisis AC/DC
+    if (!colorData || !colorData.green || !colorData.blue) {
+      console.warn("Hb: Datos de color insuficientes para cálculo.");
+      return 0;
+    }
 
-    // PENDIENTE: Acumular historial de red y green/blue del colorData
-    // Y luego calcular AC/DC para cada canal similar a SpO2.
+    // *** Mejora: Cálculo de Hemoglobina utilizando historial de ColorData ***
+    // Se necesita un historial suficiente de datos de color para calcular componentes AC/DC estables.
+    // La luz verde (~540-580nm) es más sensible a la Hemoglobina total.
+    if (this.colorDataHistory.length < 120 || !this.isCalibrated) return 0; // Requiere historial de color (aprox 4 seg)
 
-    // Placeholder: Cálculo simple basado en ratio de colores instantáneo (NO FIABLE para Hemoglobina)
-    const red = colorData.red;
-    const green = colorData.green || 0;
-    const blue = colorData.blue || 0;
+    const recentColorData = this.colorDataHistory.slice(-120); // Últimos 120 frames de color
 
-    if (green === 0 || red === 0) return 0;
+    // Extraer canales individuales
+    const redChannel = recentColorData.map(data => data.red);
+    const greenChannel = recentColorData.map(data => data.green);
+    const blueChannel = recentColorData.map(data => data.blue);
 
-    // Ratio Rojo/Verde simple como proxy (NO ES UN MÉTODO MÉDICO VALIDADO para Hb)
-    const ratio = red / green;
+    // Calcular AC y DC para Rojo y Verde (canales clave para Hb)
+    const { ac: acRed, dc: dcRed } = this.calculateACDC(redChannel);
+    const { ac: acGreen, dc: dcGreen } = this.calculateACDC(greenChannel);
+    // Opcional: usar Azul si es relevante para el dispositivo/luz
+    // const { ac: acBlue, dc: dcBlue } = this.calculateACDC(blueChannel);
 
-    // Correlación inventada (NO VALIDADO MEDICAMENTE)
-    const estimatedHemoglobin = 14 + (ratio - 1.0) * 5; // Ejemplo
+    // Validación básica de amplitudes
+    if (acRed < 1 || acGreen < 1 || dcRed < 1 || dcGreen < 1) {
+        console.warn("Hb: Amplitudes AC/DC insuficientes para cálculo.");
+        return 0;
+    }
 
-    return Math.max(8, Math.min(18, estimatedHemoglobin)); // Rango típico
+    // Calcular Ratio de Absorción (Ejemplo: basado en Rojo y Verde)
+    // La relación exacta depende de las longitudes de onda específicas de la fuente de luz y la sensibilidad del sensor.
+    const ratioHb = (acRed / dcRed) / (acGreen / dcGreen); // Ratio similar al de SpO2 pero interpretado diferente
+    // O una relación más simple si se valida (AC_Green / DC_Green)
+    // const ratioHb = acGreen / dcGreen;
+
+    if (ratioHb <= 0) {
+         console.warn("Hb: Ratio de absorción no válido.");
+         return 0;
+    }
+
+    // Curva de calibración empírica Ratio vs Hemoglobina (EJEMPLO - requiere validación CLÍNICA)
+    // Esta fórmula es puramente ilustrativa y NO está validada médicamente.
+    // Se necesitaría calibrar con mediciones de hemoglobina de referencia.
+    const estimatedHemoglobin = 14.5 - (ratioHb - 1.0) * 8; // Ajustar coeficientes empíricamente
+
+    // Limitar el resultado a un rango fisiológico razonable
+    return Math.round(Math.max(8, Math.min(18, estimatedHemoglobin)) * 10) / 10; // Redondear a 1 decimal
+  }
+
+  // *** Nueva función: Detección de picos y valles para análisis morfológico ***
+  private detectRealPeaksAndValleys(signal: number[]): { peakIndices: number[], valleyIndices: number[] } {
+    const peakIndices: number[] = [];
+    const valleyIndices: number[] = [];
+    const minPeakProminence = calculateStandardDeviation(signal.slice(-60)) * 0.5; // Umbral basado en variabilidad reciente
+    const minPeakDistance = Math.max(15, Math.floor(signal.length / 20)); // Distancia mínima entre picos/valles (aprox 3-4 picos en 6 seg)
+
+    if (signal.length < 30) return { peakIndices: [], valleyIndices: [] }; // Requiere señal suficiente
+
+    // Detectar picos
+    for (let i = 1; i < signal.length - 1; i++) {
+        if (signal[i] > signal[i-1] && signal[i] > signal[i+1]) {
+            // Validación de prominencia simple (el pico es significativamente más alto que los puntos vecinos)
+            if (signal[i] - Math.max(signal[i-1], signal[i+1]) > minPeakProminence / 2) {
+                // Validación de distancia mínima
+                if (peakIndices.length === 0 || i - peakIndices[peakIndices.length - 1] > minPeakDistance) {
+                    peakIndices.push(i);
+                }
+            }
+        }
+    }
+
+    // Detectar valles (similar a picos pero buscando mínimos)
+     for (let i = 1; i < signal.length - 1; i++) {
+         if (signal[i] < signal[i-1] && signal[i] < signal[i+1]) {
+             // Validación de prominencia para valles
+             if (Math.min(signal[i-1], signal[i+1]) - signal[i] > minPeakProminence / 2) {
+                 // Validación de distancia mínima
+                 if (valleyIndices.length === 0 || i - valleyIndices[valleyIndices.length - 1] > minPeakDistance) {
+                     valleyIndices.push(i);
+                 }
+             }
+         }
+     }
+
+    // Asegurar que picos y valles alternan (lógica de limpieza básica)
+    // (Implementación más sofisticada podría ser necesaria si la detección es ruidosa)
+    const finalPeakIndices: number[] = [];
+    const finalValleyIndices: number[] = [];
+    let lastType: 'peak' | 'valley' | null = null;
+
+    const allIndices = [...peakIndices.map(idx => ({ idx, type: 'peak' as const })), ...valleyIndices.map(idx => ({ idx, type: 'valley' as const }))].sort((a, b) => a.idx - b.idx);
+
+    for(const item of allIndices) {
+        if (item.type !== lastType) {
+            if (item.type === 'peak') finalPeakIndices.push(item.idx);
+            else finalValleyIndices.push(item.idx);
+            lastType = item.type;
+        } else {
+            // Si el mismo tipo aparece consecutivamente, mantener el más prominente (simplificado: el último)
+             if (item.type === 'peak') finalPeakIndices[finalPeakIndices.length - 1] = item.idx;
+             else finalValleyIndices[finalValleyIndices.length - 1] = item.idx;
+        }
+    }
+
+    return { peakIndices: finalPeakIndices, valleyIndices: finalValleyIndices };
   }
 
   reset(): VitalSignsResult | null {
@@ -377,5 +551,14 @@ export class VitalSignsProcessor {
     this.isCalibrated = false;
     this.frameCount = 0;
     this.lastValidResults = null;
+  }
+
+  // Método auxiliar para calcular la confianza basada en la calidad de la señal
+  private calculateConfidence(signalQuality: number, minThreshold: number, maxThreshold: number): number {
+    if (signalQuality < minThreshold) return 0; // Debajo del umbral mínimo, confianza 0
+    if (signalQuality >= maxThreshold) return 100; // Por encima del umbral máximo, confianza 100
+
+    // Calcular confianza linealmente entre minThreshold y maxThreshold
+    return Math.round(((signalQuality - minThreshold) / (maxThreshold - minThreshold)) * 100);
   }
 }

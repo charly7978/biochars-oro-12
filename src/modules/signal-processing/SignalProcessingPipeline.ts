@@ -90,9 +90,9 @@ export class SignalProcessingPipeline {
         MIN_RED_INTENSITY: this.config.minRedReflectance,
         MAX_RED_INTENSITY: this.config.maxRedReflectance,
         MIN_RG_RATIO: this.config.minRGRatio,
-        PULSABILITY_THRESHOLD: this.config.pulsatilityThreshold,
+        PULSABILITY_STD_THRESHOLD: this.config.pulsatilityThreshold,
         STABILITY_FRAME_DIFF_THRESHOLD: this.config.stabilityFrameDiffThreshold,
-        STABILITY_THRESHOLD_WINDOW_STDDEV: this.config.stabilityWindowStdThreshold,
+        STABILITY_WINDOW_STD_THRESHOLD: this.config.stabilityWindowStdThreshold,
     });
     this.kalmanFilter = new OptimizedKalmanFilter(this.config.kalmanR, this.config.kalmanQ);
     this.sgFilter = new SavitzkyGolayFilter(this.config.sgWindowSize);
@@ -131,7 +131,7 @@ export class SignalProcessingPipeline {
     }
   }
 
-  private applyCalibrationResults(results: any): void {
+  public applyCalibrationResults(results: any): void {
     console.log("SignalProcessingPipeline: Aplicando resultados de calibración", results);
     if (results.success) {
       const newDetectorConfig: Partial<HumanFingerDetectorConfig> = {};
@@ -354,8 +354,8 @@ export class SignalProcessingPipeline {
         }
 
         // 5. Manejar errores si es necesario (ej: si fingerDetectionResult indica un error crítico)
-        if (fingerDetectionResult.rejectionReasons && fingerDetectionResult.rejectionReasons.length > 0) {
-            console.warn("SignalProcessingPipeline: Dedo no detectado o rechazado. Razones:", fingerDetectionResult.rejectionReasons);
+        if (fingerDetectionResult.debugInfo?.rejectionReasons && fingerDetectionResult.debugInfo.rejectionReasons.length > 0) {
+            console.warn("SignalProcessingPipeline: Dedo no detectado o rechazado. Razones:", fingerDetectionResult.debugInfo.rejectionReasons);
             // Opcional: Emitir un error si la detección falla consistentemente por mucho tiempo
             // if (this.onError) {
             //     this.onError({ code: 'FINGER_NOT_DETECTED', message: 'Dedo no detectado o calidad insuficiente', timestamp: Date.now() });

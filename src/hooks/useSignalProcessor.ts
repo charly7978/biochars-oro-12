@@ -119,10 +119,21 @@ export const useSignalProcessor = () => {
             instructions: status.instructions,
             isComplete: status.isComplete,
         };
-        if (status.isComplete && status.results) {
-            newStatus.succeeded = status.results.success;
-            newStatus.recommendations = status.results.recommendations;
+        if (status.isComplete) {
+            newStatus.succeeded = status.results?.success;
+            newStatus.recommendations = status.results?.recommendations;
             setIsCalibrating(false); // La calibración del pipeline terminó
+            
+            // Aplicar resultados de calibración al pipeline si fue exitosa
+            if (status.results?.success && processorRef.current) {
+                console.log("useSignalProcessor: Calibración exitosa, aplicando resultados al pipeline.");
+                // Asumiendo que SignalProcessingPipeline tiene un método para aplicar estos resultados
+                // basado en la estructura de getCalibrationResults()
+                processorRef.current.applyCalibrationResults(status.results);
+            } else if (status.isComplete && !status.results?.success) {
+                console.warn("useSignalProcessor: Calibración no exitosa.", status.results?.recommendations);
+                // TODO: Mostrar mensaje de error al usuario indicando que la calibración falló y posibles soluciones
+            }
         }
         setCalibrationStatus(newStatus);
     };

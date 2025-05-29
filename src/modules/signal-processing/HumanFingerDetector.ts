@@ -10,6 +10,7 @@ export interface HumanFingerResult {
   rawValue: number;   
   filteredValue: number; 
   timestamp: number;
+  roi: { x: number; y: number; width: number; height: number };
   debugInfo: {
     avgRed: number;
     avgGreen: number;
@@ -150,6 +151,7 @@ export class HumanFingerDetector {
       rawValue: avgRed, 
       filteredValue: currentFilteredRed, 
       timestamp,
+      roi: { x: roiX, y: roiY, width: roiWidth, height: roiHeight },
       debugInfo: {
         avgRed,
         avgGreen,
@@ -364,6 +366,7 @@ export class HumanFingerDetector {
       rawValue: 0,
       filteredValue: 0,
       timestamp,
+      roi: { x: 0, y: 0, width: 0, height: 0 },
       debugInfo: {
         avgRed: 0, avgGreen: 0, avgBlue: 0, rgRatio: 0, rbRatio: 0,
         redDominanceScore: 0, pulsatilityScore: 0, stabilityScore: 0,
