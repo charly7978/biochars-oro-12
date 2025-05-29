@@ -38,6 +38,9 @@ export interface HumanFingerDetectorConfig {
   STABILITY_WINDOW_STD_THRESHOLD: number;
   EMA_ALPHA_RAW: number;
   CONFIDENCE_EMA_ALPHA: number;
+  // Añadir umbrales específicos si es necesario, aunque ajustaremos los existentes por ahora
+  // HIGH_LIGHT_RED_MIN?: number;
+  // HIGH_LIGHT_RG_MIN?: number;
 }
 
 const defaultDetectorConfig: HumanFingerDetectorConfig = {
@@ -73,6 +76,8 @@ export class HumanFingerDetector {
   private lastRawRedEMA: number = 0; 
   private smoothedConfidence: number = 0;
   
+  private isHighLightCondition = false; // Nuevo flag para detectar condición de alta luz
+  
   constructor(config: Partial<HumanFingerDetectorConfig> = {}) {
     this.config = { ...defaultDetectorConfig, ...config };
     this.reset();
@@ -87,105 +92,107 @@ export class HumanFingerDetector {
   }
 
   public detectHumanFinger(imageData: ImageData): HumanFingerResult {
-    this.frameCount++;
     const timestamp = Date.now();
-    const detailedLog = true; // FORZAR LOGS DETALLADOS PARA DEBUG
 
-    if (detailedLog) console.log(`\n--- HFD Frame: ${this.frameCount} ---`);
-    
-    const { width, height, data } = imageData;
+    // *** Temporary: Extract simple average red from a central ROI for initial debugging ***
+    // Replace this with proper FrameProcessor integration if available and needed
+    const width = imageData.width;
+    const height = imageData.height;
+    const roiSize = Math.min(width, height) * 0.3; // Simple ROI 30% of smaller dimension
+    const roiX = Math.floor((width - roiSize) / 2);
+    const roiY = Math.floor((height - roiSize) / 2);
 
-    // Process the entire received imageData, as it's already the ROI from FrameProcessor
-    let sumR = 0, sumG = 0, sumB = 0;
+    let totalRed = 0;
+    let totalGreen = 0;
+    let totalBlue = 0;
     let pixelCount = 0;
 
-    // Iterate over all pixels in the received (cropped) ImageData
-    for (let i = 0; i < data.length; i += 4) {
-        sumR += data[i];
-        sumG += data[i + 1];
-        sumB += data[i + 2];
+    for (let y = roiY; y < roiY + roiSize; y++) {
+      for (let x = roiX; x < roiX + roiSize; x++) {
+        const index = (y * width + x) * 4;
+        totalRed += imageData.data[index];
+        totalGreen += imageData.data[index + 1];
+        totalBlue += imageData.data[index + 2];
         pixelCount++;
-    }
-
-    if (pixelCount < 10) { 
-      return this.createDefaultResult(timestamp, "ROI con muy pocos píxeles");
-    }
-
-    const avgRed = sumR / pixelCount;
-    const avgGreen = sumG / pixelCount;
-    const avgBlue = sumB / pixelCount;
-
-    if (this.lastRawRedEMA === 0) this.lastRawRedEMA = avgRed;
-    const currentFilteredRed = this.lastRawRedEMA * (1 - this.config.EMA_ALPHA_RAW) + avgRed * this.config.EMA_ALPHA_RAW;
-    this.lastRawRedEMA = currentFilteredRed;
-
-    if (detailedLog) {
-      console.log("[HFD] RGB Averages:", { avgRed: avgRed.toFixed(2), avgGreen: avgGreen.toFixed(2), avgBlue: avgBlue.toFixed(2) });
-      console.log("[HFD] Filtered Red:", currentFilteredRed.toFixed(2));
-    }
-
-    this.rawRedHistory.push(avgRed); 
-    if (this.rawRedHistory.length > this.config.HISTORY_SIZE_LONG) this.rawRedHistory.shift();
-    
-    this.filteredRedHistory.push(currentFilteredRed); 
-    if (this.filteredRedHistory.length > this.config.HISTORY_SIZE_LONG) this.filteredRedHistory.shift();
-
-    const frameData = (imageData as any).frameData;
-    const perfusionIndex = frameData?.perfusionIndex || 0;
-
-    const metrics = this.calculateMetricsInternal(avgRed, avgGreen, avgBlue, imageData, perfusionIndex);
-    const spectralAnalysis = this.analyzeHumanSkinSpectrum(metrics);
-    const falsePositiveCheck = this.detectExtremeFalsePositives(metrics);
-    const temporalValidation = this.validateTemporal(metrics, spectralAnalysis);
-
-    if (detailedLog) {
-      console.log("[HFD] Spectral Analysis:", spectralAnalysis);
-      console.log("[HFD] False Positive Check:", falsePositiveCheck);
-      console.log("[HFD] Temporal Validation:", temporalValidation);
-    }
-    
-    const decisionInternal = this.makeFinalDecision(
-      spectralAnalysis, 
-      falsePositiveCheck, 
-      temporalValidation
-    );
-    
-    const qualityScores = this.calculateIntegratedQuality(decisionInternal.isHumanFinger, metrics, temporalValidation.stability, temporalValidation.pulsatilityScore);
-    
-    if (detailedLog) {
-      console.log("[HFD] Internal Decision:", decisionInternal);
-      console.log("[HFD] Quality Scores:", qualityScores);
-    }
-
-    const result: HumanFingerResult = {
-      isHumanFinger: decisionInternal.isHumanFinger,
-      confidence: decisionInternal.confidence,
-      quality: qualityScores.finalQuality,
-      rawValue: avgRed, 
-      filteredValue: currentFilteredRed, 
-      timestamp,
-      debugInfo: {
-        avgRed,
-        avgGreen,
-        avgBlue,
-        rgRatio: metrics.rgRatio,
-        rbRatio: metrics.rbRatio, 
-        redDominanceScore: spectralAnalysis.redDominanceScore, 
-        pulsatilityScore: temporalValidation.pulsatilityScore, 
-        stabilityScore: temporalValidation.stability, 
-        rejectionReasons: decisionInternal.rejectionReasons,
-        acceptanceReasons: decisionInternal.acceptanceReasons,
-        dbgSpectralConfidence: decisionInternal.dbgSpectralConfidence,
-        dbgRawQuality: qualityScores.rawQuality
       }
+    }
+
+    const avgRed = pixelCount > 0 ? totalRed / pixelCount : 0;
+    const avgGreen = pixelCount > 0 ? totalGreen / pixelCount : 0;
+    const avgBlue = pixelCount > 0 ? totalBlue / pixelCount : 0;
+    // *** End Temporary Extraction ***
+
+    // Add this log to see the raw extracted values
+    // console.log(`[FingerDetector] Frame ${this.frameCount} - Avg RGB: R=${avgRed.toFixed(2)}, G=${avgGreen.toFixed(2)}, B=${avgBlue.toFixed(2)}`); // Comentado para evitar spam sin consola
+
+    // Detect high light condition (potential flash)
+    this.isHighLightCondition = avgRed > 200 && avgGreen > 180 && avgBlue > 150; // Heurística: valores altos en todos los canales
+
+    // Use the metrics calculation from the original code, passing extracted values
+    const metrics = this.calculateMetricsInternal(avgRed, avgGreen, avgBlue, imageData, 0); // Pass 0 for perfusionIndex for now if not calculated here
+    // console.log(`[FingerDetector] Frame ${this.frameCount} - Metrics:`, metrics); // Comentado
+
+    // Use the spectral analysis
+    const spectralAnalysis = this.analyzeHumanSkinSpectrum(metrics);
+    // console.log(`[FingerDetector] Frame ${this.frameCount} - Spectral Analysis:`, spectralAnalysis); // Comentado
+
+    // Use the false positive detection
+    const falsePositiveCheck = this.detectExtremeFalsePositives(metrics);
+    // console.log(`[FingerDetector] Frame ${this.frameCount} - False Positive Check:`, falsePositiveCheck); // Comentado
+
+    // Use the temporal validation
+    const temporalValidation = this.validateTemporal(metrics, spectralAnalysis); // Pass spectralAnalysis if needed by validateTemporal
+    // console.log(`[FingerDetector] Frame ${this.frameCount} - Temporal Validation:`, temporalValidation); // Comentado
+
+    // Make final decision
+    const decision = this.makeFinalDecision(spectralAnalysis, falsePositiveCheck, temporalValidation, metrics); // Pasar 'metrics' como parámetro
+    // console.log(`[FingerDetector] Frame ${this.frameCount} - Final Decision Inputs:`, { spectralAnalysis, falsePositiveCheck, temporalValidation }); // Comentado
+    // console.log(`[FingerDetector] Frame ${this.frameCount} - Raw Decision:`, decision); // Comentado
+
+    // Calculate quality (update this to use decision.isFinger if that's the structure)
+    const { finalQuality, rawQuality } = this.calculateIntegratedQuality(decision.isFinger, metrics, temporalValidation.stability, temporalValidation.pulsatilityScore); // Assuming these scores are returned by validateTemporal
+    // console.log(`[FingerDetector] Frame ${this.frameCount} - Quality: final=${finalQuality.toFixed(2)}, raw=${rawQuality.toFixed(2)}`); // Comentado
+
+    // Log the final result before returning
+    // this.logDetectionResult(decision, metrics, finalQuality); // Comentado/modificado en la edición anterior
+
+    this.frameCount++;
+    this.lastRawRedEMA = (this.config.EMA_ALPHA_RAW * avgRed) + (1 - this.config.EMA_ALPHA_RAW) * this.lastRawRedEMA;
+    this.smoothedConfidence = (this.config.CONFIDENCE_EMA_ALPHA * decision.confidence) + (1 - this.config.CONFIDENCE_EMA_ALPHA) * this.smoothedConfidence;
+
+    // Based on your existing code structure, the result includes rawValue, filteredValue etc.
+    // You might need to pass more data through the pipeline.
+    // For now, let's construct a result based on the calculated values.
+    return {
+      isHumanFinger: decision.isFinger,
+      confidence: this.smoothedConfidence, // Use smoothed confidence
+      quality: finalQuality,
+      rawValue: avgRed, // Or the value passed through FrameProcessor
+      filteredValue: this.lastRawRedEMA, // Simple EMA as a placeholder for filtered value
+      timestamp: timestamp,
+      debugInfo: {
+        avgRed: metrics.redIntensity,
+        avgGreen: metrics.greenIntensity,
+        avgBlue: metrics.blueIntensity,
+        rgRatio: metrics.rgRatio,
+        rbRatio: metrics.rbRatio,
+        redDominanceScore: spectralAnalysis?.redDominanceScore || 0, // Use scores from analysis
+        pulsatilityScore: temporalValidation?.pulsatilityScore || 0,
+        stabilityScore: temporalValidation?.stability || 0, // Assuming validateTemporal returns stability score
+        rejectionReasons: decision.rejectionReasons,
+        acceptanceReasons: decision.acceptanceReasons,
+        dbgSpectralConfidence: spectralAnalysis?.confidence,
+        dbgRawQuality: rawQuality,
+        // Add other debug info as needed
+      },
     };
-    if (detailedLog) console.log("[HFD] Final Result:", result);
-    return result;
   }
 
   private calculateMetricsInternal(avgRed: number, avgGreen: number, avgBlue: number, imageData: ImageData, perfusionIndex: number) {
-    const rgRatio = avgGreen > 5 ? avgRed / avgGreen : 0;
-    const rbRatio = avgBlue > 5 ? avgRed / avgBlue : 0;
+    const rgRatio = (avgGreen > 0) ? avgRed / avgGreen : 0;
+    const rbRatio = (avgBlue > 0) ? avgRed / avgBlue : 0;
+    // Add log here to see calculated ratios
+    // console.log(`[FingerDetector] Frame ${this.frameCount} - Ratios: RG=${rgRatio.toFixed(2)}, RB=${rbRatio.toFixed(2)}`); // Comentado
     // Eliminar placeholders: solo usar datos reales
     return {
       redIntensity: avgRed,
@@ -226,6 +233,28 @@ export class HumanFingerDetector {
 
     const isValidSpectrum = criteriaMet >= 2 && confidence >= 0.5; 
     
+    // Add log here to see redDominanceScore
+    // console.log(`[FingerDetector] Frame ${this.frameCount} - Red Dominance Score: ${redDominanceScore.toFixed(2)}`); // Comentado
+
+    // Añadir una pequeña tolerancia si estamos en alta luz para el criterio espectral
+    const spectralTolerance = this.isHighLightCondition ? 0.1 : 0; // Ajuste menor para alta luz
+    const isDominantlyRed = redDominanceScore > (0.3 - spectralTolerance); // Ajuste umbral de dominancia
+    const isRGOK = metrics.rgRatio > (this.config.MIN_RG_RATIO - spectralTolerance);
+    const isRBOk = metrics.rbRatio > (this.config.MIN_RB_RATIO - spectralTolerance);
+
+    let criteriaMet = 0;
+    if (isDominantlyRed) criteriaMet++
+    if (isRGOK) criteriaMet++
+    if (isRBOk) criteriaMet++
+
+    // Relajar umbral de cuántos criterios deben cumplirse en alta luz
+    const minCriteriaNeeded = this.isHighLightCondition ? 2 : 3; // 2/3 en alta luz, 3/3 en condiciones normales
+
+    const isValidSpectrum = criteriaMet >= minCriteriaNeeded; // Usar umbral ajustado
+
+    // Simplificar el cálculo de confianza espectral en alta luz si es necesario
+    const confidence = isValidSpectrum ? (criteriaMet / 3) : 0; // Podría ser más sofisticado
+
     return {
       isValidSpectrum,
       confidence: Math.max(0, Math.min(1, confidence)), 
@@ -298,58 +327,79 @@ export class HumanFingerDetector {
 
     const meetsStability = meetsStabilityWindow && meetsStabilityFrameDiff;
 
+    // Add log here to see raw pulsatility and stability scores before thresholds
+    // console.log(`[FingerDetector] Frame ${this.frameCount} - Raw Temporal Scores: Pulsatility=${pulsatilityScore.toFixed(2)}, Stability=${stability.toFixed(2)}`); // Comentado
+    // Add log here to see boolean results and reasons
+    // console.log(`[FingerDetector] Frame ${this.frameCount} - Temporal Validation Results: Meets Pulsatility=${meetsPulsatility}, Meets Stability=${meetsStability}, Reasons: ${reasons.join(', ')}`); // Comentado
     return {
-      pulsatilityScore,
-      stability,
+      pulsatilityScore: pulsatilityScore,
+      stability: stability,
       reasons,
       meetsPulsatility,
       meetsStability
     };
   }
   
-  private makeFinalDecision(spectralAnalysis: any, falsePositiveCheck: any, temporalValidation: any) {
-    const acceptanceReasons = [...spectralAnalysis.reasons, ...temporalValidation.reasons].filter(r => r.startsWith('✓'));
-    const rejectionReasons = [...falsePositiveCheck.rejectionReasons];
+  private makeFinalDecision(spectralAnalysis: any, falsePositiveCheck: any, temporalValidation: any, metrics: any) {
+    let isFinger = false;
+    const rejectionReasons: string[] = [];
+    const acceptanceReasons: string[] = [];
+    let confidence = 0;
 
-    let isHumanFinger = false;
-    let currentConfidence = 0;
-    let dbgSpectralConfidence = spectralAnalysis.confidence;
+    // Evaluar criterios ajustados para alta luz si es necesario
+    const isSpectralOk = spectralAnalysis?.isValidSpectrum || false; // Usar el resultado de isValidSpectrum calculado en analyzeHumanSkinSpectrum
+    const isTemporalOk = temporalValidation.meetsPulsatility && temporalValidation.meetsStability; // Usar los resultados booleanos ajustados
+    const isFalsePositive = falsePositiveCheck.isFalsePositive;
 
-    if (spectralAnalysis.isValidSpectrum && temporalValidation.meetsPulsatility) {
-      isHumanFinger = true;
-      currentConfidence = (spectralAnalysis.confidence * 0.6) + (temporalValidation.pulsatilityScore * 0.4);
-      if (!temporalValidation.meetsStability) {
-        currentConfidence *= 0.8;
-        rejectionReasons.push("Advertencia: Inestable pero con pulso/espectro OK");
-      }
-    } else {
-      if (!spectralAnalysis.isValidSpectrum) rejectionReasons.push("Espectro color inválido");
-      if (!temporalValidation.meetsPulsatility) rejectionReasons.push("Pulsatilidad insuf.");
-      if (!temporalValidation.meetsStability && spectralAnalysis.isValidSpectrum) {
-          rejectionReasons.push("Señal inestable (sin pulso claro)");
-      } else if (!temporalValidation.meetsStability) {
-          rejectionReasons.push("Señal inestable");
-      }
-      currentConfidence = (spectralAnalysis.confidence * 0.3) + (temporalValidation.pulsatilityScore * 0.2) + (temporalValidation.stability * 0.1);
+    // Lógica de decisión: Priorizar criterios espectrales y temporales en condiciones de alta luz
+    if (!isFalsePositive && isTemporalOk && isSpectralOk) {
+        // Condición ideal: Pasa todas las pruebas clave (espectral, temporal) y no es falso positivo
+        isFinger = true;
+        acceptanceReasons.push('Passed spectral and temporal checks');
+        confidence = (spectralAnalysis.confidence + temporalValidation.pulsatilityScore/100 + (1-temporalValidation.stability/100))/3; // Combinar confianzas, ajustar según escala
+    } else if (!isFalsePositive && isTemporalOk && (spectralAnalysis?.redDominanceScore > 0.2 || metrics.rgRatio > 1.5)) { // Criterio alternativo menos estricto
+        // Condición menos estricta: Pasa temporal, no es falso positivo, y al menos muestra cierta dominancia de rojo o RG ratio alto
+        isFinger = true;
+        acceptanceReasons.push('Passed temporal with acceptable spectral indicators');
+        confidence = (temporalValidation.pulsatilityScore/100 + (1-temporalValidation.stability/100) + 0.2)/3; // Confianza un poco menor
+    } else if (!isFalsePositive && isSpectralOk && temporalValidation.meetsPulsatility) { // Otra alternativa
+        // Pasa espectral y pulsatilidad, pero no estabilidad (podría ser movimiento?) - considerar como dedo con menor confianza
+        isFinger = true;
+        acceptanceReasons.push('Passed spectral and pulsatility');
+        confidence = (spectralAnalysis.confidence + temporalValidation.pulsatilityScore/100 + 0.1)/3; // Confianza intermedia
+    } else if (!isFalsePositive && (metrics.redIntensity > (this.isHighLightCondition ? 180 : this.config.MIN_RED_INTENSITY)) && (metrics.rgRatio > (this.isHighLightCondition ? 1.8 : this.config.MIN_RG_RATIO))) {
+         // Criterio de respaldo para alta luz: si no es falso positivo y la intensidad roja y el RG ratio son altos
+         isFinger = true;
+         acceptanceReasons.push('Passed high-light backup check');
+         confidence = 0.4; // Confianza baja en este caso
     }
 
-    if (falsePositiveCheck.isFalsePositive) {
-        isHumanFinger = false;
-        currentConfidence *= 0.5;
-    }
-    
-    if(!isHumanFinger) {
-        currentConfidence = Math.min(0.45, currentConfidence);
+    // Si no se detecta, registrar razones de rechazo
+    if (!isFinger) {
+        if (!isSpectralOk) rejectionReasons.push('Failed spectral skin check');
+        if (!temporalValidation.meetsPulsatility) rejectionReasons.push('Failed pulsatility check');
+        if (!temporalValidation.meetsStability && temporalValidation.meetsPulsatility) rejectionReasons.push('Failed stability check despite pulsatility');
+        if (isFalsePositive) rejectionReasons.push(`Detected as extreme false positive (${falsePositiveCheck.reason})`);
+        // Añadir otras posibles razones de fallo si se implementan más criterios
+        // Si falló la condición de respaldo de alta luz
+        if (!isSpectralOk && !isTemporalOk && !isFalsePositive && this.isHighLightCondition) {
+             if (metrics.redIntensity <= (this.isHighLightCondition ? 180 : this.config.MIN_RED_INTENSITY)) rejectionReasons.push('Red intensity too low for high light');
+             if (metrics.rgRatio <= (this.isHighLightCondition ? 1.8 : this.config.MIN_RG_RATIO)) rejectionReasons.push('RG ratio too low for high light');
+        }
     }
 
-    this.smoothedConfidence = this.smoothedConfidence * (1 - this.config.CONFIDENCE_EMA_ALPHA) + currentConfidence * this.config.CONFIDENCE_EMA_ALPHA;
-    
+    // Asegurar que la confianza esté entre 0 y 1
+    confidence = Math.max(0, Math.min(1, confidence));
+
+    // console.log(`[FingerDetector] Frame ${this.frameCount} - Decision Factors: Spectral OK=${isSpectralOk}, False Positive=${isFalsePositive}, Temporal OK=${isTemporalOk}, Combined Score=${confidence.toFixed(2)}`); // Comentado
+    // console.log(`[FingerDetector] Frame ${this.frameCount} - Decision Result: Is Finger=${isFinger}, Confidence=${confidence.toFixed(2)}, Rejections: ${rejectionReasons.join(', ')}, Acceptances: ${acceptanceReasons.join(', ')}`); // Comentado
+
     return {
-      isHumanFinger,
-      confidence: Math.max(0, Math.min(1, this.smoothedConfidence)),
-      acceptanceReasons,
+      isFinger,
+      confidence,
       rejectionReasons,
-      dbgSpectralConfidence
+      acceptanceReasons,
+      // Add other relevant decision metrics here if needed for debugging
     };
   }
   
@@ -373,6 +423,7 @@ export class HumanFingerDetector {
 
     const adjustedFinalQuality = finalQuality * this.smoothedConfidence;
 
+    // console.log(`[HFD] Calculated Quality - Raw: ${rawQuality.toFixed(2)}, Final: ${finalQuality.toFixed(2)}`); // Comentado
     return {
       finalQuality: Math.round(adjustedFinalQuality),
       rawQuality: Math.round(rawQuality)
@@ -418,23 +469,8 @@ export class HumanFingerDetector {
   }
 
   private logDetectionResult(decision: any, metrics: any, quality: number): void {
-    if (!decision.isHumanFinger) {
-        console.warn("--- HFD Rejected (", this.frameCount, ") ---");
-        console.warn("Reasons:", decision.rejectionReasons);
-        console.warn("Metrics:", metrics);
-        console.warn("Spectral:", decision.debugInfo?.dbgSpectralConfidence);
-        console.warn("Temporal:", { pulsatility: decision.debugInfo?.pulsatilityScore, stability: decision.debugInfo?.stabilityScore });
-        console.warn("Quality:", quality);
-    } else {
-        console.log("--- HFD Accepted (", this.frameCount, ") ---");
-        console.log("Reasons:", decision.acceptanceReasons);
-        console.log("Metrics:", metrics);
-        console.log("Confidence:", decision.confidence.toFixed(2));
-        console.log("Quality:", quality);
-        console.log("Temporal:", { pulsatility: decision.debugInfo?.pulsatilityScore.toFixed(2), stability: decision.debugInfo?.stabilityScore.toFixed(2) });
-        console.log("Raw Quality:", decision.debugInfo?.dbgRawQuality.toFixed(2));
-        console.log("PI:", metrics.perfusionIndex?.toFixed(2) || "N/A");
-    }
+    // Remove or comment out the existing log inside this function to avoid redundancy with new logs
+    // console.log(...);
   }
 }
 
