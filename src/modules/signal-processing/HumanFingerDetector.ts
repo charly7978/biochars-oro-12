@@ -369,24 +369,22 @@ export class HumanFingerDetector {
     if (!temporalValidation.meetsPulsatility) rejectionReasons.push("Pulsatilidad insuf.");
     if (!temporalValidation.meetsStability) rejectionReasons.push("Señal inestable");
 
-    // Criterios para considerar que es un dedo (basados en puntuaciones y más tolerantes a largo plazo):
+    // Criterios simplificados y firmes:
     const isHumanFinger =
-      spectralAnalysis.isValidSpectrum && // Debe cumplir criterios de color
-      !falsePositiveCheck.isFalsePositive && // No debe ser un falso positivo extremo
-      (
-        // Combinación de puntuaciones: requiere una buena puntuación temporal general
-        (temporalValidation.pulsatilityScore * 0.6 + temporalValidation.stability * 0.4) > 0.4 || // Puntuación temporal combinada > 0.4
-        // Criterio inicial flexible (mantenido, ligeramente ajustado)
-        (this.frameCount < (this.config.HISTORY_SIZE_LONG * 1.2) && spectralAnalysis.redDominanceScore > 0.65) // Más tiempo inicial y dominancia roja alta
-      );
+      spectralAnalysis.isValidSpectrum && // Debe cumplir criterios de color básicos
+      !falsePositiveCheck.isFalsePositive && // No debe ser un falso positivo extremo (e.g., plástico)
+      spectralAnalysis.redDominanceScore > 0.5; // Debe tener una dominancia roja clara (indica piel/sangre)
+      // NOTA: Se elimina la dependencia estricta de la validación temporal para la decisión binaria isHumanFinger.
+      // La calidad (quality) aún usará los datos temporales.
+      
 
     let currentConfidence = 0;
     if (isHumanFinger) {
-      // Ajustar pesos para la confianza, dando más importancia a la pulsatilidad y estabilidad
-      currentConfidence = (spectralAnalysis.confidence * 0.4) +
-                          (temporalValidation.pulsatilityScore * 0.4) + // Reducir ligeramente peso de pulsatilidad
-                          (temporalValidation.stability * 0.2); // Aumentar ligeramente peso de estabilidad
-      currentConfidence = Math.max(0.5, currentConfidence); // Reducir ligeramente confianza mínima
+      // Calcular confianza basada en criterios simplificados
+      currentConfidence = (spectralAnalysis.confidence * 0.6) + // Mayor peso al espectro
+                          (spectralAnalysis.redDominanceScore * 0.3) + // Peso a la dominancia roja
+                          (1 - (falsePositiveCheck.isFalsePositive ? 1 : 0)) * 0.1; // Pequeño peso si no es falso positivo
+      currentConfidence = Math.max(0.4, currentConfidence); // Base de confianza si cumple
     } else {
       currentConfidence = Math.min(0.4,
         (spectralAnalysis.confidence * 0.3) +
