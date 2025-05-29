@@ -265,56 +265,110 @@ export class SignalProcessingPipeline {
             this.onSignalReady(signalDuringCalibration);
         }
         return; // No procesar señal PPG completa durante la calibración activa
+      } else { // No está en modo calibración
+        // 1. Detección de dedo humano
+        const fingerDetectionResult = this.humanFingerDetector.detectHumanFinger(imageData);
+
+        // 2. Extraer datos de color promediados (para SpO2, Hemoglobina, etc.)
+        let avgColorData = { red: 0, green: 0, blue: 0 };
+        let rawRedValue = imageData.data[0]; // Default a primer pixel si no hay ROI
+
+        if (fingerDetectionResult.isHumanFinger && fingerDetectionResult.roi) {
+            const roi = fingerDetectionResult.roi;
+            let sumRed = 0;
+            let sumGreen = 0;
+            let sumBlue = 0;
+            let pixelCount = 0;
+
+            // Iterar sobre los píxeles dentro de la ROI
+            // Asumimos que imageData.data es un Uint8ClampedArray en formato RGBA
+            for (let y = roi.y; y < roi.y + roi.height; y++) {
+                for (let x = roi.x; x < roi.x + roi.width; x++) {
+                    const index = (y * imageData.width + x) * 4;
+                    sumRed += imageData.data[index];
+                    sumGreen += imageData.data[index + 1];
+                    sumBlue += imageData.data[index + 2];
+                    pixelCount++;
+                }
+            }
+
+            if (pixelCount > 0) {
+                avgColorData = {
+                    red: sumRed / pixelCount,
+                    green: sumGreen / pixelCount,
+                    blue: sumBlue / pixelCount,
+                };
+                rawRedValue = avgColorData.red; // Usar promedio de rojo de la ROI
+            }
+        }
+
+        // 3. Si se detecta un dedo y la calidad es aceptable, procesar la señal PPG
+        // Usar la calidad reportada por HumanFingerDetector
+        const signalQuality = fingerDetectionResult.quality;
+        const isFingerDetected = fingerDetectionResult.isHumanFinger && signalQuality > 0; // Considerar calidad para 'detectado'
+
+        let processedSignal: ProcessedSignal | null = null;
+
+        if (isFingerDetected) {
+            // Usar rawRedValue (promedio de la ROI) como la señal principal para el pipeline
+            const ppgProcessingResult = this.processPPGSignal(rawRedValue, signalQuality); // Pasar calidad aquí si es útil
+
+            processedSignal = {
+                timestamp: Date.now(),
+                rawValue: rawRedValue, // Valor rojo promedio de la ROI
+                filteredValue: ppgProcessingResult.filteredValue,
+                quality: signalQuality, // Calidad del detector de dedo
+                fingerDetected: true,
+                roi: fingerDetectionResult.roi || { x: 0, y: 0, width: 0, height: 0 }, // Asegurar que siempre hay un objeto ROI
+                perfusionIndex: fingerDetectionResult.debugInfo?.redDominanceScore, // Usar una métrica de perfusión del detector
+                colorData: avgColorData, // Incluir los datos de color promediados
+            };
+
+            // Opcional: Incluir información de calibración si está disponible (aunque se finaliza antes)
+            // if (this.autoCalibrationSystem.isCalibrating()) {
+            //     const calStatus = this.autoCalibrationSystem.getCurrentStatus(); // Asumiendo que existe un método getStatus
+            //     (processedSignal as ExtendedProcessedSignal).calibrationPhase = calStatus.phase;
+            //     (processedSignal as ExtendedProcessedSignal).calibrationProgress = calStatus.progress;
+            //     (processedSignal as ExtendedProcessedSignal).calibrationInstructions = calStatus.instructions;
+            // }
+
+        } else {
+             // Si no se detecta un dedo o la calidad es muy baja, emitir señal con calidad 0
+             // Esto es importante para resetear o indicar al siguiente paso que no hay datos fiables
+             processedSignal = {
+                timestamp: Date.now(),
+                rawValue: rawRedValue, // Último valor rojo, aunque no haya dedo
+                filteredValue: 0, // O el último valor filtrado si se quiere mantener continuidad visual
+                quality: 0, // Calidad cero
+                fingerDetected: false,
+                roi: { x: 0, y: 0, width: 0, height: 0 },
+                perfusionIndex: 0,
+                colorData: avgColorData, // Incluir los últimos datos de color si están disponibles
+             };
+             this.processPPGSignal(rawRedValue, signalQuality); // Procesar de todas formas para mantener buffers actualizados si es necesario
+        }
+
+        // 4. Emitir la señal procesada
+        if (this.onSignalReady && processedSignal) {
+          this.onSignalReady(processedSignal as ExtendedProcessedSignal); // Castear para incluir campos extendidos si se añaden
+        }
+
+        // 5. Manejar errores si es necesario (ej: si fingerDetectionResult indica un error crítico)
+        if (fingerDetectionResult.rejectionReasons && fingerDetectionResult.rejectionReasons.length > 0) {
+            console.warn("SignalProcessingPipeline: Dedo no detectado o rechazado. Razones:", fingerDetectionResult.rejectionReasons);
+            // Opcional: Emitir un error si la detección falla consistentemente por mucho tiempo
+            // if (this.onError) {
+            //     this.onError({ code: 'FINGER_NOT_DETECTED', message: 'Dedo no detectado o calidad insuficiente', timestamp: Date.now() });
+            // }
+        }
       }
-
-      const fingerDetectionResult = this.humanFingerDetector.detectHumanFinger(imageData);
-
-      let finalFilteredValue = fingerDetectionResult.rawValue;
-      let finalAmplifiedValue = fingerDetectionResult.rawValue; // Valor por defecto si no hay dedo
-      let finalQuality = fingerDetectionResult.quality;
-
-      if (fingerDetectionResult.isHumanFinger && fingerDetectionResult.quality > 30) { // Umbral de calidad para procesar
-        const ppgResults = this.processPPGSignal(fingerDetectionResult.rawValue, fingerDetectionResult.quality);
-        finalFilteredValue = ppgResults.amplifiedValue;
-        finalAmplifiedValue = ppgResults.amplifiedValue;
-      } else {
-        // Si no hay dedo o la calidad es muy baja, reseteamos parcialmente los filtros para que se adapten rápido al reaparecer la señal
-        this.kalmanFilter.reset(); // Resetea P y X, pero mantiene R y Q configurados
-        this.sgFilter.reset();
-        this.baselineValue = 0; // Permitir que el baseline se reestablezca rápidamente
-        this.signalHistoryForAmplification = []; // Limpiar historial para recalculación de amplificación
-      }
-      
-      const outputSignal: ProcessedSignal = {
-        timestamp: fingerDetectionResult.timestamp,
-        rawValue: fingerDetectionResult.rawValue,
-        filteredValue: finalFilteredValue, 
-        quality: finalQuality,
-        fingerDetected: fingerDetectionResult.isHumanFinger,
-        roi: { // ROI Fijo por ahora, se puede mejorar
-          x: imageData.width / 4,
-          y: imageData.height / 4,
-          width: imageData.width / 2,
-          height: imageData.height / 2,
-        },
-        perfusionIndex: fingerDetectionResult.confidence, // Usar confianza como un proxy de PI
-      };
-      
-      this.lastProcessedSignal = outputSignal; // Guardar la última señal procesada
-
-      if (this.onSignalReady) {
-        this.onSignalReady(outputSignal as ExtendedProcessedSignal);
-      }
-
-    } catch (error) {
+    } catch (error: any) {
       console.error("SignalProcessingPipeline: Error procesando frame:", error);
       if (this.onError) {
-        this.onError({
-          code: 'PIPELINE_PROCESSING_ERROR',
-          message: error instanceof Error ? error.message : 'Error desconocido en pipeline',
-          timestamp: Date.now()
-        });
+        this.onError({ code: 'PROCESSING_ERROR', message: error.message || 'Unknown processing error', timestamp: Date.now() });
       }
+      // Continuar procesando si es un error recuperable, detener si es crítico.
+      // this.stop(); // Descomentar si el error debe detener el pipeline
     }
   }
   

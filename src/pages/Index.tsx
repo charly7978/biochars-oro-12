@@ -580,7 +580,8 @@ const Index = () => {
         setRRIntervals(heartBeatResult.rrData.intervals.slice(-5));
       }
       
-      const vitals = processVitalSigns(lastSignal.filteredValue, heartBeatResult.rrData);
+      // Pasar la señal completa (incluyendo colorData) al procesador de vitales
+      const vitals = processVitalSigns(lastSignal.filteredValue, heartBeatResult.rrData, lastSignal.colorData);
       if (vitals) {
         setVitalSigns(vitals);
         

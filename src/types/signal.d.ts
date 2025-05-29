@@ -13,6 +13,7 @@ export interface ProcessedSignal {
     height: number;
   };
   perfusionIndex?: number;
+  colorData?: { red: number; green: number; blue: number };
 }
 
 export interface ProcessingError {
