@@ -88,7 +88,7 @@ export class AutoCalibrationSystem {
         this.processFingerDetectionPhase(frameData);
         // Avanzar si se completa el tiempo Y el dedo ha sido consistentemente detectado recientemente
         const minFingerDetectionTime = phaseDuration * 0.8; // Asegurar detección en el 80% del tiempo o más
-        const requiredQuality = 25; // Reducido: Exigir una calidad mínima para avanzar, menos estricto
+        const requiredQuality = 40; // Exigir una calidad mínima para avanzar
         const hasConsistentDetection = this.samples.fingerDetection.slice(-30).filter(q => q > requiredQuality).length >= 20; // Al menos 20 frames con buena calidad en los últimos 30
 
         shouldAdvance = phaseElapsed >= phaseDuration && hasConsistentDetection && frameData.fingerDetected && frameData.quality > requiredQuality;
