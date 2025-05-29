@@ -256,10 +256,10 @@ export class SignalProcessingPipeline {
         if (this.onSignalReady) {
             const signalDuringCalibration: ExtendedProcessedSignal = {
                 timestamp: Date.now(),
-                rawValue: imageData.data[0],
-                filteredValue: imageData.data[0], // O un valor indicando calibración
-                quality: 255,
-                fingerDetected: false,
+                rawValue: fingerDetectionResult.debugInfo.avgRed, // Usar el valor rojo promedio real
+                filteredValue: fingerDetectionResult.filteredValue, // Usar el valor filtrado real del detector (si aplica)
+                quality: fingerDetectionResult.quality, // Reportar la calidad real del detector
+                fingerDetected: fingerDetectionResult.isHumanFinger, // Reportar la detección real del detector
                 roi: { x: 0, y: 0, width: imageData.width, height: imageData.height }, // ROI temporal
                 perfusionIndex: 0,
                 calibrationPhase: calibrationStatus.phase,
