@@ -44,8 +44,8 @@ export interface HumanFingerDetectorConfig {
 const defaultDetectorConfig: HumanFingerDetectorConfig = {
   MIN_RED_INTENSITY: 30,
   MAX_RED_INTENSITY: 240,
-  MIN_RG_RATIO: 1.1,
-  MIN_RB_RATIO: 1.3,
+  MIN_RG_RATIO: 0.7,
+  MIN_RB_RATIO: 0.8,
   HISTORY_SIZE_SHORT: 10,      // Coincide con HISTORY_SIZE_SHORT_PULS
   HISTORY_SIZE_LONG: 30,       // Coincide con HISTORY_SIZE_LONG_STAB
   PULSABILITY_STD_THRESHOLD: 0.6,
@@ -65,8 +65,8 @@ export class HumanFingerDetector {
     EXTREME_PLASTIC_RED_MIN: 240, 
     EXTREME_PAPER_UNIFORMITY_MAX: 0.005, 
     EXTREME_METAL_SPECULAR_MIN: 4.5,   
-    EXTREME_BLUE_DOMINANT_THRESHOLD: 2.0, 
-    EXTREME_GREEN_DOMINANT_THRESHOLD: 0.5, 
+    EXTREME_BLUE_DOMINANT_THRESHOLD: 2.5,
+    EXTREME_GREEN_DOMINANT_THRESHOLD: 0.6,
   };
   
   private rawRedHistory: number[] = [];      
@@ -369,22 +369,19 @@ export class HumanFingerDetector {
     if (!temporalValidation.meetsPulsatility) rejectionReasons.push("Pulsatilidad insuf.");
     if (!temporalValidation.meetsStability) rejectionReasons.push("Señal inestable");
 
-    // Criterios simplificados y firmes:
+    // Criterios extremadamente laxos: básicamente, si no es un falso positivo obvio y pasa espectralmente con umbrales bajos.
     const isHumanFinger =
-      spectralAnalysis.isValidSpectrum && // Debe cumplir criterios de color básicos
-      !falsePositiveCheck.isFalsePositive && // No debe ser un falso positivo extremo (e.g., plástico)
-      spectralAnalysis.redDominanceScore > 0.3; // Reducir aún más el requisito de dominancia roja
-      // NOTA: Se elimina la dependencia estricta de la validación temporal para la decisión binaria isHumanFinger.
-      // La calidad (quality) aún usará los datos temporales.
-      
+      spectralAnalysis.isValidSpectrum &&
+      !falsePositiveCheck.isFalsePositive;
+    // NOTA: La validación temporal y la dominancia roja no determinan AHORA la decisión binaria isHumanFinger.
+    // La calidad (quality) y la confianza (confidence) SÍ las reflejarán.
 
     let currentConfidence = 0;
     if (isHumanFinger) {
-      // Calcular confianza basada en criterios simplificados
-      currentConfidence = (spectralAnalysis.confidence * 0.6) + // Mayor peso al espectro
-                          (spectralAnalysis.redDominanceScore * 0.3) + // Peso a la dominancia roja
-                          (1 - (falsePositiveCheck.isFalsePositive ? 1 : 0)) * 0.1; // Pequeño peso si no es falso positivo
-      currentConfidence = Math.max(0.4, currentConfidence); // Base de confianza si cumple
+      // Confianza basada en criterios laxos
+      currentConfidence = (spectralAnalysis.confidence * 0.7) + // Gran peso al espectro base
+                          (1 - (falsePositiveCheck.isFalsePositive ? 1 : 0)) * 0.3; // Peso si no es falso positivo obvio
+      currentConfidence = Math.max(0.5, currentConfidence); // Asegurar una confianza base si es 'dedo'
     } else {
       currentConfidence = Math.min(0.4,
         (spectralAnalysis.confidence * 0.3) +
