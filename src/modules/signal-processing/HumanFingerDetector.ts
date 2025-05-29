@@ -38,7 +38,7 @@ export interface HumanFingerDetectorConfig {
   ROI_WIDTH_FACTOR: number; 
   ROI_HEIGHT_FACTOR: number; 
   EMA_ALPHA_RAW: number; 
-  CONFIDENCE_EMA_ALPHA: number; 
+  CONFIDENCE_EMA_ALPHA: number;
 }
 
 const defaultDetectorConfig: HumanFingerDetectorConfig = {
@@ -48,9 +48,9 @@ const defaultDetectorConfig: HumanFingerDetectorConfig = {
   MIN_RB_RATIO: 1.5,
   HISTORY_SIZE_SHORT: 10,      // Coincide con HISTORY_SIZE_SHORT_PULS
   HISTORY_SIZE_LONG: 30,       // Coincide con HISTORY_SIZE_LONG_STAB
-  PULSABILITY_STD_THRESHOLD: 0.7,
-  STABILITY_FRAME_DIFF_THRESHOLD: 10,
-  STABILITY_WINDOW_STD_THRESHOLD: 8,
+  PULSABILITY_STD_THRESHOLD: 0.6,
+  STABILITY_FRAME_DIFF_THRESHOLD: 12,
+  STABILITY_WINDOW_STD_THRESHOLD: 9,
   ROI_WIDTH_FACTOR: 0.3, 
   ROI_HEIGHT_FACTOR: 0.3,
   EMA_ALPHA_RAW: 0.35, 
@@ -370,17 +370,18 @@ export class HumanFingerDetector {
     if (!temporalValidation.meetsStability) rejectionReasons.push("Señal inestable");
 
     const isHumanFinger =
-      spectralAnalysis.isValidSpectrum &&
-      !falsePositiveCheck.isFalsePositive &&
-      (temporalValidation.meetsPulsatility || temporalValidation.meetsStability) &&
-      spectralAnalysis.redDominanceScore > 0.5;
+      spectralAnalysis.isValidSpectrum && // Debe cumplir criterios de color
+      !falsePositiveCheck.isFalsePositive && // No debe ser un falso positivo extremo
+      (temporalValidation.meetsPulsatility || temporalValidation.meetsStability) && // Debe mostrar pulsatilidad *o* ser estable (menos estricto)
+      spectralAnalysis.redDominanceScore > 0.5; // Reducir ligeramente el requisito de dominancia roja
 
     let currentConfidence = 0;
     if (isHumanFinger) {
+      // Ajustar pesos para la confianza, dando más importancia a la pulsatilidad y estabilidad
       currentConfidence = (spectralAnalysis.confidence * 0.4) +
-                          (temporalValidation.pulsatilityScore * 0.4) +
-                          (temporalValidation.stability * 0.2);
-      currentConfidence = Math.max(0.5, currentConfidence);
+                          (temporalValidation.pulsatilityScore * 0.4) + // Reducir ligeramente peso de pulsatilidad
+                          (temporalValidation.stability * 0.2); // Aumentar ligeramente peso de estabilidad
+      currentConfidence = Math.max(0.5, currentConfidence); // Reducir ligeramente confianza mínima
     } else {
       currentConfidence = Math.min(0.4,
         (spectralAnalysis.confidence * 0.3) +
