@@ -226,10 +226,9 @@ export const useSignalProcessor = () => {
       console.error("useSignalProcessor: No hay SignalProcessingPipeline para procesar frames.");
       return;
     }
-    if (isProcessing && processorRef.current.isProcessing) { // Doble chequeo
+    // Permitir procesamiento de frames si el pipeline interno está activo (para calibración o medición)
+    if (processorRef.current.isProcessing) {
       // if (framesProcessed % 30 === 0) { // Log menos frecuente para reducir ruido
-      //   console.log(`[DIAG] useSignalProcessor/processFrame con Pipeline: Procesando frame #${framesProcessed}`);
-      // }
       try {
         processorRef.current.processFrame(imageData);
       } catch (error) {
