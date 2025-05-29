@@ -369,14 +369,15 @@ export class HumanFingerDetector {
     if (!temporalValidation.meetsPulsatility) rejectionReasons.push("Pulsatilidad insuf.");
     if (!temporalValidation.meetsStability) rejectionReasons.push("Señal inestable");
 
-    // Criterios para considerar que es un dedo (ajustados para ser más tolerantes inicialmente):
+    // Criterios para considerar que es un dedo (basados en puntuaciones y más tolerantes a largo plazo):
     const isHumanFinger =
       spectralAnalysis.isValidSpectrum && // Debe cumplir criterios de color
       !falsePositiveCheck.isFalsePositive && // No debe ser un falso positivo extremo
       (
-        (temporalValidation.meetsPulsatility && spectralAnalysis.redDominanceScore > 0.4) || // Si hay pulso y algo de dominancia roja
-        (temporalValidation.meetsStability && spectralAnalysis.redDominanceScore > 0.6) || // O si es muy estable y con buena dominancia roja
-        (this.frameCount < this.config.HISTORY_SIZE_LONG && spectralAnalysis.redDominanceScore > 0.7) // O si es muy al principio y hay mucha dominancia roja
+        // Combinación de puntuaciones: requiere una buena puntuación temporal general
+        (temporalValidation.pulsatilityScore * 0.6 + temporalValidation.stability * 0.4) > 0.4 || // Puntuación temporal combinada > 0.4
+        // Criterio inicial flexible (mantenido, ligeramente ajustado)
+        (this.frameCount < (this.config.HISTORY_SIZE_LONG * 1.2) && spectralAnalysis.redDominanceScore > 0.65) // Más tiempo inicial y dominancia roja alta
       );
 
     let currentConfidence = 0;
