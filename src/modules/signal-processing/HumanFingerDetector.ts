@@ -44,13 +44,13 @@ export interface HumanFingerDetectorConfig {
 const defaultDetectorConfig: HumanFingerDetectorConfig = {
   MIN_RED_INTENSITY: 40,
   MAX_RED_INTENSITY: 230,
-  MIN_RG_RATIO: 1.4,
-  MIN_RB_RATIO: 1.6,
+  MIN_RG_RATIO: 1.3,
+  MIN_RB_RATIO: 1.5,
   HISTORY_SIZE_SHORT: 10,      // Coincide con HISTORY_SIZE_SHORT_PULS
   HISTORY_SIZE_LONG: 30,       // Coincide con HISTORY_SIZE_LONG_STAB
-  PULSABILITY_STD_THRESHOLD: 0.8,
-  STABILITY_FRAME_DIFF_THRESHOLD: 8,
-  STABILITY_WINDOW_STD_THRESHOLD: 6,
+  PULSABILITY_STD_THRESHOLD: 0.7,
+  STABILITY_FRAME_DIFF_THRESHOLD: 10,
+  STABILITY_WINDOW_STD_THRESHOLD: 8,
   ROI_WIDTH_FACTOR: 0.3, 
   ROI_HEIGHT_FACTOR: 0.3,
   EMA_ALPHA_RAW: 0.35, 
@@ -195,7 +195,7 @@ export class HumanFingerDetector {
     const quality = this.calculateIntegratedQuality(decision.isHumanFinger, temporalValidation.stability, temporalValidation.pulsatilityScore, metrics.redIntensity);
 
     // 8. Log result periodically for debugging
-    // this.logDetectionResult(decision, metrics, quality);
+    this.logDetectionResult(decision, metrics, quality);
 
     // 9. Return the final result
     const result: HumanFingerResult = {
@@ -372,16 +372,15 @@ export class HumanFingerDetector {
     const isHumanFinger =
       spectralAnalysis.isValidSpectrum &&
       !falsePositiveCheck.isFalsePositive &&
-      temporalValidation.meetsPulsatility &&
-      temporalValidation.meetsStability &&
-      spectralAnalysis.redDominanceScore > 0.6;
+      (temporalValidation.meetsPulsatility || temporalValidation.meetsStability) &&
+      spectralAnalysis.redDominanceScore > 0.5;
 
     let currentConfidence = 0;
     if (isHumanFinger) {
       currentConfidence = (spectralAnalysis.confidence * 0.4) +
-                          (temporalValidation.pulsatilityScore * 0.45) +
-                          (temporalValidation.stability * 0.15);
-      currentConfidence = Math.max(0.6, currentConfidence);
+                          (temporalValidation.pulsatilityScore * 0.4) +
+                          (temporalValidation.stability * 0.2);
+      currentConfidence = Math.max(0.5, currentConfidence);
     } else {
       currentConfidence = Math.min(0.4,
         (spectralAnalysis.confidence * 0.3) +
@@ -403,7 +402,7 @@ export class HumanFingerDetector {
   private calculateIntegratedQuality(isFinger: boolean, stabilityScore: number, pulsatilityScore: number, avgRed: number): number {
     if (!isFinger) {
       // Si no es un dedo detectado, la calidad es muy baja
-      return Math.max(0, Math.min(15, Math.round(this.smoothedConfidence * 30))); // Calidad máxima muy baja
+      return Math.max(0, Math.min(20, Math.round(this.smoothedConfidence * 40))); // Ajustar ligeramente el rango si no es dedo
     }
     
     // Calcular calidad combinada, dando más peso a la pulsatilidad y estabilidad
@@ -414,7 +413,7 @@ export class HumanFingerDetector {
     }
     
     // Asegurar un rango de calidad útil
-    return Math.max(10, Math.min(100, Math.round(quality))); // Calidad mínima de 10 si es dedo (para diferenciar de 'no dedo')
+    return Math.max(30, Math.min(100, Math.round(quality))); // Calidad mínima de 30 si es dedo (para indicar una base de calidad)
   }
 
   private createDefaultResult(timestamp: number, reason: string): HumanFingerResult {
