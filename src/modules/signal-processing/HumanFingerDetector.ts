@@ -44,8 +44,8 @@ export interface HumanFingerDetectorConfig {
 const defaultDetectorConfig: HumanFingerDetectorConfig = {
   MIN_RED_INTENSITY: 40,
   MAX_RED_INTENSITY: 230,
-  MIN_RG_RATIO: 1.3,
-  MIN_RB_RATIO: 1.5,
+  MIN_RG_RATIO: 1.1,
+  MIN_RB_RATIO: 1.3,
   HISTORY_SIZE_SHORT: 10,      // Coincide con HISTORY_SIZE_SHORT_PULS
   HISTORY_SIZE_LONG: 30,       // Coincide con HISTORY_SIZE_LONG_STAB
   PULSABILITY_STD_THRESHOLD: 0.6,
@@ -373,7 +373,7 @@ export class HumanFingerDetector {
     const isHumanFinger =
       spectralAnalysis.isValidSpectrum && // Debe cumplir criterios de color básicos
       !falsePositiveCheck.isFalsePositive && // No debe ser un falso positivo extremo (e.g., plástico)
-      spectralAnalysis.redDominanceScore > 0.4; // Reducir ligeramente el requisito de dominancia roja para aumentar sensibilidad
+      spectralAnalysis.redDominanceScore > 0.3; // Reducir aún más el requisito de dominancia roja
       // NOTA: Se elimina la dependencia estricta de la validación temporal para la decisión binaria isHumanFinger.
       // La calidad (quality) aún usará los datos temporales.
       
