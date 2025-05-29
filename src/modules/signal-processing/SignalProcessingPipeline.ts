@@ -101,70 +101,34 @@ export class SignalProcessingPipeline {
     this.onError = onError;
     this.onCalibrationUpdate = onCalibrationUpdate;
 
-    console.log("SignalProcessingPipeline: Inicializado con configuración", this.config);
+    // TEMPORALMENTE DESACTIVAR AUTOCALIBRACION PARA DIAGNOSTICO
+    this.isCalibrating = false;
+    this.autoCalibrationSystem = new AutoCalibrationSystem(); // Mantener la instancia pero no iniciarla activamente al principio
+    this.isProcessing = false; // Asegurarse de que no inicie procesamiento de frames hasta start() se llame explícitamente
+
+    console.log("SignalProcessingPipeline: Inicializado. AUTOCALIBRACION TEMPORALMENTE DESACTIVADA.", this.config);
   }
 
   public startCalibrationMode(): void {
-    console.log("SignalProcessingPipeline: Iniciando modo calibración.");
-    this.isCalibrating = true;
-    this.autoCalibrationSystem.startCalibration();
-    this.humanFingerDetector.reset();
-    this.kalmanFilter.reset();
-    this.sgFilter.reset();
-    this.baselineValue = 0;
-    this.signalHistoryForAmplification = [];
+    // TEMPORALMENTE DESACTIVAR startCalibrationMode REAL
+    console.log("SignalProcessingPipeline: startCalibrationMode TEMPORALMENTE DESACTIVADO.");
+    this.isCalibrating = false; // Asegurar que no entre en modo calibración
+    this.isProcessing = true; // Simular que estamos listos para procesar frames (medición)
+    this.reset(); // Resetear procesadores pero no iniciar calibración
     if (this.onCalibrationUpdate) {
-      const initialPhase = this.autoCalibrationSystem.getCurrentPhase ? this.autoCalibrationSystem.getCurrentPhase() : 'baseline';
-      const initialProgress = this.autoCalibrationSystem.getCurrentProgress ? this.autoCalibrationSystem.getCurrentProgress() : 0;
-      this.onCalibrationUpdate({ phase: initialPhase, progress: initialProgress, instructions: 'Iniciando calibración...', isComplete: false });
+       this.onCalibrationUpdate({ phase: 'skipped', progress: 100, instructions: 'Calibración saltada por diagnostico.', isComplete: true });
     }
   }
 
   public endCalibrationMode(calibrationResults?: any): void {
-    console.log("SignalProcessingPipeline: Finalizando modo calibración.");
-    this.isCalibrating = false;
-    if (calibrationResults) {
-      this.applyCalibrationResults(calibrationResults);
-    }
-    if (this.onCalibrationUpdate) {
-      this.onCalibrationUpdate({ phase: 'complete', progress: 100, instructions: 'Calibración completada.', isComplete: true });
-    }
+    // TEMPORALMENTE DESACTIVAR endCalibrationMode REAL
+    console.log("SignalProcessingPipeline: endCalibrationMode TEMPORALMENTE DESACTIVADO.");
+    this.isCalibrating = false; // Asegurar que no entre en modo calibración
   }
 
   public applyCalibrationResults(results: any): void {
-    console.log("SignalProcessingPipeline: Aplicando resultados de calibración", results);
-    if (results.success) {
-      const newDetectorConfig: Partial<HumanFingerDetectorConfig> = {};
-      let reconfigureDetector = false;
-
-      if (results.thresholds && results.thresholds.min !== undefined && results.thresholds.max !== undefined) {
-        newDetectorConfig.MIN_RED_INTENSITY = results.thresholds.min;
-        newDetectorConfig.MAX_RED_INTENSITY = results.thresholds.max;
-        reconfigureDetector = true;
-        console.log("SignalProcessingPipeline: Nuevos umbrales de rojo para detector:", newDetectorConfig);
-      }
-
-      if (reconfigureDetector) {
-        this.humanFingerDetector.configure(newDetectorConfig);
-        console.log("HumanFingerDetector reconfigurado con resultados de calibración.");
-      }
-
-      if (results.signalParams) {
-        if (results.signalParams.gain !== undefined) {
-            this.config.minAmplificationFactor = Math.max(3, Math.min(20, defaultConfig.minAmplificationFactor * (results.signalParams.gain * 0.8 + 0.2)));
-            this.config.maxAmplificationFactor = Math.max(20, Math.min(60, defaultConfig.maxAmplificationFactor * (results.signalParams.gain * 0.7 + 0.3)));
-            this.config.targetAmplitude = defaultConfig.targetAmplitude * (results.signalParams.gain * 0.5 + 0.5);
-            console.log("SignalProcessingPipeline: Factores de amplificación ajustados por calibración:", {
-                min: this.config.minAmplificationFactor,
-                max: this.config.maxAmplificationFactor,
-                target: this.config.targetAmplitude
-            });
-        }
-      }
-       console.log("SignalProcessingPipeline: Resultados de calibración aplicados.");
-    } else {
-      console.warn("SignalProcessingPipeline: Calibración no exitosa, no se aplicaron resultados.", results.recommendations);
-    }
+    // TEMPORALMENTE DESACTIVAR applyCalibrationResults REAL
+    console.log("SignalProcessingPipeline: applyCalibrationResults TEMPORALMENTE DESACTIVADO.");
   }
 
   /**
@@ -229,47 +193,8 @@ export class SignalProcessingPipeline {
     if (!this.isProcessing) return;
 
     try {
-      if (this.isCalibrating) {
-        // En modo calibración, primero detectamos el dedo para pasar sus resultados al sistema de calibración
-        const fingerDetectionResult = this.humanFingerDetector.detectHumanFinger(imageData);
-        
-        const frameDataForCalibration = {
-          redValue: fingerDetectionResult.debugInfo.avgRed, // Usar promedio de ROI
-          avgGreen: fingerDetectionResult.debugInfo.avgGreen,
-          avgBlue: fingerDetectionResult.debugInfo.avgBlue,
-          quality: fingerDetectionResult.quality, // Usar calidad real del detector
-          fingerDetected: fingerDetectionResult.isHumanFinger // Usar detección real del detector
-        };
-        
-        const calibrationStatus = this.autoCalibrationSystem.processSample(frameDataForCalibration);
-        
-        if (this.onCalibrationUpdate) {
-          this.onCalibrationUpdate(calibrationStatus);
-        }
-
-        if (calibrationStatus.isComplete) {
-          const calResults = this.autoCalibrationSystem.getCalibrationResults();
-          this.endCalibrationMode(calResults);
-          // Después de calibrar, el siguiente frame se procesará normalmente
-        }
-        // Durante la calibración, podríamos no enviar señales PPG procesadas o enviar un estado especial
-        if (this.onSignalReady) {
-            const signalDuringCalibration: ExtendedProcessedSignal = {
-                timestamp: Date.now(),
-                rawValue: fingerDetectionResult.debugInfo.avgRed, // Usar el valor rojo promedio real
-                filteredValue: fingerDetectionResult.filteredValue, // Usar el valor filtrado real del detector (si aplica)
-                quality: fingerDetectionResult.quality, // Reportar la calidad real del detector
-                fingerDetected: fingerDetectionResult.isHumanFinger, // Reportar la detección real del detector
-                roi: { x: 0, y: 0, width: imageData.width, height: imageData.height }, // ROI temporal
-                perfusionIndex: 0,
-                calibrationPhase: calibrationStatus.phase,
-                calibrationProgress: calibrationStatus.progress,
-                calibrationInstructions: calibrationStatus.instructions
-            };
-            this.onSignalReady(signalDuringCalibration);
-        }
-        return; // No procesar señal PPG completa durante la calibración activa
-      } else { // No está en modo calibración
+      // Ahora, en este modo temporal, siempre procesamos como si no estuviéramos calibrando
+      {
         // 1. Detección de dedo humano
         const fingerDetectionResult = this.humanFingerDetector.detectHumanFinger(imageData);
 
@@ -379,12 +304,13 @@ export class SignalProcessingPipeline {
   public start(): void {
     this.isProcessing = true;
     this.reset(); // Asegurar estado limpio al iniciar
-    console.log("SignalProcessingPipeline: Iniciado y reseteado");
+    // Con calibracion desactivada, reset no inicia calibracion
+    console.log("SignalProcessingPipeline: Iniciado y reseteado (Autocalibracion desactivada)");
   }
 
   public stop(): void {
     this.isProcessing = false;
-    this.isCalibrating = false;
+    // this.isCalibrating = false; // No modificar estado de calibración temporal
     console.log("SignalProcessingPipeline: Detenido");
   }
 
@@ -395,9 +321,10 @@ export class SignalProcessingPipeline {
     this.signalHistoryForAmplification = [];
     this.baselineValue = 0;
     this.lastProcessedSignal = null;
-    this.isCalibrating = false;
-    this.autoCalibrationSystem.startCalibration();
-    console.log("SignalProcessingPipeline: Componentes internos reseteados, calibración reiniciada.");
+    // TEMPORALMENTE: No resetear estado de calibración aquí ni iniciarla
+    // this.isCalibrating = false;
+    // this.autoCalibrationSystem.startCalibration();
+    console.log("SignalProcessingPipeline: Componentes internos reseteados (Autocalibracion desactivada)");
   }
 
   // Podríamos añadir un método para obtener el último valor procesado si es necesario externamente
