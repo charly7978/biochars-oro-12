@@ -230,13 +230,17 @@ export class SignalProcessingPipeline {
 
     try {
       if (this.isCalibrating) {
+        // En modo calibración, primero detectamos el dedo para pasar sus resultados al sistema de calibración
+        const fingerDetectionResult = this.humanFingerDetector.detectHumanFinger(imageData);
+        
         const frameDataForCalibration = {
-          redValue: imageData.data[0], // Usar rawValue para calibración
-          avgGreen: imageData.data[1],
-          avgBlue: imageData.data[2],
-          quality: 255, // Calidad estimada por el detector
-          fingerDetected: false
+          redValue: fingerDetectionResult.debugInfo.avgRed, // Usar promedio de ROI
+          avgGreen: fingerDetectionResult.debugInfo.avgGreen,
+          avgBlue: fingerDetectionResult.debugInfo.avgBlue,
+          quality: fingerDetectionResult.quality, // Usar calidad real del detector
+          fingerDetected: fingerDetectionResult.isHumanFinger // Usar detección real del detector
         };
+        
         const calibrationStatus = this.autoCalibrationSystem.processSample(frameDataForCalibration);
         
         if (this.onCalibrationUpdate) {
