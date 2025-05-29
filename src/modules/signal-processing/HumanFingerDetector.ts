@@ -44,13 +44,13 @@ export interface HumanFingerDetectorConfig {
 const defaultDetectorConfig: HumanFingerDetectorConfig = {
   MIN_RED_INTENSITY: 40,
   MAX_RED_INTENSITY: 230,
-  MIN_RG_RATIO: 1.0,
-  MIN_RB_RATIO: 1.2,
+  MIN_RG_RATIO: 1.4,
+  MIN_RB_RATIO: 1.6,
   HISTORY_SIZE_SHORT: 10,      // Coincide con HISTORY_SIZE_SHORT_PULS
   HISTORY_SIZE_LONG: 30,       // Coincide con HISTORY_SIZE_LONG_STAB
-  PULSABILITY_STD_THRESHOLD: 0.6, 
-  STABILITY_FRAME_DIFF_THRESHOLD: 15,
-  STABILITY_WINDOW_STD_THRESHOLD: 10,
+  PULSABILITY_STD_THRESHOLD: 0.8,
+  STABILITY_FRAME_DIFF_THRESHOLD: 8,
+  STABILITY_WINDOW_STD_THRESHOLD: 6,
   ROI_WIDTH_FACTOR: 0.3, 
   ROI_HEIGHT_FACTOR: 0.3,
   EMA_ALPHA_RAW: 0.35, 
@@ -94,24 +94,135 @@ export class HumanFingerDetector {
     const timestamp = Date.now();
 
     // --- TEMPORARY DIAGNOSTIC OVERRIDE: Force finger detected ---
-    // const tempResult: HumanFingerResult = {
-    //   isHumanFinger: true, // Force true
-    //   confidence: 1.0,     // High confidence
-    //   quality: 80,         // High quality
-    //   rawValue: 150,       // Placeholder value
-    //   filteredValue: 150,  // Placeholder value
-    //   timestamp,
-    //   roi: { x: 0, y: 0, width: imageData.width, height: imageData.height }, // Default ROI
-    //   debugInfo: {
-    //     avgRed: 150, avgGreen: 100, avgBlue: 80, rgRatio: 1.5, rbRatio: 1.8,
-    //     redDominanceScore: 1.0, pulsatilityScore: 1.0, stabilityScore: 1.0,
-    //     rejectionReasons: [],
-    //     acceptanceReasons: ['TEMPORARY_OVERRIDE']
-    //   }
-    // };
-    // // console.log("HFDetector: Returning TEMPORARY_OVERRIDE result"); // Optional: re-add if logs are available later
+    // const tempResult: HumanFingerResult = { ... };
+    // // console.log(\"HFDetector: Returning TEMPORARY_OVERRIDE result\"); // Optional: re-add if logs are available later
     // return tempResult;
     // --- END TEMPORARY OVERRIDE ---
+
+    // 1. Calculate color metrics from central ROI (or whole image if no ROI logic yet)
+    // Assuming the central ROI logic or similar will be implemented here or before this call
+    // For now, use a simplified approach if a proper ROI wasn't selected.
+    // A robust implementation needs a dynamic ROI selection based on image analysis.
+    // Let's assume for now a function getCentralROIColorData(imageData) exists or basic avg is used.
+    // Based on previous code, it seems avgRed, avgGreen, avgBlue are intended to be calculated.
+
+    // Placeholder: Replace with actual ROI analysis to get avgRed, avgGreen, avgBlue
+    // For now, let's read the first pixel as a basic placeholder if no ROI logic is present yet.
+    // **TODO: Implement proper ROI selection and averaging**
+    let avgRed = 0, avgGreen = 0, avgBlue = 0;
+    let roi = { x: 0, y: 0, width: imageData.width, height: imageData.height }; // Default to full image
+    
+    // Simple average over a central square for now - Needs refinement!
+    const centerX = imageData.width / 2;
+    const centerY = imageData.height / 2;
+    const roiWidth = Math.max(1, Math.floor(imageData.width * this.config.ROI_WIDTH_FACTOR));
+    const roiHeight = Math.max(1, Math.floor(imageData.height * this.config.ROI_HEIGHT_FACTOR));
+    const roiX = Math.max(0, Math.floor(centerX - roiWidth / 2));
+    const roiY = Math.max(0, Math.floor(centerY - roiHeight / 2));
+    
+    roi = { x: roiX, y: roiY, width: roiWidth, height: roiHeight };
+
+    let sumRed = 0, sumGreen = 0, sumBlue = 0;
+    let pixelCount = 0;
+    
+    // Ensure ROI is within bounds
+    const effectiveRoiX = Math.max(0, roi.x);
+    const effectiveRoiY = Math.max(0, roi.y);
+    const effectiveRoiWidth = Math.min(roi.width, imageData.width - effectiveRoiX);
+    const effectiveRoiHeight = Math.min(roi.height, imageData.height - effectiveRoiY);
+
+    if (effectiveRoiWidth > 0 && effectiveRoiHeight > 0) {
+      for (let y = effectiveRoiY; y < effectiveRoiY + effectiveRoiHeight; y++) {
+        for (let x = effectiveRoiX; x < effectiveRoiX + effectiveRoiWidth; x++) {
+          const index = (y * imageData.width + x) * 4;
+          sumRed += imageData.data[index];
+          sumGreen += imageData.data[index + 1];
+          sumBlue += imageData.data[index + 2];
+          pixelCount++;
+        }
+      }
+    }
+
+    if (pixelCount > 0) {
+      avgRed = sumRed / pixelCount;
+      avgGreen = sumGreen / pixelCount;
+      avgBlue = sumBlue / pixelCount;
+    } else {
+        // Fallback if ROI is somehow invalid, maybe use a single central pixel or previous frame's average
+        const centralPixelIndex = (Math.floor(centerY) * imageData.width + Math.floor(centerX)) * 4;
+        if (centralPixelIndex < imageData.data.length) { // Basic boundary check
+            avgRed = imageData.data[centralPixelIndex];
+            avgGreen = imageData.data[centralPixelIndex + 1];
+            avgBlue = imageData.data[centralPixelIndex + 2];
+        }
+        roi = { x: Math.floor(centerX), y: Math.floor(centerY), width: 1, height: 1 };
+         console.warn("HFDetector: Invalid ROI, using central pixel fallback.");
+    }
+
+    // 2. Calculate metrics based on color data
+    const metrics = this.calculateMetricsInternal(avgRed, avgGreen, avgBlue, imageData);
+
+    // Update raw signal history for temporal analysis
+    this.rawRedHistory.push(metrics.redIntensity);
+    if (this.rawRedHistory.length > Math.max(this.config.HISTORY_SIZE_SHORT, this.config.HISTORY_SIZE_LONG)) {
+      this.rawRedHistory.shift();
+    }
+    
+    // Apply simple EMA filter to raw red for filtered history used in pulsatility
+    if (this.frameCount === 1) { // Initialize on first frame
+        this.lastRawRedEMA = metrics.redIntensity;
+    } else {
+        this.lastRawRedEMA = this.lastRawRedEMA * (1 - this.config.EMA_ALPHA_RAW) + metrics.redIntensity * this.config.EMA_ALPHA_RAW;
+    }
+    this.filteredRedHistory.push(this.lastRawRedEMA);
+     if (this.filteredRedHistory.length > this.config.HISTORY_SIZE_SHORT) {
+       this.filteredRedHistory.shift();
+    }
+
+    // 3. Analyze spectral characteristics
+    const spectralAnalysis = this.analyzeHumanSkinSpectrum(metrics);
+
+    // 4. Check for extreme false positives (e.g., simple red objects)
+    const falsePositiveCheck = this.detectExtremeFalsePositives(metrics);
+    
+    // 5. Validate temporal characteristics (pulsatility and stability)
+    const temporalValidation = this.validateTemporal(metrics, spectralAnalysis);
+
+    // 6. Make final decision based on all analyses
+    const decision = this.makeFinalDecision(spectralAnalysis, falsePositiveCheck, temporalValidation);
+
+    // 7. Calculate integrated quality score
+    const quality = this.calculateIntegratedQuality(decision.isHumanFinger, temporalValidation.stability, temporalValidation.pulsatilityScore, metrics.redIntensity);
+
+    // 8. Log result periodically for debugging
+    // this.logDetectionResult(decision, metrics, quality);
+
+    // 9. Return the final result
+    const result: HumanFingerResult = {
+      isHumanFinger: decision.isHumanFinger,
+      confidence: decision.confidence,
+      quality: quality,
+      rawValue: metrics.redIntensity, // Using the calculated avgRed
+      filteredValue: this.lastRawRedEMA, // Using the filtered value for output
+      timestamp,
+      roi: roi, // Return the calculated ROI
+      debugInfo: {
+        avgRed: metrics.redIntensity,
+        avgGreen: metrics.greenIntensity,
+        avgBlue: metrics.blueIntensity,
+        rgRatio: metrics.rgRatio,
+        rbRatio: metrics.rbRatio,
+        redDominanceScore: spectralAnalysis.redDominanceScore,
+        pulsatilityScore: temporalValidation.pulsatilityScore,
+        stabilityScore: temporalValidation.stability,
+        rejectionReasons: decision.rejectionReasons,
+        acceptanceReasons: decision.acceptanceReasons
+      }
+    };
+
+    // console.log("HFDetector: Result", result); // Optional: re-add if logs are available later
+
+    return result;
   }
 
   private calculateMetricsInternal(avgRed: number, avgGreen: number, avgBlue: number, imageData: ImageData) {
@@ -258,22 +369,23 @@ export class HumanFingerDetector {
     if (!temporalValidation.meetsPulsatility) rejectionReasons.push("Pulsatilidad insuf.");
     if (!temporalValidation.meetsStability) rejectionReasons.push("Señal inestable");
 
-    const isHumanFinger = 
+    const isHumanFinger =
       spectralAnalysis.isValidSpectrum &&
       !falsePositiveCheck.isFalsePositive &&
       temporalValidation.meetsPulsatility &&
-      temporalValidation.meetsStability;
+      temporalValidation.meetsStability &&
+      spectralAnalysis.redDominanceScore > 0.6;
 
     let currentConfidence = 0;
     if (isHumanFinger) {
-      currentConfidence = (spectralAnalysis.confidence * 0.5) + 
-                          (temporalValidation.pulsatilityScore * 0.35) + // Más peso a pulsatilidad
-                          (temporalValidation.stability * 0.15); // Menos peso a estabilidad si ya hay pulso
-      currentConfidence = Math.max(0.55, currentConfidence); // Confianza mínima si es dedo
+      currentConfidence = (spectralAnalysis.confidence * 0.4) +
+                          (temporalValidation.pulsatilityScore * 0.45) +
+                          (temporalValidation.stability * 0.15);
+      currentConfidence = Math.max(0.6, currentConfidence);
     } else {
-      currentConfidence = Math.min(0.4, 
-        (spectralAnalysis.confidence * 0.3) + 
-        (temporalValidation.pulsatilityScore * 0.15) + 
+      currentConfidence = Math.min(0.4,
+        (spectralAnalysis.confidence * 0.3) +
+        (temporalValidation.pulsatilityScore * 0.15) +
         (temporalValidation.stability * 0.05)
       );
     }
@@ -290,16 +402,19 @@ export class HumanFingerDetector {
   
   private calculateIntegratedQuality(isFinger: boolean, stabilityScore: number, pulsatilityScore: number, avgRed: number): number {
     if (!isFinger) {
-      return Math.max(0, Math.min(35, Math.round(this.smoothedConfidence * 70))); 
+      // Si no es un dedo detectado, la calidad es muy baja
+      return Math.max(0, Math.min(15, Math.round(this.smoothedConfidence * 30))); // Calidad máxima muy baja
     }
     
-    let quality = (pulsatilityScore * 0.55 + stabilityScore * 0.30 + this.smoothedConfidence * 0.15) * 100;
+    // Calcular calidad combinada, dando más peso a la pulsatilidad y estabilidad
+    let quality = (pulsatilityScore * 0.6 + stabilityScore * 0.3 + this.smoothedConfidence * 0.1) * 100;
 
     if (avgRed < this.config.MIN_RED_INTENSITY + 20 || avgRed > this.config.MAX_RED_INTENSITY - 20) {
       quality *= 0.85; // Penalizar si la intensidad está en los extremos del rango aceptable
     }
     
-    return Math.max(20, Math.min(99, Math.round(quality))); // Calidad mínima de 20 si es dedo
+    // Asegurar un rango de calidad útil
+    return Math.max(10, Math.min(100, Math.round(quality))); // Calidad mínima de 10 si es dedo (para diferenciar de 'no dedo')
   }
 
   private createDefaultResult(timestamp: number, reason: string): HumanFingerResult {
