@@ -189,7 +189,7 @@ export class HumanFingerDetector {
     const temporalValidation = this.validateTemporal(metrics, spectralAnalysis);
 
     // 6. Make final decision based on all analyses
-    const decision = this.makeFinalDecision(spectralAnalysis, falsePositiveCheck, temporalValidation);
+    const decision = this.makeFinalDecision(spectralAnalysis, falsePositiveCheck, temporalValidation, metrics);
 
     // 7. Calculate integrated quality score
     const quality = this.calculateIntegratedQuality(decision.isHumanFinger, temporalValidation.stability, temporalValidation.pulsatilityScore, metrics.redIntensity, temporalValidation, spectralAnalysis);
@@ -362,18 +362,19 @@ export class HumanFingerDetector {
     };
   }
   
-  private makeFinalDecision(spectralAnalysis: any, falsePositiveCheck: any, temporalValidation: any) {
+  private makeFinalDecision(spectralAnalysis: any, falsePositiveCheck: any, temporalValidation: any, metrics: any): { isHumanFinger: boolean, confidence: number, acceptanceReasons: string[], rejectionReasons: string[] } {
     const acceptanceReasons = [...spectralAnalysis.reasons, ...temporalValidation.reasons].filter(r => r.startsWith('✓')); // Solo razones positivas
-    const rejectionReasons = [...falsePositiveCheck.rejectionReasons]; 
+    const rejectionReasons = [...falsePositiveCheck.rejectionReasons];
 
+    // Añadir razones de rechazo si los criterios no se cumplen (incluso si la decisión final es laxa)
     if (!spectralAnalysis.isValidSpectrum) rejectionReasons.push("Espectro color inválido");
     if (!temporalValidation.meetsPulsatility) rejectionReasons.push("Pulsatilidad insuf.");
     if (!temporalValidation.meetsStability) rejectionReasons.push("Señal inestable");
 
     // Criterios extremadamente laxos con fallback:
-    (spectralAnalysis.isValidSpectrum && !falsePositiveCheck.isFalsePositive) || // Pasa si cumple espectro relajado y no es falso positivo obvio
-    (metrics.redIntensity > 10 && metrics.greenIntensity > 10 && metrics.blueIntensity > 10); // O pasa como fallback si hay datos de color no nulos
-    // NOTA: La validación temporal y la dominancia roja no determinan AHORA la decisión binaria isHumanFinger.
+    const isHumanFinger = (spectralAnalysis.isValidSpectrum && !falsePositiveCheck.isFalsePositive) || // Pasa si cumple espectro relajado y no es falso positivo obvio
+                          (metrics.redIntensity > 5 && metrics.greenIntensity > 5 && metrics.blueIntensity > 5); // O pasa como fallback si hay datos de color > 5
+    // NOTA: La validación temporal y la dominancia roja (más allá de basic isValidSpectrum) no determinan AHORA la decisión binaria isHumanFinger.
     // La calidad (quality) y la confianza (confidence) SÍ las reflejarán.
 
     let currentConfidence = 0;
