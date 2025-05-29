@@ -1,11 +1,9 @@
 import { HumanFingerDetector, HumanFingerResult, HumanFingerDetectorConfig } from './HumanFingerDetector';
 import { OptimizedKalmanFilter } from './OptimizedKalmanFilter';
 import { SavitzkyGolayFilter } from './SavitzkyGolayFilter';
-import { AutoCalibrationSystem, CalibrationResult } from './AutoCalibrationSystem';
+import { AutoCalibrationSystem } from './AutoCalibrationSystem';
 import { FrameData } from './types'; // Asumiendo que FrameData se define aquí o se importa
 import { ProcessedSignal, ProcessingError } from '../../types/signal';
-import { VitalSignsReferenceData } from '../vital-signs/VitalSignsProcessor'; // Importar el nuevo tipo
-import { FrameProcessor } from './FrameProcessor'; // Importar FrameProcessor
 
 export interface SignalPipelineConfig {
   // Configuraciones para HumanFingerDetector
@@ -32,13 +30,6 @@ export interface SignalPipelineConfig {
   pulsatilityThreshold?: number;
   stabilityFrameDiffThreshold?: number;
   stabilityWindowStdThreshold?: number;
-
-  // Configuración para detección de picos y RR
-  PEAK_VALIDATION_THRESHOLD?: number;
-  RR_INTERVAL_MIN_MS?: number;
-  RR_INTERVAL_MAX_MS?: number;
-  TEXTURE_GRID_SIZE?: number; // Añadir configuración para FrameProcessor
-  ROI_SIZE_FACTOR?: number;   // Añadir configuración para FrameProcessor
 }
 
 const defaultConfig: SignalPipelineConfig = {
@@ -56,11 +47,6 @@ const defaultConfig: SignalPipelineConfig = {
   pulsatilityThreshold: undefined,
   stabilityFrameDiffThreshold: undefined,
   stabilityWindowStdThreshold: undefined,
-  PEAK_VALIDATION_THRESHOLD: 0.3, // Umbral por defecto para validación de picos
-  RR_INTERVAL_MIN_MS: 300, // 300ms (200 BPM)
-  RR_INTERVAL_MAX_MS: 2000, // 2000ms (30 BPM)
-  TEXTURE_GRID_SIZE: 10, // Valor por defecto
-  ROI_SIZE_FACTOR: 0.3, // Valor por defecto
 };
 
 // Interfaz para los datos que el pipeline necesita del AutoCalibrationSystem
@@ -82,67 +68,40 @@ export class SignalProcessingPipeline {
   private kalmanFilter: OptimizedKalmanFilter;
   private sgFilter: SavitzkyGolayFilter;
   private autoCalibrationSystem: AutoCalibrationSystem;
-  private frameProcessor: FrameProcessor; // Añadir FrameProcessor
 
   private signalHistoryForAmplification: number[] = []; // Historial para amplificación dinámica
   private baselineValue: number = 0;
   private lastProcessedSignal: ProcessedSignal | null = null;
 
-  // Propiedades para detección de picos y RR (portado de VitalSignsProcessor)
-  private lastValue: number = 0; // Para cálculo de derivada
-  private peakValidationBuffer: number[] = []; // Buffer para validar picos
-  private peakCandidateIndex: number | null = null;
-  private peakCandidateValue: number = 0;
-  private peakConfirmationBuffer: Array<{ isCandidate: boolean; value: number; confidence: number; }> = []; // Buffer para confirmar picos (ahora guarda objetos)
-  private lastConfirmedPeak: boolean = false;
-  private rrIntervals: number[] = [];
-  private lastPeakTime: number | null = null;
-  private previousPeakTime: number | null = null;
-
   public onSignalReady?: (signal: ExtendedProcessedSignal) => void;
   public onError?: (error: ProcessingError) => void;
-  public onCalibrationUpdate?: (calibrationStatus: { phase: string; progress: number; instructions: string; isComplete: boolean; results?: CalibrationResult }) => void;
+  public onCalibrationUpdate?: (calibrationStatus: { phase: string; progress: number; instructions: string; isComplete: boolean;}) => void;
   public isProcessing: boolean = false;
   private isCalibrating: boolean = false;
-
-  // Callback para actualizar VitalSignsProcessor con el resultado de la calibración
-  private vitalSignsUpdateCallback?: (isSuccess: boolean, referenceData?: VitalSignsReferenceData) => void;
 
   constructor(
     config: Partial<SignalPipelineConfig> = {},
     onSignalReady?: (signal: ExtendedProcessedSignal) => void,
     onError?: (error: ProcessingError) => void,
-    onCalibrationUpdate?: (calibrationStatus: { phase: string; progress: number; instructions: string; isComplete: boolean; results?: CalibrationResult }) => void
+    onCalibrationUpdate?: (calibrationStatus: { phase: string; progress: number; instructions: string; isComplete: boolean;}) => void
   ) {
     this.config = { ...defaultConfig, ...config };
     this.humanFingerDetector = new HumanFingerDetector({
         MIN_RED_INTENSITY: this.config.minRedReflectance,
         MAX_RED_INTENSITY: this.config.maxRedReflectance,
         MIN_RG_RATIO: this.config.minRGRatio,
-        PULSABILITY_STD_THRESHOLD: this.config.pulsatilityThreshold,
+        PULSABILITY_THRESHOLD: this.config.pulsatilityThreshold,
         STABILITY_FRAME_DIFF_THRESHOLD: this.config.stabilityFrameDiffThreshold,
-        STABILITY_WINDOW_STD_THRESHOLD: this.config.stabilityWindowStdThreshold,
+        STABILITY_THRESHOLD_WINDOW_STDDEV: this.config.stabilityWindowStdThreshold,
     });
     this.kalmanFilter = new OptimizedKalmanFilter(this.config.kalmanR, this.config.kalmanQ);
     this.sgFilter = new SavitzkyGolayFilter(this.config.sgWindowSize);
     this.autoCalibrationSystem = new AutoCalibrationSystem();
-    this.frameProcessor = new FrameProcessor({
-        TEXTURE_GRID_SIZE: this.config.TEXTURE_GRID_SIZE || 10, // Usar valor por defecto si no está en config
-        ROI_SIZE_FACTOR: this.config.ROI_SIZE_FACTOR || 0.3 // Usar valor por defecto si no está en config
-    });
     this.onSignalReady = onSignalReady;
     this.onError = onError;
     this.onCalibrationUpdate = onCalibrationUpdate;
 
     console.log("SignalProcessingPipeline: Inicializado con configuración", this.config);
-    this.resetPeakDetectionStates(); // Inicializar estados de detección de picos
-    this.reset(); // Usar el método reset público para inicializar estados
-  }
-
-  // Método para registrar el actualizador de VitalSignsProcessor
-  public registerVitalSignsUpdater(updater: (isSuccess: boolean, referenceData?: VitalSignsReferenceData) => void): void {
-    this.vitalSignsUpdateCallback = updater;
-    console.log("SignalProcessingPipeline: VitalSignsUpdater registrado.");
   }
 
   public startCalibrationMode(): void {
@@ -154,8 +113,6 @@ export class SignalProcessingPipeline {
     this.sgFilter.reset();
     this.baselineValue = 0;
     this.signalHistoryForAmplification = [];
-    this.resetPeakDetectionStates(); // Resetear al iniciar calibración
-    this.autoCalibrationSystem.reset(); // Usar método reset público
     if (this.onCalibrationUpdate) {
       const initialPhase = this.autoCalibrationSystem.getCurrentPhase ? this.autoCalibrationSystem.getCurrentPhase() : 'baseline';
       const initialProgress = this.autoCalibrationSystem.getCurrentProgress ? this.autoCalibrationSystem.getCurrentProgress() : 0;
@@ -163,33 +120,26 @@ export class SignalProcessingPipeline {
     }
   }
 
-  public endCalibrationMode(referenceDataForVitalSigns?: VitalSignsReferenceData): void {
+  public endCalibrationMode(calibrationResults?: any): void {
     console.log("SignalProcessingPipeline: Finalizando modo calibración.");
     this.isCalibrating = false;
-    
-    const finalCalibrationResults = this.autoCalibrationSystem.getCalibrationResults();
-    this.applyCalibrationResults(finalCalibrationResults, referenceDataForVitalSigns);
-
+    if (calibrationResults) {
+      this.applyCalibrationResults(calibrationResults);
+    }
     if (this.onCalibrationUpdate) {
-      this.onCalibrationUpdate({ 
-        phase: 'complete', 
-        progress: 100, 
-        instructions: 'Calibración completada.', 
-        isComplete: true,
-        results: finalCalibrationResults
-      });
+      this.onCalibrationUpdate({ phase: 'complete', progress: 100, instructions: 'Calibración completada.', isComplete: true });
     }
   }
 
-  private applyCalibrationResults(calibrationResults: CalibrationResult, referenceData?: VitalSignsReferenceData): void {
-    console.log("SignalProcessingPipeline: Aplicando resultados de calibración", calibrationResults);
-    if (calibrationResults.success) {
+  private applyCalibrationResults(results: any): void {
+    console.log("SignalProcessingPipeline: Aplicando resultados de calibración", results);
+    if (results.success) {
       const newDetectorConfig: Partial<HumanFingerDetectorConfig> = {};
       let reconfigureDetector = false;
 
-      if (calibrationResults.thresholds && calibrationResults.thresholds.min !== undefined && calibrationResults.thresholds.max !== undefined) {
-        newDetectorConfig.MIN_RED_INTENSITY = calibrationResults.thresholds.min;
-        newDetectorConfig.MAX_RED_INTENSITY = calibrationResults.thresholds.max;
+      if (results.thresholds && results.thresholds.min !== undefined && results.thresholds.max !== undefined) {
+        newDetectorConfig.MIN_RED_INTENSITY = results.thresholds.min;
+        newDetectorConfig.MAX_RED_INTENSITY = results.thresholds.max;
         reconfigureDetector = true;
         console.log("SignalProcessingPipeline: Nuevos umbrales de rojo para detector:", newDetectorConfig);
       }
@@ -199,11 +149,11 @@ export class SignalProcessingPipeline {
         console.log("HumanFingerDetector reconfigurado con resultados de calibración.");
       }
 
-      if (calibrationResults.signalParams) {
-        if (calibrationResults.signalParams.gain !== undefined) {
-            this.config.minAmplificationFactor = Math.max(3, Math.min(20, defaultConfig.minAmplificationFactor * (calibrationResults.signalParams.gain * 0.8 + 0.2)));
-            this.config.maxAmplificationFactor = Math.max(20, Math.min(60, defaultConfig.maxAmplificationFactor * (calibrationResults.signalParams.gain * 0.7 + 0.3)));
-            this.config.targetAmplitude = defaultConfig.targetAmplitude * (calibrationResults.signalParams.gain * 0.5 + 0.5);
+      if (results.signalParams) {
+        if (results.signalParams.gain !== undefined) {
+            this.config.minAmplificationFactor = Math.max(3, Math.min(20, defaultConfig.minAmplificationFactor * (results.signalParams.gain * 0.8 + 0.2)));
+            this.config.maxAmplificationFactor = Math.max(20, Math.min(60, defaultConfig.maxAmplificationFactor * (results.signalParams.gain * 0.7 + 0.3)));
+            this.config.targetAmplitude = defaultConfig.targetAmplitude * (results.signalParams.gain * 0.5 + 0.5);
             console.log("SignalProcessingPipeline: Factores de amplificación ajustados por calibración:", {
                 min: this.config.minAmplificationFactor,
                 max: this.config.maxAmplificationFactor,
@@ -211,22 +161,9 @@ export class SignalProcessingPipeline {
             });
         }
       }
-       console.log("SignalProcessingPipeline: Resultados de calibración de AutoCalSys aplicados al pipeline.");
-
-      // Notificar a VitalSignsProcessor sobre el éxito de la calibración y pasar datos de referencia si existen
-      if (this.vitalSignsUpdateCallback) {
-        console.log("SignalProcessingPipeline: Llamando a vitalSignsUpdateCallback.");
-        this.vitalSignsUpdateCallback(true, referenceData); 
-      } else {
-        console.warn("SignalProcessingPipeline: vitalSignsUpdateCallback no está registrado. VitalSignsProcessor no será notificado del estado de calibración.");
-      }
-
+       console.log("SignalProcessingPipeline: Resultados de calibración aplicados.");
     } else {
-      console.warn("SignalProcessingPipeline: Calibración no exitosa, no se aplicaron resultados.", calibrationResults.recommendations);
-      // Notificar a VitalSignsProcessor sobre el fallo de la calibración
-      if (this.vitalSignsUpdateCallback) {
-        this.vitalSignsUpdateCallback(false, referenceData); // referenceData podría ser útil incluso en fallo para logging o reintento
-      }
+      console.warn("SignalProcessingPipeline: Calibración no exitosa, no se aplicaron resultados.", results.recommendations);
     }
   }
 
@@ -246,35 +183,22 @@ export class SignalProcessingPipeline {
     const normalizedForKalman = rawValue - this.baselineValue;
     const kalmanFiltered = this.kalmanFilter.filter(normalizedForKalman);
     const sgFiltered = this.sgFilter.filter(kalmanFiltered); // Savitzky-Golay sobre la señal ya normalizada y filtrada por Kalman
+    
     const filteredValueRebased = sgFiltered + this.baselineValue; // Re-añadir baseline para tener valor absoluto
+
     // Normalización respecto al baseline para amplificación
     const normalizedForAmplification = sgFiltered; // Usamos la señal ya filtrada y normalizada (sin baseline)
-
-    // --- OPTIMIZACIÓN: Penalizar frames saturados y señales planas ---
-    let isSaturated = false;
-    if (rawValue > 250 || rawValue < 10) isSaturated = true;
-    // Si la señal reciente tiene muy poca variación, también penalizar
-    const recent = this.signalHistoryForAmplification.slice(-20);
-    const minR = Math.min(...recent, rawValue);
-    const maxR = Math.max(...recent, rawValue);
-    const ampR = maxR - minR;
-    let lowVariation = ampR < 2;
-
-    // Amplificación dinámica más sensible a señales bajas
-    let amplificationFactor = this.calculateDynamicAmplification();
-    if (ampR < 5) amplificationFactor *= 1.5; // Si la variación es muy baja, amplificar más
-    if (isSaturated) amplificationFactor = 1; // No amplificar si está saturado
-    if (lowVariation) amplificationFactor *= 2; // Si la señal es muy plana, amplificar más
-    amplificationFactor = Math.max(this.config.minAmplificationFactor, Math.min(this.config.maxAmplificationFactor, amplificationFactor));
-
-    const amplifiedValue = normalizedForAmplification * amplificationFactor;
+    
+    // Amplificación dinámica basada en la varianza de la señal reciente
+    const amplificationFactor = this.calculateDynamicAmplification();
+    const amplifiedValue = normalizedForAmplification * amplificationFactor; // Este valor es AC
 
     // Actualizar historial de señal *amplificada y AC* para el cálculo de la amplificación dinámica
     this.signalHistoryForAmplification.push(amplifiedValue);
-    if (this.signalHistoryForAmplification.length > this.config.historySize) {
+    if (this.signalHistoryForAmplification.length > this.config.historySize) { // Usa historySize de config
       this.signalHistoryForAmplification.shift();
     }
-
+    
     return {
       filteredValue: filteredValueRebased, // Este es el valor filtrado pero en escala original
       amplifiedValue: amplifiedValue + this.baselineValue, // Este es el valor AC amplificado, re-baseado para la salida
@@ -296,207 +220,104 @@ export class SignalProcessingPipeline {
     if (currentAmplitude < 0.1) return this.config.maxAmplificationFactor;
     if (currentAmplitude > this.config.targetAmplitude * 2) return this.config.minAmplificationFactor;
 
-    const targetAmp = this.config.targetAmplitude;
-    const minAmp = this.config.minAmplificationFactor;
-    const maxAmp = this.config.maxAmplificationFactor;
-
-    // Lógica de ajuste: si la amplitud es menor que el objetivo, aumentar ganancia;
-    // si es mayor, disminuir. Clamp entre minAmp y maxAmp.
-    let factor = targetAmp / currentAmplitude; // Factor ideal para alcanzar el objetivo
-    factor = Math.max(minAmp / factor, Math.min(maxAmp / factor, 1)); // Ajustar factor basándose en el valor actual
-    factor = Math.max(minAmp, Math.min(maxAmp, factor)); // Clamp final
-
+    let factor = this.config.targetAmplitude / currentAmplitude;
+    factor = Math.max(this.config.minAmplificationFactor, Math.min(this.config.maxAmplificationFactor, factor));
     return factor;
   }
 
-  public async processFrame(imageData: ImageData): Promise<void> {
+  public processFrame(imageData: ImageData): void {
     if (!this.isProcessing) return;
 
-    // 1. Extraer datos básicos del frame, including the dynamic ROI
-    const currentFrameData = this.frameProcessor.extractFrameData(imageData);
-
-    // Use a temporary canvas to get the cropped ImageData for the HumanFingerDetector
-    const roi = currentFrameData.roi;
-    let croppedImageData: ImageData;
-
-    // Ensure ROI is valid before attempting to crop
-    if (roi && roi.width > 0 && roi.height > 0) {
-        try {
-            const tempCanvas = document.createElement('canvas');
-            const tempCtx = tempCanvas.getContext('2d');
-            if (!tempCtx) {
-                console.error("SignalProcessingPipeline: Could not get temporary canvas context");
-                // Fallback to processing the whole image or skip processing
-                // For now, let's process the whole image as a fallback
-                 croppedImageData = imageData;
-            } else {
-                tempCanvas.width = roi.width;
-                tempCanvas.height = roi.height;
-
-                // Draw the ROI from the original imageData onto the temporary canvas
-                const imageBitmap = await createImageBitmap(imageData); // Await the ImageBitmap
-                tempCtx.drawImage(
-                    imageBitmap, // Use the awaited ImageBitmap
-                    roi.x, roi.y, roi.width, roi.height, // Source rectangle (the ROI)
-                    0, 0, roi.width, roi.height // Destination rectangle (the whole temp canvas)
-                );
-                imageBitmap.close(); // Release the ImageBitmap resources
-
-                // Get the ImageData from the temporary canvas
-                croppedImageData = tempCtx.getImageData(0, 0, roi.width, roi.height);
-                 console.log("SignalProcessingPipeline: Created cropped ImageData using temporary canvas.", { roi, croppedSize: `${croppedImageData.width}x${croppedImageData.height}` });
-            }
-        } catch (error) {
-             console.error("SignalProcessingPipeline: Error creating cropped ImageData with canvas:", error);
-            // Fallback to processing the whole image in case of error
-             croppedImageData = imageData;
+    try {
+      if (this.isCalibrating) {
+        const frameDataForCalibration = {
+          redValue: imageData.data[0], // Usar rawValue para calibración
+          avgGreen: imageData.data[1],
+          avgBlue: imageData.data[2],
+          quality: 255, // Calidad estimada por el detector
+          fingerDetected: false
+        };
+        const calibrationStatus = this.autoCalibrationSystem.processSample(frameDataForCalibration);
+        
+        if (this.onCalibrationUpdate) {
+          this.onCalibrationUpdate(calibrationStatus);
         }
-    } else {
-        console.warn("SignalProcessingPipeline: Invalid ROI from FrameProcessor, processing full image.", { roi });
-        // If ROI is invalid, process the whole image
-        croppedImageData = imageData;
-    }
 
-    // 2. Detectar dedo humano y obtener calidad inicial using the cropped image data
-    const fingerDetectionResult = this.humanFingerDetector.detectHumanFinger(croppedImageData);
-
-    // Si estamos calibrando, pasar los datos al sistema de calibración
-    if (this.isCalibrating) {
-      // Combinar datos del frame y del detector para pasar a processSample
-      const dataForCalibration = {
-        redValue: currentFrameData.redValue,
-        avgGreen: currentFrameData.avgGreen || 0,
-        avgBlue: currentFrameData.avgBlue || 0,
-        quality: fingerDetectionResult.quality,
-        fingerDetected: fingerDetectionResult.isHumanFinger,
-      };
-      const calibrationUpdate = this.autoCalibrationSystem.processSample(dataForCalibration);
-
-      if (this.onCalibrationUpdate) {
-        const fullResults = this.autoCalibrationSystem.getCalibrationResults();
-        this.onCalibrationUpdate({ ...calibrationUpdate, results: fullResults });
-      }
-
-      if (calibrationUpdate.isComplete) {
-        console.log("SignalProcessingPipeline: AutoCalibrationSystem ha completado su proceso.");
-        this.endCalibrationMode();
-      }
-
-      // No procesar señal ni signos vitales durante la calibración activa, solo emitir estado de calibración
-      const signalDuringCalibration: ExtendedProcessedSignal = {
-        timestamp: Date.now(),
-        rawValue: currentFrameData.redValue,
-        filteredValue: 0,
-        amplifiedValue: 0,
-        quality: fingerDetectionResult.quality,
-        fingerDetected: fingerDetectionResult.isHumanFinger,
-        roi: currentFrameData.roi || { x: 0, y: 0, width: 0, height: 0 },
-        perfusionIndex: currentFrameData.perfusionIndex,
-        rrData: { intervals: [], lastPeakTime: null },
-        calibrationPhase: calibrationUpdate.phase,
-        calibrationProgress: calibrationUpdate.progress,
-        calibrationInstructions: calibrationUpdate.instructions,
-        debugInfo: { ...fingerDetectionResult.debugInfo },
-      };
-      if (this.onSignalReady) {
-        this.onSignalReady(signalDuringCalibration);
-      }
-      return; // Detener procesamiento de señal si está calibrando
-    }
-
-    // Solo continuar si el dedo es detectado y la calidad es razonable (ej. > 20)
-    if (!fingerDetectionResult.isHumanFinger || fingerDetectionResult.quality < 20) {
-      // Si se pierde el dedo o la calidad cae, emitir una señal con detección = false
-      const noFingerSignal: ExtendedProcessedSignal = {
-        timestamp: Date.now(),
-        rawValue: currentFrameData.redValue,
-        filteredValue: 0,
-        amplifiedValue: 0,
-        quality: fingerDetectionResult.quality,
-        fingerDetected: false,
-        roi: currentFrameData.roi || { x: 0, y: 0, width: 0, height: 0 },
-        perfusionIndex: currentFrameData.perfusionIndex,
-        debugInfo: fingerDetectionResult.debugInfo,
-        rrData: { intervals: [], lastPeakTime: null },
-        calibrationPhase: this.autoCalibrationSystem.getCurrentPhase ? this.autoCalibrationSystem.getCurrentPhase() : undefined,
-        calibrationProgress: this.autoCalibrationSystem.getCurrentProgress ? this.autoCalibrationSystem.getCurrentProgress() : undefined,
-        calibrationInstructions: this.autoCalibrationSystem.getCurrentPhase ? this.autoCalibrationSystem.getCurrentPhase() : "Finger not detected or quality too low.",
-      };
-      if (this.onSignalReady) {
-        this.onSignalReady(noFingerSignal);
-      }
-      // Resetear estados de detección de picos cuando se pierde el dedo
-      this.resetPeakDetectionStates();
-      return; // Detener procesamiento si no hay dedo o calidad baja
-    }
-
-    // 3. Procesar la señal PPG (filtrado, amplificación, etc.)
-    const processedSignalValues = this.processPPGSignal(currentFrameData.redValue, fingerDetectionResult.quality);
-
-    // 4. Detección de picos y cálculo de intervalos RR (NUEVO: Centralizado en Pipeline)
-    const now = Date.now();
-    const signalForPeakDetection = processedSignalValues.amplifiedValue;
-    const derivativeForPeakDetection = signalForPeakDetection - this.lastValue;
-    this.lastValue = signalForPeakDetection;
-
-    const peakDetectionResult = this.enhancedPeakDetectionInternal(signalForPeakDetection, derivativeForPeakDetection);
-    let isPeak = peakDetectionResult.isPeak;
-    const peakConfidence = peakDetectionResult.confidence;
-
-    isPeak = this.confirmPeakInternal(isPeak, signalForPeakDetection, peakConfidence);
-
-    let currentRRData: { intervals: number[]; lastPeakTime: number | null } = { intervals: [], lastPeakTime: null };
-    if (isPeak && this.lastConfirmedPeak) {
-      const peakTime = now;
-      if (this.lastPeakTime !== null) {
-        const rrInterval = peakTime - this.lastPeakTime;
-        if (rrInterval >= (this.config.RR_INTERVAL_MIN_MS || 300) && rrInterval <= (this.config.RR_INTERVAL_MAX_MS || 2000)) {
-          this.rrIntervals.push(rrInterval);
-          if (this.rrIntervals.length > 120) {
-            this.rrIntervals.shift();
-          }
-          console.log("Pipeline: RR Interval detectado", rrInterval);
-        } else {
-          console.warn("Pipeline: RR Interval fuera de rango plausible", rrInterval);
+        if (calibrationStatus.isComplete) {
+          const calResults = this.autoCalibrationSystem.getCalibrationResults();
+          this.endCalibrationMode(calResults);
+          // Después de calibrar, el siguiente frame se procesará normalmente
         }
+        // Durante la calibración, podríamos no enviar señales PPG procesadas o enviar un estado especial
+        if (this.onSignalReady) {
+            const signalDuringCalibration: ExtendedProcessedSignal = {
+                timestamp: Date.now(),
+                rawValue: imageData.data[0],
+                filteredValue: imageData.data[0], // O un valor indicando calibración
+                quality: 255,
+                fingerDetected: false,
+                roi: { x: 0, y: 0, width: imageData.width, height: imageData.height }, // ROI temporal
+                perfusionIndex: 0,
+                calibrationPhase: calibrationStatus.phase,
+                calibrationProgress: calibrationStatus.progress,
+                calibrationInstructions: calibrationStatus.instructions
+            };
+            this.onSignalReady(signalDuringCalibration);
+        }
+        return; // No procesar señal PPG completa durante la calibración activa
+      }
+
+      const fingerDetectionResult = this.humanFingerDetector.detectHumanFinger(imageData);
+
+      let finalFilteredValue = fingerDetectionResult.rawValue;
+      let finalAmplifiedValue = fingerDetectionResult.rawValue; // Valor por defecto si no hay dedo
+      let finalQuality = fingerDetectionResult.quality;
+
+      if (fingerDetectionResult.isHumanFinger && fingerDetectionResult.quality > 30) { // Umbral de calidad para procesar
+        const ppgResults = this.processPPGSignal(fingerDetectionResult.rawValue, fingerDetectionResult.quality);
+        finalFilteredValue = ppgResults.amplifiedValue;
+        finalAmplifiedValue = ppgResults.amplifiedValue;
       } else {
-        console.log("Pipeline: Primer pico detectado.");
+        // Si no hay dedo o la calidad es muy baja, reseteamos parcialmente los filtros para que se adapten rápido al reaparecer la señal
+        this.kalmanFilter.reset(); // Resetea P y X, pero mantiene R y Q configurados
+        this.sgFilter.reset();
+        this.baselineValue = 0; // Permitir que el baseline se reestablezca rápidamente
+        this.signalHistoryForAmplification = []; // Limpiar historial para recalculación de amplificación
       }
-      this.previousPeakTime = this.lastPeakTime;
-      this.lastPeakTime = peakTime;
-      currentRRData = { intervals: [...this.rrIntervals], lastPeakTime: this.lastPeakTime };
-    }
-    this.lastConfirmedPeak = isPeak;
+      
+      const outputSignal: ProcessedSignal = {
+        timestamp: fingerDetectionResult.timestamp,
+        rawValue: fingerDetectionResult.rawValue,
+        filteredValue: finalFilteredValue, 
+        quality: finalQuality,
+        fingerDetected: fingerDetectionResult.isHumanFinger,
+        roi: { // ROI Fijo por ahora, se puede mejorar
+          x: imageData.width / 4,
+          y: imageData.height / 4,
+          width: imageData.width / 2,
+          height: imageData.height / 2,
+        },
+        perfusionIndex: fingerDetectionResult.confidence, // Usar confianza como un proxy de PI
+      };
+      
+      this.lastProcessedSignal = outputSignal; // Guardar la última señal procesada
 
-    // 5. Construir y emitir la señal procesada completa
-    this.lastProcessedSignal = {
-      timestamp: now,
-      rawValue: currentFrameData.redValue,
-      filteredValue: processedSignalValues.filteredValue,
-      amplifiedValue: processedSignalValues.amplifiedValue,
-      quality: fingerDetectionResult.quality,
-      fingerDetected: fingerDetectionResult.isHumanFinger,
-      roi: currentFrameData.roi || { x: 0, y: 0, width: 0, height: 0 },
-      perfusionIndex: currentFrameData.perfusionIndex,
-      debugInfo: fingerDetectionResult.debugInfo,
-      rrData: currentRRData,
-      calibrationPhase: this.isCalibrating ? this.autoCalibrationSystem.getCurrentPhase() : undefined,
-      calibrationProgress: this.isCalibrating ? this.autoCalibrationSystem.getCurrentProgress() : undefined,
-      calibrationInstructions: this.isCalibrating && this.autoCalibrationSystem.getCurrentPhase() ? this.autoCalibrationSystem.getCurrentPhase() : undefined,
-    };
+      if (this.onSignalReady) {
+        this.onSignalReady(outputSignal as ExtendedProcessedSignal);
+      }
 
-    if (this.onSignalReady) {
-      this.onSignalReady(this.lastProcessedSignal as ExtendedProcessedSignal);
+    } catch (error) {
+      console.error("SignalProcessingPipeline: Error procesando frame:", error);
+      if (this.onError) {
+        this.onError({
+          code: 'PIPELINE_PROCESSING_ERROR',
+          message: error instanceof Error ? error.message : 'Error desconocido en pipeline',
+          timestamp: Date.now()
+        });
+      }
     }
   }
-
-  private resetFiltersAndBaseline(): void {
-    this.kalmanFilter.reset();
-    this.sgFilter.reset();
-    this.baselineValue = 0;
-    this.signalHistoryForAmplification = [];
-  }
-
+  
   public start(): void {
     this.isProcessing = true;
     this.reset(); // Asegurar estado limpio al iniciar
@@ -510,16 +331,14 @@ export class SignalProcessingPipeline {
   }
 
   public reset(): void {
-    console.log("SignalProcessingPipeline: Reseteando completamente.");
-    this.isProcessing = false;
     this.humanFingerDetector.reset();
     this.kalmanFilter.reset();
     this.sgFilter.reset();
-    this.autoCalibrationSystem.reset(); // Usar método reset público de AutoCalibrationSystem
-    this.baselineValue = 0;
     this.signalHistoryForAmplification = [];
+    this.baselineValue = 0;
     this.lastProcessedSignal = null;
-    this.resetPeakDetectionStates(); // Resetear también estados de detección de picos
+    this.isCalibrating = false;
+    this.autoCalibrationSystem.startCalibration();
     console.log("SignalProcessingPipeline: Componentes internos reseteados, calibración reiniciada.");
   }
 
@@ -527,102 +346,4 @@ export class SignalProcessingPipeline {
   public getLastProcessedSignal(): ProcessedSignal | null {
     return this.lastProcessedSignal;
   }
-
-  // --- Lógica de detección de picos y RR (Portado de VitalSignsProcessor) ---
-
-  private enhancedPeakDetectionInternal(normalizedValue: number, derivative: number): {
-      isPeak: boolean;
-      confidence: number;
-      rawDerivative?: number;
-  } {
-      // Lógica de detección de picos portada de VitalSignsProcessor
-      const SIGNAL_THRESHOLD = 0.02; // Umbral base para la señal (ajustable)
-      const DERIVATIVE_THRESHOLD = -0.005; // Umbral base para la derivada (ajustable)
-      const MIN_CONFIDENCE = 0.30; // Confianza mínima para considerar un pico (ajustable)
-      const PEAK_DETECTION_SENSITIVITY = 0.6; // Sensibilidad para refinar detección (ajustable)
-
-      let isPeak = false;
-      let confidence = 0;
-      const rawDerivative = derivative;
-
-      // Condición principal para un pico: valor sobre umbral y derivada negativa (punto de inflexión después de subir)
-      if (normalizedValue > SIGNAL_THRESHOLD && derivative < DERIVATIVE_THRESHOLD) {
-          isPeak = true;
-          // Calcular confianza basada en qué tan por encima del umbral está y la magnitud de la derivada negativa
-          const signalConfidence = Math.min(1, (normalizedValue - SIGNAL_THRESHOLD) / SIGNAL_THRESHOLD);
-          const derivativeConfidence = Math.min(1, Math.abs(derivative) / Math.abs(DERIVATIVE_THRESHOLD));
-          confidence = (signalConfidence * 0.6 + derivativeConfidence * 0.4) * PEAK_DETECTION_SENSITIVITY; // Ajustar peso y sensibilidad
-          confidence = Math.max(MIN_CONFIDENCE, Math.min(1, confidence)); // Asegurar mínimo y máximo
-      }
-
-      return {
-          isPeak,
-          confidence: confidence,
-          rawDerivative: rawDerivative
-      };
-  }
-
-  private confirmPeakInternal(
-      isPeakCandidate: boolean,
-      normalizedValue: number,
-      confidence: number
-  ): boolean {
-      // Lógica de confirmación de pico portada de VitalSignsProcessor
-      const CONFIRMATION_WINDOW_SIZE = 5; // Tamaño del buffer para confirmar (ajustable)
-      const CONFIDENCE_THRESHOLD = 0.5; // Umbral de confianza para considerar en buffer (ajustable)
-
-      this.peakConfirmationBuffer.push({ value: normalizedValue, confidence: confidence, isCandidate: isPeakCandidate });
-      if (this.peakConfirmationBuffer.length > CONFIRMATION_WINDOW_SIZE) {
-          this.peakConfirmationBuffer.shift();
-      }
-
-      if (this.peakConfirmationBuffer.length < CONFIRMATION_WINDOW_SIZE) {
-          return false; // No hay suficientes datos para confirmar
-      }
-
-      // Criterios de confirmación:
-      // 1. El último punto debe ser un candidato a pico.
-      // 2. Al menos N puntos en el buffer deben tener una confianza razonable.
-      // 3. El punto candidato debe ser el valor más alto (o cercano al más alto) en el buffer.
-
-      const lastPoint = this.peakConfirmationBuffer[this.peakConfirmationBuffer.length - 1];
-      if (!lastPoint.isCandidate) return false;
-
-      const highConfidenceCount = this.peakConfirmationBuffer.filter(p => p.confidence >= CONFIDENCE_THRESHOLD).length;
-      if (highConfidenceCount < Math.ceil(CONFIRMATION_WINDOW_SIZE / 2)) { // Requerir al menos la mitad con alta confianza
-          return false;
-      }
-
-      // Verificar si el último punto es el máximo o muy cercano en el buffer
-      const maxBufferValue = Math.max(...this.peakConfirmationBuffer.map(p => p.value));
-      const isNearMax = lastPoint.value >= maxBufferValue * 0.95; // Dentro del 5% del máximo (ajustable)
-
-      return isNearMax; // Confirmar si pasa todos los criterios
-  }
-
-  private resetPeakDetectionStates(){
-      this.lastValue = 0;
-      this.peakValidationBuffer = [];
-      this.peakCandidateIndex = null;
-      this.peakCandidateValue = 0;
-      this.peakConfirmationBuffer = []; // Resetear como array de objetos
-      this.lastConfirmedPeak = false;
-      this.rrIntervals = []; // Resetear también intervalos RR
-      this.lastPeakTime = null;
-      this.previousPeakTime = null;
-      console.log("Pipeline: Estados de detección de picos reseteados.");
-  }
-
-  private calculateRRInterval(lastPeakTime: number | null, currentPeakTime: number): number {
-    if (lastPeakTime === null || currentPeakTime === null) {
-        return 0; // Si no hay información suficiente, devolver 0
-    }
-    const interval = currentPeakTime - lastPeakTime;
-    // Validar contra los umbrales de la configuración del pipeline
-    const minRR = this.config.RR_INTERVAL_MIN_MS || 300;
-    const maxRR = this.config.RR_INTERVAL_MAX_MS || 2000;
-    return Math.max(minRR, Math.min(maxRR, interval));
-  }
-
-  // --- Fin Lógica de detección de picos y RR ---
 } 

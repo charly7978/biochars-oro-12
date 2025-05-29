@@ -1,7 +1,5 @@
+
 import { useState, useEffect } from 'react';
-import { SignalProcessingPipeline } from '../modules/signal-processing/SignalProcessingPipeline';
-import { VitalSignsProcessor, VitalSignsResult } from '../modules/vital-signs/VitalSignsProcessor';
-import { ProcessedSignal } from '../types/signal';
 
 interface VitalMeasurements {
   heartRate: number;
@@ -10,27 +8,13 @@ interface VitalMeasurements {
   arrhythmiaCount: string | number;
 }
 
-interface UseVitalMeasurementProps {
-    isMeasuring: boolean;
-    pipeline: SignalProcessingPipeline;
-    vitalSignsProcessor: VitalSignsProcessor;
-    onMeasurementComplete?: (result: VitalSignsResult | null) => void;
-}
-
-export const useVitalMeasurement = ({
-    isMeasuring,
-    pipeline,
-    vitalSignsProcessor,
-    onMeasurementComplete
-}: UseVitalMeasurementProps) => {
+export const useVitalMeasurement = (isMeasuring: boolean) => {
   const [measurements, setMeasurements] = useState<VitalMeasurements>({
     heartRate: 0,
     spo2: 0,
     pressure: "--/--",
     arrhythmiaCount: 0
   });
-  const [currentVitalSignsResult, setCurrentVitalSignsResult] = useState<VitalSignsResult | null>(null);
-  const [calibrationStatus, setCalibrationStatus] = useState<{ phase: string; progress: number; instructions: string; isComplete: boolean; results?: any } | null>(null);
   const [elapsedTime, setElapsedTime] = useState(0);
 
   useEffect(() => {
@@ -39,7 +23,7 @@ export const useVitalMeasurement = ({
       currentMeasurements: measurements,
       elapsedTime,
       timestamp: new Date().toISOString(),
-      session: Math.random().toString(36).substring(2, 9)
+      session: Math.random().toString(36).substring(2, 9) // Identificador único para esta sesión
     });
 
     if (!isMeasuring) {
@@ -61,90 +45,104 @@ export const useVitalMeasurement = ({
         return newValues;
       });
       
-      setCurrentVitalSignsResult(null);
-      setCalibrationStatus(null);
-      pipeline.reset();
-      vitalSignsProcessor.fullReset();
+      setElapsedTime(0);
       return;
     }
 
-    console.log('useVitalMeasurement - Iniciando procesamiento del pipeline');
-    pipeline.onSignalReady = (signal) => {
-        if (signal.fingerDetected && signal.quality > 0) {
-            const vitalSignsResult = vitalSignsProcessor.processSignal(signal.amplifiedValue, signal.rrData);
-            setCurrentVitalSignsResult(vitalSignsResult);
-        } else {
-             setCurrentVitalSignsResult(vitalSignsProcessor.reset());
+    const startTime = Date.now();
+    console.log('useVitalMeasurement - Iniciando medición', {
+      startTime: new Date(startTime).toISOString(),
+      prevValues: {...measurements}
+    });
+    
+    const MEASUREMENT_DURATION = 30000;
+
+    const updateMeasurements = () => {
+      const processor = (window as any).heartBeatProcessor;
+      if (!processor) {
+        console.warn('VitalMeasurement: No se encontró el procesador', {
+          windowObject: Object.keys(window),
+          timestamp: new Date().toISOString()
+        });
+        return;
+      }
+
+      const bpm = processor.getFinalBPM() || 0;
+      console.log('useVitalMeasurement - Actualización detallada:', {
+        processor: !!processor,
+        processorType: processor ? typeof processor : 'undefined',
+        processorMethods: processor ? Object.getOwnPropertyNames(processor.__proto__) : [],
+        bpm,
+        rawBPM: processor.getFinalBPM(),
+        confidence: processor.getConfidence ? processor.getConfidence() : 'N/A',
+        timestamp: new Date().toISOString()
+      });
+
+      setMeasurements(prev => {
+        if (prev.heartRate === bpm) {
+          console.log('useVitalMeasurement - BPM sin cambios, no se actualiza', {
+            currentBPM: prev.heartRate,
+            timestamp: new Date().toISOString()
+          });
+          return prev;
         }
+        
+        const newValues = {
+          ...prev,
+          heartRate: bpm
+        };
+        
+        console.log('useVitalMeasurement - Actualizando BPM', {
+          prevBPM: prev.heartRate,
+          newBPM: bpm,
+          timestamp: new Date().toISOString()
+        });
+        
+        return newValues;
+      });
     };
 
-    pipeline.onCalibrationUpdate = (status) => {
-        setCalibrationStatus(status);
-        console.log("useVitalMeasurement - Estado de calibración actualizado", status);
-        if (status.isComplete) {
-             vitalSignsProcessor.setExternalCalibration(status.results?.success || false, status.results?.referenceData);
-             console.log("useVitalMeasurement - Notificando a VSP sobre calibración completada");
-        }
-    };
+    updateMeasurements();
 
-    pipeline.start();
+    const interval = setInterval(() => {
+      const currentTime = Date.now();
+      const elapsed = currentTime - startTime;
+      
+      console.log('useVitalMeasurement - Progreso de medición', {
+        elapsed: elapsed / 1000,
+        porcentaje: (elapsed / MEASUREMENT_DURATION) * 100,
+        timestamp: new Date().toISOString()
+      });
+      
+      setElapsedTime(elapsed / 1000);
+
+      updateMeasurements();
+
+      if (elapsed >= MEASUREMENT_DURATION) {
+        console.log('useVitalMeasurement - Medición completada', {
+          duracionTotal: MEASUREMENT_DURATION / 1000,
+          resultadosFinal: {...measurements},
+          timestamp: new Date().toISOString()
+        });
+        
+        clearInterval(interval);
+        const event = new CustomEvent('measurementComplete');
+        window.dispatchEvent(event);
+      }
+    }, 200);
 
     return () => {
-      console.log('useVitalMeasurement - Deteniendo el pipeline');
-      pipeline.stop();
-      setCurrentVitalSignsResult(null);
-      setCalibrationStatus(null);
-      vitalSignsProcessor.fullReset();
+      console.log('useVitalMeasurement - Limpiando intervalo', {
+        currentElapsed: elapsedTime,
+        timestamp: new Date().toISOString()
+      });
+      clearInterval(interval);
     };
-  }, [isMeasuring, pipeline, vitalSignsProcessor]);
-
-  useEffect(() => {
-      if (currentVitalSignsResult) {
-          setMeasurements({
-            heartRate: currentVitalSignsResult.heartRate,
-            spo2: currentVitalSignsResult.spo2,
-            pressure: typeof currentVitalSignsResult.pressure === 'string' ? 
-                        currentVitalSignsResult.pressure : 
-                        `${currentVitalSignsResult.pressure.systolic}/${currentVitalSignsResult.pressure.diastolic}`,
-            arrhythmiaCount: currentVitalSignsResult.arrhythmiaStatus
-          });
-      } else {
-           setMeasurements({
-              heartRate: 0,
-              spo2: 0,
-              pressure: "--/--",
-              arrhythmiaCount: "--"
-           });
-      }
-  }, [currentVitalSignsResult]);
-
-  const MEASUREMENT_DURATION = 30;
-
-  useEffect(() => {
-      let timer: NodeJS.Timeout;
-      if (isMeasuring && !calibrationStatus?.isComplete) {
-          const startTime = Date.now();
-           timer = setInterval(() => {
-              const elapsed = (Date.now() - startTime) / 1000;
-              setElapsedTime(Math.min(elapsed, MEASUREMENT_DURATION));
-               if (elapsed >= MEASUREMENT_DURATION) {
-                   clearInterval(timer);
-                    console.log("useVitalMeasurement: Duración de medición alcanzada.");
-               }
-           }, 1000);
-      } else if (!isMeasuring || calibrationStatus?.isComplete) {
-          setElapsedTime(0);
-      }
-      
-      return () => clearInterval(timer);
-  }, [isMeasuring, calibrationStatus]);
+  }, [isMeasuring, measurements]);
 
   return {
     ...measurements,
-    elapsedTime: elapsedTime,
-    isCalibrating: calibrationStatus?.isCalibrating || false,
-    calibrationProgress: calibrationStatus?.progress || 0,
-    calibrationInstructions: calibrationStatus?.instructions || '',
-    isMeasurementComplete: elapsedTime >= MEASUREMENT_DURATION
+    elapsedTime: Math.min(elapsedTime, 30),
+    isComplete: elapsedTime >= 30
   };
 };

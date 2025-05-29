@@ -1,4 +1,4 @@
-import { FrameData, SignalProcessorConfig } from './types';
+import { FrameData } from './types';
 import { ProcessedSignal } from '../../types/signal';
 
 /**
@@ -6,12 +6,12 @@ import { ProcessedSignal } from '../../types/signal';
  * PROHIBIDA LA SIMULACIÓN Y TODO TIPO DE MANIPULACIÓN FORZADA DE DATOS
  */
 export class FrameProcessor {
-  private readonly CONFIG: SignalProcessorConfig;
+  private readonly CONFIG: { TEXTURE_GRID_SIZE: number, ROI_SIZE_FACTOR: number };
   // Parámetros ajustados para mejor extracción de señal
   private readonly RED_GAIN = 1.4; // Aumentado para mejor amplificación de señal roja (antes 1.2)
   private readonly GREEN_SUPPRESSION = 0.8; // Menos supresión para mantener información (antes 0.85)
   private readonly SIGNAL_GAIN = 1.3; // Aumentado para mejor detección (antes 1.1)
-  private readonly EDGE_ENHANCEMENT_FACTOR = 0.15; // Ajustado para mejor detección de bordes (antes 0.12)
+  private readonly EDGE_ENHANCEMENT = 0.15; // Ajustado para mejor detección de bordes (antes 0.12)
   
   // Historia para calibración adaptativa
   private lastFrames: Array<{red: number, green: number, blue: number}> = [];
@@ -22,28 +22,12 @@ export class FrameProcessor {
   private roiHistory: Array<{x: number, y: number, width: number, height: number}> = [];
   private readonly ROI_HISTORY_SIZE = 5;
   
-  constructor(config: Partial<SignalProcessorConfig> = {}) {
-    // Merge provided config with defaults (need default values for SignalProcessorConfig)
-    // Assuming default config from SignalProcessingPipeline or define one here if needed
-    const defaultConfig: SignalProcessorConfig = {
-        BUFFER_SIZE: 120, // Example default
-        MIN_RED_THRESHOLD: 20, // Lowered from 30 for ROI detection fallback
-        MAX_RED_THRESHOLD: 255, // Example default
-        STABILITY_WINDOW: 30, // Example default
-        MIN_STABILITY_COUNT: 10, // Example default
-        HYSTERESIS: 0.05, // Example default
-        MIN_CONSECUTIVE_DETECTIONS: 5, // Example default
-        MAX_CONSECUTIVE_NO_DETECTIONS: 30, // Example default
-        QUALITY_LEVELS: 5, // Example default
-        QUALITY_HISTORY_SIZE: 60, // Example default
-        CALIBRATION_SAMPLES: 60, // Example default
-        TEXTURE_GRID_SIZE: 5, // Example default
-        ROI_SIZE_FACTOR: 0.5, // Example default
+  constructor(config: { TEXTURE_GRID_SIZE: number, ROI_SIZE_FACTOR: number }) {
+    // Aumentar tamaño de ROI para capturar más área
+    this.CONFIG = {
+      ...config,
+      ROI_SIZE_FACTOR: Math.min(0.8, config.ROI_SIZE_FACTOR * 1.15) // Aumentar tamaño ROI sin exceder 0.8
     };
-    this.CONFIG = { ...defaultConfig, ...config };
-
-    // Adjust ROI size factor based on merged config
-    this.CONFIG.ROI_SIZE_FACTOR = Math.min(0.8, this.CONFIG.ROI_SIZE_FACTOR * 1.15); // Adjust as before
   }
   
   extractFrameData(imageData: ImageData): FrameData {
@@ -66,9 +50,9 @@ export class FrameProcessor {
     
     // Grid for texture analysis
     const gridSize = this.CONFIG.TEXTURE_GRID_SIZE;
-    const cells: Array<{ red: number, green: number, blue: number, count: number, edgeScore: number, avgLuminance: number }> = [];
+    const cells: Array<{ red: number, green: number, blue: number, count: number, edgeScore: number }> = [];
     for (let i = 0; i < gridSize * gridSize; i++) {
-      cells.push({ red: 0, green: 0, blue: 0, count: 0, edgeScore: 0, avgLuminance: 0 });
+      cells.push({ red: 0, green: 0, blue: 0, count: 0, edgeScore: 0 });
     }
     
     // Edge detection matrices - Kernel mejorado
@@ -119,7 +103,6 @@ export class FrameProcessor {
         cells[cellIdx].red += enhancedR;
         cells[cellIdx].green += attenuatedG;
         cells[cellIdx].blue += b;
-        cells[cellIdx].avgLuminance += luminance;
         cells[cellIdx].count++;
         
         // Ganancia adaptativa basada en ratio r/g fisiológico - más permisiva
@@ -156,8 +139,7 @@ export class FrameProcessor {
           red: cell.red / cell.count,
           green: cell.green / cell.count,
           blue: cell.blue / cell.count,
-          edgeScore: cell.edgeScore / Math.max(1, cell.count),
-          avgLuminance: cell.avgLuminance / Math.max(1, cell.count)
+          edgeScore: cell.edgeScore / Math.max(1, cell.count)
         }));
       
       if (normCells.length > 1) {
@@ -176,7 +158,7 @@ export class FrameProcessor {
             const blueDiff = Math.abs(cell1.blue - cell2.blue) * 0.6; // Menor énfasis
             
             // Include edge information in texture calculation
-            const edgeDiff = Math.abs(cell1.edgeScore - cell2.edgeScore) * this.EDGE_ENHANCEMENT_FACTOR;
+            const edgeDiff = Math.abs(cell1.edgeScore - cell2.edgeScore) * this.EDGE_ENHANCEMENT;
             
             // Weighted average of differences
             const avgDiff = (redDiff + greenDiff + blueDiff + edgeDiff) / 2.7;
@@ -218,9 +200,7 @@ export class FrameProcessor {
         rToBRatio: 1.2,
         avgRed: 5,
         avgGreen: 4,
-        avgBlue: 4,
-        perfusionIndex: 0,
-        roi: { x: 0, y: 0, width: 0, height: 0 }
+        avgBlue: 4
       };
     }
     
@@ -263,22 +243,17 @@ export class FrameProcessor {
       dynamicGain: dynamicGain.toFixed(2),
       pixelCount,
       frameSize: `${imageData.width}x${imageData.height}`,
-      roiSize: `${roiSize.toFixed(1)}`,
-      perfusionIndex: ((avgRed - avgGreen) / (avgRed + avgGreen)) * 100
+      roiSize: `${roiSize.toFixed(1)}`
     });
-    
-    const roi = this.detectROI(avgRed, imageData);
     
     return {
       redValue: avgRed,
-      textureScore,
-      rToGRatio,
-      rToBRatio,
       avgRed,
       avgGreen,
       avgBlue,
-      perfusionIndex: ((avgRed - avgGreen) / (avgRed + avgGreen)) * 100,
-      roi
+      textureScore,
+      rToGRatio,
+      rToBRatio
     };
   }
   
@@ -287,99 +262,73 @@ export class FrameProcessor {
    * Both too dark and too bright conditions reduce signal quality
    */
   private getLightLevelQualityFactor(lightLevel: number): number {
-    // Lógica para determinar un factor de calidad basado en el nivel de luz.
-    // Valores demasiado bajos (oscuridad) o demasiado altos (sobreexposición del flash) reducen la calidad.
-    // Umbrales y curva deben ajustarse a pruebas reales.
-    const MIN_OPTIMAL = 30; // Nivel mínimo de luz óptimo
-    const MAX_OPTIMAL = 80; // Nivel máximo de luz óptimo
-    const FALLOFF_RATE = 0.05; // Qué tan rápido cae la calidad fuera del rango óptimo
-
-    if (lightLevel >= MIN_OPTIMAL && lightLevel <= MAX_OPTIMAL) {
-      return 1.0; // Calidad óptima
-    } else if (lightLevel < MIN_OPTIMAL) {
-      // Caída de calidad lineal por debajo del mínimo óptimo
-      return Math.max(0, 1 - (MIN_OPTIMAL - lightLevel) * FALLOFF_RATE);
-    } else { // lightLevel > MAX_OPTIMAL
-      // Caída de calidad lineal por encima del máximo óptimo
-      return Math.max(0, 1 - (lightLevel - MAX_OPTIMAL) * FALLOFF_RATE);
+    // Rango óptimo ampliado - más permisivo
+    if (lightLevel >= 25 && lightLevel <= 85) { // Antes 30-80
+      return 1.0; // Optimal lighting
+    } else if (lightLevel < 25) {
+      // Too dark - reducción lineal en calidad pero más permisiva
+      return Math.max(0.4, lightLevel / 25); // Mínimo aumentado (antes 0.3)
+    } else {
+      // Too bright - penalización reducida
+      return Math.max(0.4, 1.0 - (lightLevel - 85) / 60); // Límites más permisivos
     }
   }
   
   detectROI(redValue: number, imageData: ImageData): ProcessedSignal['roi'] {
-    // Implement dynamic ROI detection: Find the area with the highest average red intensity.
-    const data = imageData.data;
-    const width = imageData.width;
-    const height = imageData.height;
-
-    let bestROI: ProcessedSignal['roi'] = { x: 0, y: 0, width: 0, height: 0 };
-    let maxAvgRed = -1;
-
-    // Define search parameters. We can iterate through potential ROI starting points.
-    // For simplicity, let's check a grid of potential ROIs.
-    const searchGridSize = 5; // Check a 5x5 grid of potential ROI centers
-    const potentialROISize = Math.min(width, height) * 0.4; // Slightly increased from 0.3
-    const stepX = Math.max(1, Math.floor((width - potentialROISize) / (searchGridSize - 1)));
-    const stepY = Math.max(1, Math.floor((height - potentialROISize) / (searchGridSize - 1)));
-
-    for (let i = 0; i < searchGridSize; i++) {
-      for (let j = 0; j < searchGridSize; j++) {
-        const currentX = Math.floor(i * stepX);
-        const currentY = Math.floor(j * stepY);
-        const currentWidth = Math.min(potentialROISize, width - currentX);
-        const currentHeight = Math.min(potentialROISize, height - currentY);
-
-        if (currentWidth <= 0 || currentHeight <= 0) continue;
-
-        let currentRedSum = 0;
-        let pixelCount = 0;
-
-        for (let y = currentY; y < currentY + currentHeight; y++) {
-          for (let x = currentX; x < currentX + currentWidth; x++) {
-            const index = (y * width + x) * 4;
-            currentRedSum += data[index];
-            pixelCount++;
-          }
-        }
-
-        if (pixelCount > 0) {
-          const currentAvgRed = currentRedSum / pixelCount;
-
-          if (currentAvgRed > maxAvgRed) {
-            maxAvgRed = currentAvgRed;
-            bestROI = {
-              x: currentX,
-              y: currentY,
-              width: Math.floor(currentWidth),
-              height: Math.floor(currentHeight),
-            };
-          }
-        }
-      }
+    // Centered ROI by default with adaptive size
+    const centerX = Math.floor(imageData.width / 2);
+    const centerY = Math.floor(imageData.height / 2);
+    
+    // Factor ROI adaptativo mejorado
+    let adaptiveROISizeFactor = this.CONFIG.ROI_SIZE_FACTOR;
+    
+    // Ajustar ROI basado en valor rojo detectado - más permisivo
+    if (redValue < 25) { // Umbral reducido (antes 30)
+      // Señal débil - aumentar ROI para capturar más área
+      adaptiveROISizeFactor = Math.min(0.8, adaptiveROISizeFactor * 1.1); // Mayor aumento
+    } else if (redValue > 120) { // Umbral aumentado (antes 100)
+      // Señal fuerte - enfocar ROI en área central
+      adaptiveROISizeFactor = Math.max(0.35, adaptiveROISizeFactor * 0.97); // Menos reducción
     }
-
-    // If no significant red area is found, fallback to the central ROI (or a default empty ROI)
-    if (maxAvgRed < this.CONFIG.MIN_RED_THRESHOLD) { // Using a configured threshold for fallback
-         const centerX = Math.floor(width / 2);
-         const centerY = Math.floor(height / 2);
-         const roiSize = Math.min(width, height) * this.CONFIG.ROI_SIZE_FACTOR; // Use the configured factor
-        bestROI = {
-           x: Math.max(0, Math.floor(centerX - roiSize / 2)),
-           y: Math.max(0, Math.floor(centerY - roiSize / 2)),
-           width: Math.floor(roiSize),
-           height: Math.floor(roiSize),
-        };
-        console.warn("FrameProcessor: No dominant red area found, falling back to central ROI.", { fallbackROI: bestROI });
-    } else {
-        console.log("FrameProcessor: Dynamic ROI found.", { dynamicROI: bestROI, maxAvgRed: maxAvgRed.toFixed(1) });
-    }
-
-    // Add ROI to history for stability (if implemented, history would be used to smooth ROI movement)
-    // This history logic is less critical with the current simple dynamic detection but kept for future enhancements.
-    this.roiHistory.push(bestROI);
+    
+    // Ensure ROI is appropriate to image size
+    const minDimension = Math.min(imageData.width, imageData.height);
+    const maxRoiSize = minDimension * 0.85; // Máximo aumentado (antes 0.8)
+    const minRoiSize = minDimension * 0.25; // Mínimo reducido (antes 0.3)
+    
+    let roiSize = minDimension * adaptiveROISizeFactor;
+    roiSize = Math.max(minRoiSize, Math.min(maxRoiSize, roiSize));
+    
+    // Nuevo ROI calculado
+    const newROI = {
+      x: centerX - roiSize / 2,
+      y: centerY - roiSize / 2,
+      width: roiSize,
+      height: roiSize
+    };
+    
+    // Guardar historia de ROIs para estabilidad
+    this.roiHistory.push(newROI);
     if (this.roiHistory.length > this.ROI_HISTORY_SIZE) {
-        this.roiHistory.shift();
+      this.roiHistory.shift();
     }
-
-    return bestROI;
+    
+    // Si tenemos suficiente historia, promediar para estabilidad
+    if (this.roiHistory.length >= 3) {
+      const avgX = this.roiHistory.reduce((sum, roi) => sum + roi.x, 0) / this.roiHistory.length;
+      const avgY = this.roiHistory.reduce((sum, roi) => sum + roi.y, 0) / this.roiHistory.length;
+      const avgWidth = this.roiHistory.reduce((sum, roi) => sum + roi.width, 0) / this.roiHistory.length;
+      const avgHeight = this.roiHistory.reduce((sum, roi) => sum + roi.height, 0) / this.roiHistory.length;
+      
+      return {
+        x: avgX,
+        y: avgY,
+        width: avgWidth,
+        height: avgHeight
+      };
+    }
+    
+    // Si no hay suficiente historia, usar el nuevo ROI directamente
+    return newROI;
   }
 }

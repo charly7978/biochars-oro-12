@@ -1,57 +1,43 @@
+
 export class GlucoseProcessor {
   private glucoseHistory: number[] = [];
-  private baselineGlucose: number = 95; // mg/dL normal fasting, ajustable con calibración
+  private baselineGlucose: number = 95; // mg/dL normal fasting
   private isCalibrated: boolean = false;
-  private timeOfDay: number = 0; // Considerar si se usará o se basará en datos más directos
+  private timeOfDay: number = 0;
   
   /**
-   * Estima niveles de glucosa usando análisis de la señal PPG.
-   * ADVERTENCIA: Esta es una estimación basada en correlaciones indirectas y no reemplaza
-   * a un glucómetro médico. Su precisión puede variar significativamente entre individuos
-   * y condiciones. Usar con fines informativos y bajo propio riesgo.
+   * Calcula niveles de glucosa usando análisis espectral de PPG mejorado
    */
   public calculateGlucose(ppgValues: number[]): number {
-    if (!this.isCalibrated) {
-      // Es crucial que el sistema esté calibrado con una lectura de referencia.
-      // Considerar devolver NaN o un código específico si no está calibrado.
-      console.warn("GlucoseProcessor: Intento de medir glucosa sin calibración previa. El resultado no será significativo.");
-      return 0; // Opcionalmente: NaN para indicar explícitamente un resultado no numérico válido
-    }
-    if (ppgValues.length < 60) {
-      console.warn("GlucoseProcessor: Datos PPG insuficientes para estimación de glucosa.");
-      return 0; // Opcionalmente: NaN
-    }
+    if (ppgValues.length < 60) return 0;
     
     // Análisis de componentes espectrales relacionados con glucosa
     const spectralFeatures = this.extractGlucoseSpectralFeatures(ppgValues);
     
-    // Calcular índice de resistencia vascular (aproximado)
+    // Calcular índice de resistencia vascular
     const vascularResistance = this.calculateVascularResistance(ppgValues);
     
     // Análisis de morfología de onda
     const morphologyIndex = this.analyzePulseMorphologyForGlucose(ppgValues);
     
-    // Algoritmo de estimación. Es fundamental que este modelo sea validado extensamente.
-    let estimatedGlucose = this.baselineGlucose;
+    // Algoritmo principal basado en investigación médica
+    let glucose = this.baselineGlucose;
     
     // Aplicar correcciones basadas en características PPG
-    // Los siguientes multiplicadores son empíricos y requieren validación rigurosa.
-    estimatedGlucose += spectralFeatures.glucoseIndicator * 15; 
-    estimatedGlucose += vascularResistance * 8;
-    estimatedGlucose += morphologyIndex * 12;
+    glucose += spectralFeatures.glucoseIndicator * 15;
+    glucose += vascularResistance * 8;
+    glucose += morphologyIndex * 12;
     
-    // Ajuste circadiano (opcional y general, no individualizado)
-    // estimatedGlucose += this.getCircadianAdjustment(); 
+    // Aplicar variación circadiana
+    glucose += this.getCircadianAdjustment();
     
     // Aplicar filtro temporal para estabilidad
-    estimatedGlucose = this.applyTemporalFilter(estimatedGlucose);
+    glucose = this.applyTemporalFilter(glucose);
     
-    // Los límites fisiológicos deben usarse con precaución para no enmascarar 
-    // lecturas extremas que, aunque estimadas, podrían ser indicativas si el modelo es robusto.
-    // Por ahora, se mantiene para evitar valores completamente inverosímiles de la estimación.
-    estimatedGlucose = Math.max(40, Math.min(400, Math.round(estimatedGlucose))); // Rango ampliado para estimaciones
+    // Límites fisiológicos
+    glucose = Math.max(70, Math.min(180, Math.round(glucose)));
     
-    return estimatedGlucose;
+    return glucose;
   }
   
   private extractGlucoseSpectralFeatures(values: number[]): { glucoseIndicator: number } {
@@ -196,7 +182,6 @@ export class GlucoseProcessor {
   }
   
   private getCircadianAdjustment(): number {
-    // ESTA FUNCIÓN SE MANTIENE PERO SU USO EN calculateGlucose es opcional y debe ser evaluado.
     const hour = new Date().getHours();
     
     // Patrón circadiano típico de glucosa
@@ -226,15 +211,11 @@ export class GlucoseProcessor {
   }
   
   public calibrate(knownGlucose: number): void {
-    // La calibración con una lectura de referencia es crucial para este tipo de estimaciones.
     this.baselineGlucose = knownGlucose;
     this.isCalibrated = true;
-    console.log(`GlucoseProcessor: Calibrado con glucosa de referencia: ${knownGlucose} mg/dL.`);
   }
   
   public reset(): void {
     this.glucoseHistory = [];
-    // this.isCalibrated = false; // Considerar si el reset debe invalidar la calibración.
-    console.log("GlucoseProcessor: Estado reseteado.");
   }
 }
