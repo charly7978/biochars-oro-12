@@ -1,32 +1,14 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { SignalProcessingPipeline, SignalPipelineConfig } from '../modules/signal-processing/SignalProcessingPipeline';
+import { PPGSignalProcessor } from '../modules/SignalProcessor';
 import { ProcessedSignal, ProcessingError } from '../types/signal';
 
-// Tipo para el estado de calibración que se expondrá
-export interface CalibrationStatus {
-  phase: string;
-  progress: number;
-  instructions: string;
-  isComplete: boolean;
-  succeeded?: boolean; // Opcional: para indicar si la calibración fue exitosa
-  recommendations?: string[]; // Opcional: recomendaciones si falló
-}
-
-// Extender ProcessedSignal para incluir opcionalmente info de calibración si se emite durante ese proceso
-interface ExtendedProcessedSignal extends ProcessedSignal {
-  calibrationPhase?: string;
-  calibrationProgress?: number;
-  calibrationInstructions?: string;
-}
-
 /**
- * Custom hook for managing PPG signal processing using the new SignalProcessingPipeline
+ * Custom hook for managing PPG signal processing
+ * PROHIBIDA LA SIMULACIÓN Y TODO TIPO DE MANIPULACIÓN FORZADA DE DATOS
  */
 export const useSignalProcessor = () => {
-  const processorRef = useRef<SignalProcessingPipeline | null>(null);
+  const processorRef = useRef<PPGSignalProcessor | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [isCalibrating, setIsCalibrating] = useState(false);
-  const [calibrationStatus, setCalibrationStatus] = useState<CalibrationStatus | null>(null);
   const [lastSignal, setLastSignal] = useState<ProcessedSignal | null>(null);
   const [error, setError] = useState<ProcessingError | null>(null);
   const [framesProcessed, setFramesProcessed] = useState(0);
@@ -42,38 +24,37 @@ export const useSignalProcessor = () => {
   const calibrationInProgressRef = useRef(false);
   const errorCountRef = useRef(0);
   const lastErrorTimeRef = useRef(0);
-  const [criticalError, setCriticalError] = useState<string | null>(null);
 
+  // Create processor with well-defined callbacks
   useEffect(() => {
-    const sessionId = Math.random().toString(36).substring(2, 9);
-    console.log("useSignalProcessor: Creating new SignalProcessingPipeline instance", {
+    console.log("useSignalProcessor: Creating new processor instance", {
       timestamp: new Date().toISOString(),
-      sessionId
+      sessionId: Math.random().toString(36).substring(2, 9)
     });
 
-    const onSignalReadyCallback = (signal: ExtendedProcessedSignal) => {
-      // Siempre actualizar lastSignal con la información más reciente del detector
+    // Define signal ready callback with proper physiological validation
+    const onSignalReady = (signal: ProcessedSignal) => {
+      console.log("[DIAG] useSignalProcessor/onSignalReady: Frame recibido", {
+        timestamp: new Date(signal.timestamp).toISOString(),
+        fingerDetected: signal.fingerDetected,
+        quality: signal.quality,
+        rawValue: signal.rawValue,
+        filteredValue: signal.filteredValue,
+        stack: new Error().stack
+      });
+      
+      // Use signal with medical validation - no forcing detection
       setLastSignal(signal);
-      setError(null); // Limpiar errores no críticos al recibir nueva señal
-
-      // Determinar si hay un error crítico basado en la calibración o calidad post-calibración
-      if (calibrationStatus && calibrationStatus.succeeded === false && !isCalibrating) {
-        setCriticalError('La calibración no fue exitosa. Por favor, calibre de nuevo.');
-      } else if (calibrationStatus && calibrationStatus.succeeded === true && !isCalibrating && (!signal.fingerDetected || (signal.quality !== undefined && signal.quality <= 30))) {
-        setCriticalError('No se detectó dedo o la calidad es insuficiente para medir. Asegure buen contacto.');
-      } else {
-        setCriticalError(null); // No hay error crítico o estamos calibrando (donde se espera variabilidad)
-      }
+      setError(null);
+      setFramesProcessed(prev => prev + 1);
       
-      if (!signal.calibrationPhase || (signal.calibrationPhase && signal.calibrationPhase === 'complete')) {
-        setFramesProcessed(prev => prev + 1);
-      }
-      
+      // Store for history tracking
       signalHistoryRef.current.push(signal);
-      if (signalHistoryRef.current.length > 100) {
+      if (signalHistoryRef.current.length > 100) { // Keep last 100 signals
         signalHistoryRef.current.shift();
       }
       
+      // Track quality transitions for analysis
       const prevSignal = signalHistoryRef.current[signalHistoryRef.current.length - 2];
       if (prevSignal && Math.abs(prevSignal.quality - signal.quality) > 15) {
         qualityTransitionsRef.current.push({
@@ -81,68 +62,71 @@ export const useSignalProcessor = () => {
           from: prevSignal.quality,
           to: signal.quality
         });
+        
+        // Keep limited history
         if (qualityTransitionsRef.current.length > 20) {
           qualityTransitionsRef.current.shift();
         }
       }
       
-      // Actualizar signalStats solo si no hay error crítico y la señal es de un dedo con calidad
-      if (!criticalError && signal.fingerDetected && signal.quality > 30) {
-        setSignalStats(prev => ({
-          minValue: Math.min(prev.minValue, signal.filteredValue),
-          maxValue: Math.max(prev.maxValue, signal.filteredValue),
-          avgValue: (prev.avgValue * prev.totalValues + signal.filteredValue) / (prev.totalValues + 1),
-          totalValues: prev.totalValues + 1,
-          lastQualityUpdateTime: signal.timestamp
-        }));
+      // Update statistics with valid signals only
+      if (signal.fingerDetected && signal.quality > 30) {
+        setSignalStats(prev => {
+          const newStats = {
+            minValue: Math.min(prev.minValue, signal.filteredValue),
+            maxValue: Math.max(prev.maxValue, signal.filteredValue),
+            avgValue: (prev.avgValue * prev.totalValues + signal.filteredValue) / (prev.totalValues + 1),
+            totalValues: prev.totalValues + 1,
+            lastQualityUpdateTime: signal.timestamp
+          };
+          
+          return newStats;
+        });
       }
     };
 
-    const onErrorCallback = (errorData: ProcessingError) => {
+    // Enhanced error handling with rate limiting
+    const onError = (error: ProcessingError) => {
       const currentTime = Date.now();
+      
+      // Avoid error flooding - limit to one error every 2 seconds
       if (currentTime - lastErrorTimeRef.current < 2000) {
         errorCountRef.current++;
-        console.error("useSignalProcessor: Error suprimido desde Pipeline:", {
-          ...errorData,
+        
+        // Only log without toast if errors are coming too quickly
+        console.error("useSignalProcessor: Error suppressed to avoid flooding:", {
+          ...error,
+          formattedTime: new Date(error.timestamp).toISOString(),
           errorCount: errorCountRef.current
         });
+        
         return;
       }
+      
+      // Reset error count and update last error time
       errorCountRef.current = 1;
       lastErrorTimeRef.current = currentTime;
-      console.error("useSignalProcessor: Error detallado desde Pipeline:", errorData);
-      setError(errorData);
+      
+      console.error("useSignalProcessor: Detailed error:", {
+        ...error,
+        formattedTime: new Date(error.timestamp).toISOString(),
+        stack: new Error().stack
+      });
+      
+      setError(error);
     };
 
-    const onCalibrationUpdateCallback = (status: { phase: string; progress: number; instructions: string; isComplete: boolean; results?: any}) => {
-        console.log("useSignalProcessor: Actualización de calibración recibida", status);
-        const newStatus: CalibrationStatus = {
-            phase: status.phase,
-            progress: status.progress,
-            instructions: status.instructions,
-            isComplete: status.isComplete,
-        };
-        if (status.isComplete && status.results) {
-            newStatus.succeeded = status.results.success;
-            newStatus.recommendations = status.results.recommendations;
-            setIsCalibrating(false); // La calibración del pipeline terminó
-        }
-        setCalibrationStatus(newStatus);
-    };
-
-    // CAMBIO: Instanciar SignalProcessingPipeline
-    processorRef.current = new SignalProcessingPipeline(
-        { /* aquí podrías pasar una config inicial si es necesario */ }, 
-        onSignalReadyCallback, 
-        onErrorCallback, 
-        onCalibrationUpdateCallback // Pasar el nuevo callback
-    );
+    // Create processor with proper callbacks
+    processorRef.current = new PPGSignalProcessor(onSignalReady, onError);
     
-    console.log("useSignalProcessor: SignalProcessingPipeline creado con todos los callbacks.");
+    console.log("useSignalProcessor: Processor created with callbacks established:", {
+      hasOnSignalReadyCallback: !!processorRef.current.onSignalReady,
+      hasOnErrorCallback: !!processorRef.current.onError
+    });
     
     return () => {
       if (processorRef.current) {
-        console.log("useSignalProcessor: Limpiando SignalProcessingPipeline");
+        console.log("useSignalProcessor: Cleaning up processor");
         processorRef.current.stop();
       }
       signalHistoryRef.current = [];
@@ -152,17 +136,18 @@ export const useSignalProcessor = () => {
 
   const startProcessing = useCallback(() => {
     if (!processorRef.current) {
-      console.error("useSignalProcessor: No hay SignalProcessingPipeline disponible para iniciar.");
+      console.error("useSignalProcessor: No processor available");
       return;
     }
-    if (isCalibrating) {
-        console.warn("useSignalProcessor: No se puede iniciar procesamiento de medición mientras se calibra.");
-        return;
-    }
-    console.log("useSignalProcessor: Iniciando procesamiento con SignalProcessingPipeline", {
+
+    console.log("useSignalProcessor: Starting processing", {
+      previousState: isProcessing,
       timestamp: new Date().toISOString(),
+      processorExists: !!processorRef.current,
+      hasSignalReadyCallback: !!processorRef.current.onSignalReady
     });
     
+    // Reset all stats and history
     setIsProcessing(true);
     setFramesProcessed(0);
     setSignalStats({
@@ -172,21 +157,24 @@ export const useSignalProcessor = () => {
       totalValues: 0,
       lastQualityUpdateTime: 0
     });
+    
     signalHistoryRef.current = [];
     qualityTransitionsRef.current = [];
     errorCountRef.current = 0;
     lastErrorTimeRef.current = 0;
     
+    // Start the processor
     processorRef.current.start();
-  }, [isCalibrating]);
+  }, [isProcessing]);
 
   const stopProcessing = useCallback(() => {
     if (!processorRef.current) {
-      console.error("useSignalProcessor: No hay SignalProcessingPipeline disponible para detener.");
+      console.error("useSignalProcessor: No processor available to stop");
       return;
     }
 
-    console.log("useSignalProcessor: Deteniendo procesamiento con SignalProcessingPipeline", {
+    console.log("useSignalProcessor: Stopping processing", {
+      previousState: isProcessing,
       framesProcessed: framesProcessed,
       finalStats: signalStats,
       timestamp: new Date().toISOString()
@@ -197,53 +185,84 @@ export const useSignalProcessor = () => {
     calibrationInProgressRef.current = false;
   }, [isProcessing, framesProcessed, signalStats]);
 
-  const startCalibration = useCallback(() => {
+  const calibrate = useCallback(async () => {
     if (!processorRef.current) {
-      console.error("useSignalProcessor: No hay SignalProcessingPipeline para iniciar calibración.");
-      return;
+      console.error("useSignalProcessor: No processor available to calibrate");
+      return false;
     }
-    if (isProcessing) {
-        console.warn("useSignalProcessor: Deteniendo procesamiento de medición antes de calibrar.");
-        stopProcessing(); // Detener medición si está activa
+
+    try {
+      console.log("useSignalProcessor: Starting advanced calibration", {
+        timestamp: new Date().toISOString()
+      });
+      
+      calibrationInProgressRef.current = true;
+      
+      await processorRef.current.calibrate();
+      
+      // Wait a bit for the automatic calibration to complete
+      setTimeout(() => {
+        calibrationInProgressRef.current = false;
+        
+        console.log("useSignalProcessor: Advanced calibration completed", {
+          timestamp: new Date().toISOString()
+        });
+      }, 3000);
+      
+      return true;
+    } catch (error) {
+      console.error("useSignalProcessor: Detailed calibration error:", {
+        message: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+        timestamp: new Date().toISOString()
+      });
+      
+      calibrationInProgressRef.current = false;
+      
+      return false;
     }
-    console.log("useSignalProcessor: Iniciando modo calibración desde hook");
-    setIsCalibrating(true);
-    setCalibrationStatus({ phase: 'init', progress: 0, instructions: 'Preparando calibración...', isComplete: false });
-    processorRef.current.startCalibrationMode(); // Llama al método del pipeline
-    processorRef.current.start(); // Asegurar que el pipeline esté "activo" para procesar frames para la calibración
-  }, [isProcessing, stopProcessing]);
+  }, []);
 
   const processFrame = useCallback((imageData: ImageData) => {
     if (!processorRef.current) {
-      console.error("useSignalProcessor: No hay SignalProcessingPipeline para procesar frames.");
+      console.error("useSignalProcessor: No processor available to process frames");
       return;
     }
-    if (isProcessing && processorRef.current.isProcessing) { // Doble chequeo
-      // if (framesProcessed % 30 === 0) { // Log menos frecuente para reducir ruido
-      //   console.log(`[DIAG] useSignalProcessor/processFrame con Pipeline: Procesando frame #${framesProcessed}`);
-      // }
+    if (isProcessing) {
+      if (framesProcessed % 10 === 0) {
+        console.log(`[DIAG] useSignalProcessor/processFrame: Procesando frame #${framesProcessed}`, {
+          width: imageData.width,
+          height: imageData.height,
+          timestamp: Date.now(),
+          processorIsProcessing: processorRef.current.isProcessing
+        });
+      }
+      // Verify callbacks are properly assigned
+      if (!processorRef.current.onSignalReady) {
+        console.error("processFrame: onSignalReady is not defined in the processor");
+        return;
+      }
+      
       try {
         processorRef.current.processFrame(imageData);
       } catch (error) {
-        console.error("useSignalProcessor: Error al llamar processFrame en Pipeline", error);
+        console.error("processFrame: Error processing frame", error);
       }
     }
-  }, [isProcessing, framesProcessed]); // framesProcessed no debería estar aquí
+  }, [isProcessing, framesProcessed]);
 
   return {
     isProcessing,
-    isCalibrating,
-    calibrationStatus,
     lastSignal,
     error,
     framesProcessed,
     signalStats,
+    isCalibrating: calibrationInProgressRef.current,
     startProcessing,
     stopProcessing,
-    startCalibration,
+    calibrate,
     processFrame,
     signalHistory: signalHistoryRef.current,
-    qualityTransitions: qualityTransitionsRef.current,
-    criticalError
+    qualityTransitions: qualityTransitionsRef.current
   };
 };

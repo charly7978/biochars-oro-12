@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import VitalSign from "@/components/VitalSign";
 import CameraView from "@/components/CameraView";
 import { useSignalProcessor } from "@/hooks/useSignalProcessor";
@@ -46,14 +46,7 @@ const Index = () => {
   const isProcessingFramesRef = useRef(false);
   const processingLoopRef = useRef<number | null>(null);
   
-  const {
-    startProcessing,
-    stopProcessing,
-    lastSignal,
-    processFrame,
-    calibrationStatus,
-    criticalError
-  } = useSignalProcessor();
+  const { startProcessing, stopProcessing, lastSignal, processFrame } = useSignalProcessor();
   const { 
     processSignal: processHeartBeat, 
     setArrhythmiaState 
@@ -175,26 +168,6 @@ const Index = () => {
       setShowResults(true);
     }
   }, [lastValidResults, isMonitoring]);
-
-  // Bloquear la medición y feedback si hay error crítico
-  useEffect(() => {
-    if (criticalError) {
-      setIsMonitoring(false);
-      setIsCameraOn(false);
-      setShowResults(false);
-      setSignalQuality(0);
-      setHeartRate(0);
-      setVitalSigns({
-        heartRate: 0,
-        spo2: 0,
-        pressure: "--/--",
-        arrhythmiaStatus: "--",
-        glucose: 0,
-        lipids: { totalCholesterol: 0, triglycerides: 0 },
-        hemoglobin: 0
-      });
-    }
-  }, [criticalError]);
 
   const startMonitoring = () => {
     if (isMonitoring) {
@@ -664,28 +637,6 @@ const Index = () => {
       paddingTop: 'env(safe-area-inset-top)',
       paddingBottom: 'env(safe-area-inset-bottom)'
     }}>
-      {/* Overlay de error crítico/calibración */}
-      {criticalError && (
-        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/90">
-          <div className="text-center p-6 bg-red-900/80 rounded-lg shadow-xl text-white max-w-md mx-auto">
-            <h2 className="text-2xl font-bold mb-2">Atención</h2>
-            <p className="mb-4 text-lg">{criticalError}</p>
-            {calibrationStatus && calibrationStatus.recommendations && (
-              <ul className="mb-4 text-left list-disc list-inside text-sm">
-                {calibrationStatus.recommendations.map((rec, i) => (
-                  <li key={i}>{rec}</li>
-                ))}
-              </ul>
-            )}
-            <button
-              className="mt-2 px-4 py-2 bg-primary rounded text-white font-semibold"
-              onClick={handleReset}
-            >
-              Reintentar calibración
-            </button>
-          </div>
-        </div>
-      )}
       {/* Debug overlay de intervalos RR */}
       {rrIntervals.length > 0 && (
         <div className="absolute top-4 left-4 text-white z-20 bg-black/50 p-2 rounded">
