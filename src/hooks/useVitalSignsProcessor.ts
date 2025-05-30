@@ -1,5 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { VitalSignsProcessor, VitalSignsResult } from '../modules/vital-signs/VitalSignsProcessor';
+import { VitalSignsProcessor, VitalSignsResult, VitalSignsReferenceData } from '../modules/vital-signs/VitalSignsProcessor';
+import { useSignalProcessor } from './useSignalProcessor';
+import { SignalProcessingPipeline } from '../modules/signal-processing/SignalProcessingPipeline';
 
 /**
  * Custom hook for processing vital signs with advanced algorithms
@@ -21,22 +23,39 @@ export const useVitalSignsProcessor = () => {
   const processedSignals = useRef<number>(0);
   const signalLog = useRef<{timestamp: number, value: number, result: any}[]>([]);
   
+  // Obtener la referencia al pipeline desde useSignalProcessor
+  const { pipelineRef } = useSignalProcessor();
+  
   // Advanced configuration based on clinical guidelines
   const MIN_TIME_BETWEEN_ARRHYTHMIAS = 1000; // Minimum 1 second between arrhythmias
   const MAX_ARRHYTHMIAS_PER_SESSION = 20; // Reasonable maximum for 30 seconds
   const SIGNAL_QUALITY_THRESHOLD = 0.55; // Signal quality required for reliable detection
   
+  // Efecto para registrar el actualizador con el pipeline
   useEffect(() => {
-    console.log("useVitalSignsProcessor: Hook inicializado", {
+    console.log("useVitalSignsProcessor: Hook inicializado/actualizado", {
       sessionId: sessionId.current,
       timestamp: new Date().toISOString(),
-      parametros: {
-        MIN_TIME_BETWEEN_ARRHYTHMIAS,
-        MAX_ARRHYTHMIAS_PER_SESSION,
-        SIGNAL_QUALITY_THRESHOLD
-      }
+      pipelineDisponible: !!pipelineRef.current,
+      processorDisponible: !!processor
     });
+
+    const currentPipeline = pipelineRef.current;
+
+    if (currentPipeline && processor) {
+      console.log("useVitalSignsProcessor: Registrando VSP updater con el pipeline.");
+      currentPipeline.registerVitalSignsUpdater(
+        (isSuccess: boolean, refData?: VitalSignsReferenceData) => 
+          processor.setExternalCalibration(isSuccess, refData)
+      );
+    } else {
+      console.warn("useVitalSignsProcessor: Pipeline o VSP no disponibles para registrar updater.");
+    }
     
+    // Función de limpieza opcional si es necesario desregistrar, 
+    // pero registerVitalSignsUpdater actualmente solo asigna.
+    // Si el pipeline se destruyera y recreara, esto debería manejarse.
+
     return () => {
       console.log("useVitalSignsProcessor: Hook destruido", {
         sessionId: sessionId.current,
@@ -44,32 +63,12 @@ export const useVitalSignsProcessor = () => {
         señalesProcesadas: processedSignals.current,
         timestamp: new Date().toISOString()
       });
+      // Aquí podría ir una lógica de desregistro si el pipeline lo soportara
+      // if (currentPipeline && typeof currentPipeline.unregisterVitalSignsUpdater === 'function') {
+      // currentPipeline.unregisterVitalSignsUpdater(processor.setExternalCalibration); // Necesitaría la misma referencia de función
+      // }
     };
-  }, []);
-  
-  /**
-   * Start calibration for all vital signs
-   */
-  const startCalibration = useCallback(() => {
-    console.log("useVitalSignsProcessor: Iniciando calibración de todos los parámetros", {
-      timestamp: new Date().toISOString(),
-      sessionId: sessionId.current
-    });
-    
-    processor.startCalibration();
-  }, [processor]);
-  
-  /**
-   * Force calibration to complete immediately
-   */
-  const forceCalibrationCompletion = useCallback(() => {
-    console.log("useVitalSignsProcessor: Forzando finalización de calibración", {
-      timestamp: new Date().toISOString(),
-      sessionId: sessionId.current
-    });
-    
-    processor.forceCalibrationCompletion();
-  }, [processor]);
+  }, [pipelineRef, processor]);
   
   // Process the signal with improved algorithms
   const processSignal = useCallback((value: number, rrData?: { intervals: number[], lastPeakTime: number | null }) => {
@@ -83,9 +82,7 @@ export const useVitalSignsProcessor = () => {
       contadorArritmias: arrhythmiaCounter,
       señalNúmero: processedSignals.current,
       sessionId: sessionId.current,
-      timestamp: new Date().toISOString(),
-      calibrando: processor.isCurrentlyCalibrating(),
-      progresoCalibración: processor.getCalibrationProgress()
+      timestamp: new Date().toISOString()
     });
     
     // Process signal through the vital signs processor
@@ -299,8 +296,6 @@ export const useVitalSignsProcessor = () => {
     processSignal,
     reset,
     fullReset,
-    startCalibration,
-    forceCalibrationCompletion,
     arrhythmiaCounter,
     lastValidResults,
     debugInfo: {

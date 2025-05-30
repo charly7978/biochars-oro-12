@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect } from "react";
 import VitalSign from "@/components/VitalSign";
 import CameraView from "@/components/CameraView";
 import { useSignalProcessor } from "@/hooks/useSignalProcessor";
@@ -6,7 +6,7 @@ import { useHeartBeatProcessor } from "@/hooks/useHeartBeatProcessor";
 import { useVitalSignsProcessor } from "@/hooks/useVitalSignsProcessor";
 import PPGSignalMeter from "@/components/PPGSignalMeter";
 import MonitorButton from "@/components/MonitorButton";
-import { VitalSignsResult } from "@/modules/vital-signs/VitalSignsProcessor";
+import { VitalSignsResult, BloodPressureResult as BPResultType } from "@/modules/vital-signs/VitalSignsProcessor";
 import { toast } from "@/components/ui/use-toast";
 
 const Index = () => {
@@ -16,7 +16,7 @@ const Index = () => {
   const [vitalSigns, setVitalSigns] = useState<VitalSignsResult>({
     heartRate: 0,
     spo2: 0,
-    pressure: "--/--",
+    pressure: { systolic: 0, diastolic: 0, confidence: 0, status: "--/--" },
     arrhythmiaStatus: "--",
     glucose: 0,
     lipids: {
@@ -46,7 +46,19 @@ const Index = () => {
   const isProcessingFramesRef = useRef(false);
   const processingLoopRef = useRef<number | null>(null);
   
-  const { startProcessing, stopProcessing, lastSignal, processFrame } = useSignalProcessor();
+  const {
+    isProcessing,
+    calibrationStatus,
+    lastSignal,
+    error: pipelineError,
+    framesProcessed,
+    startProcessing,
+    stopProcessing,
+    startCalibration,
+    processFrame,
+    criticalError,
+    pipelineRef
+  } = useSignalProcessor();
   const { 
     processSignal: processHeartBeat, 
     setArrhythmiaState 
@@ -55,9 +67,7 @@ const Index = () => {
     processSignal: processVitalSigns, 
     reset: resetVitalSigns,
     fullReset: fullResetVitalSigns,
-    lastValidResults,
-    startCalibration,
-    forceCalibrationCompletion
+    lastValidResults
   } = useVitalSignsProcessor();
 
   const enterFullScreen = async () => {
@@ -169,6 +179,26 @@ const Index = () => {
     }
   }, [lastValidResults, isMonitoring]);
 
+  // Bloquear la medición y feedback si hay error crítico
+  useEffect(() => {
+    if (criticalError) {
+      setIsMonitoring(false);
+      setIsCameraOn(false);
+      setShowResults(false);
+      setSignalQuality(0);
+      setHeartRate(0);
+      setVitalSigns({
+        heartRate: 0,
+        spo2: 0,
+        pressure: { systolic: 0, diastolic: 0, confidence: 0, status: "ERROR" },
+        arrhythmiaStatus: "--",
+        glucose: 0,
+        lipids: { totalCholesterol: 0, triglycerides: 0 },
+        hemoglobin: 0
+      });
+    }
+  }, [criticalError]);
+
   const startMonitoring = () => {
     if (isMonitoring) {
       finalizeMeasurement();
@@ -178,19 +208,16 @@ const Index = () => {
       setIsCameraOn(true);
       setShowResults(false);
       
-      // Iniciar procesamiento de señal
-      startProcessing();
+      startProcessing(); 
       
-      // Resetear valores
       setElapsedTime(0);
       setVitalSigns(prev => ({
         ...prev,
         arrhythmiaStatus: "SIN ARRITMIAS|0"
       }));
       
-      // Iniciar calibración automática
-      console.log("Iniciando fase de calibración automática");
-      startAutoCalibration();
+      console.log("Index.tsx: Solicitando inicio de MODO calibración al SignalProcessingPipeline.");
+      startCalibration();
       
       // Iniciar temporizador para medición
       if (measurementTimerRef.current) {
@@ -213,115 +240,39 @@ const Index = () => {
     }
   };
 
-  const startAutoCalibration = () => {
-    console.log("Iniciando auto-calibración real con indicadores visuales");
-    setIsCalibrating(true);
-    
-    // Iniciar la calibración en el procesador
-    startCalibration();
-    
-    // Establecer explícitamente valores iniciales de calibración para CADA vital sign
-    // Esto garantiza que el estado comience correctamente
-    console.log("Estableciendo valores iniciales de calibración");
-    setCalibrationProgress({
-      isCalibrating: true,
-      progress: {
-        heartRate: 0,
-        spo2: 0,
-        pressure: 0,
-        arrhythmia: 0,
-        glucose: 0,
-        lipids: 0,
-        hemoglobin: 0
-      }
-    });
-    
-    // Logear para verificar que el estado se estableció
-    setTimeout(() => {
-      console.log("Estado de calibración establecido:", calibrationProgress);
-    }, 100);
-    
-    // Actualizar el progreso visualmente en intervalos regulares
-    let step = 0;
-    const calibrationInterval = setInterval(() => {
-      step += 1;
+  // Efecto para actualizar la UI de calibración basado en el pipeline
+  useEffect(() => {
+    if (calibrationStatus) {
+      console.log("Index.tsx: calibrationStatus del pipeline actualizado", calibrationStatus);
+      setIsCalibrating(!calibrationStatus.isComplete && calibrationStatus.phase !== 'complete');
       
-      // Actualizar progreso visual (10 pasos en total)
-      if (step <= 10) {
-        const progressPercent = step * 10; // 0-100%
-        console.log(`Actualizando progreso de calibración: ${progressPercent}%`);
-        
-        // Actualizar cada valor individualmente para asegurar que se renderice
-        setCalibrationProgress({
-          isCalibrating: true,
-          progress: {
-            heartRate: progressPercent,
-            spo2: Math.max(0, progressPercent - 10),
-            pressure: Math.max(0, progressPercent - 20),
-            arrhythmia: Math.max(0, progressPercent - 15),
-            glucose: Math.max(0, progressPercent - 5),
-            lipids: Math.max(0, progressPercent - 25),
-            hemoglobin: Math.max(0, progressPercent - 30)
-          }
-        });
-      } else {
-        // Al finalizar, detener el intervalo
-        console.log("Finalizando animación de calibración");
-        clearInterval(calibrationInterval);
-        
-        // Completar calibración
-        if (isCalibrating) {
-          console.log("Completando calibración");
-          forceCalibrationCompletion();
-          setIsCalibrating(false);
-          
-          // Importante: Establecer calibrationProgress a undefined o con valores 100
-          // para que la UI refleje que ya no está calibrando
-          setCalibrationProgress({
-            isCalibrating: false,
-            progress: {
-              heartRate: 100,
-              spo2: 100,
-              pressure: 100,
-              arrhythmia: 100,
-              glucose: 100,
-              lipids: 100,
-              hemoglobin: 100
-            }
-          });
-          
-          // Opcional: vibración si está disponible
-          if (navigator.vibrate) {
-            navigator.vibrate([100, 50, 100]);
-          }
+      const generalProgress = calibrationStatus.progress;
+      setCalibrationProgress({
+        isCalibrating: !calibrationStatus.isComplete,
+        progress: {
+          heartRate: generalProgress,
+          spo2: generalProgress,
+          pressure: generalProgress,
+          arrhythmia: generalProgress,
+          glucose: generalProgress,
+          lipids: generalProgress,
+          hemoglobin: generalProgress
+        }
+      });
+
+      if (calibrationStatus.isComplete) {
+        if (calibrationStatus.succeeded) {
+          toast({ title: "Calibración Completada", description: calibrationStatus.recommendations?.join(' ') || "Lista para medir.", duration: 3000 });
+        } else {
+          toast({ title: "Calibración Fallida", description: calibrationStatus.recommendations?.join(' ') || "Intente de nuevo.", variant: "destructive", duration: 5000 });
         }
       }
-    }, 800); // Cada paso dura 800ms (8 segundos en total)
-    
-    // Temporizador de seguridad
-    setTimeout(() => {
-      if (isCalibrating) {
-        console.log("Forzando finalización de calibración por tiempo límite");
-        clearInterval(calibrationInterval);
-        forceCalibrationCompletion();
-        setIsCalibrating(false);
-        
-        // Asegurar que se limpie el estado de calibración
-        setCalibrationProgress({
-          isCalibrating: false,
-          progress: {
-            heartRate: 100,
-            spo2: 100,
-            pressure: 100,
-            arrhythmia: 100,
-            glucose: 100,
-            lipids: 100,
-            hemoglobin: 100
-          }
-        });
-      }
-    }, 10000); // 10 segundos como máximo
-  };
+    } else {
+      // Si no hay calibrationStatus (ej. al inicio o después de un reset completo), asegurar que la UI esté limpia.
+      setIsCalibrating(false);
+      setCalibrationProgress(undefined);
+    }
+  }, [calibrationStatus, toast]);
 
   const finalizeMeasurement = () => {
     console.log("Finalizando medición: deteniendo procesamiento de frames");
@@ -331,11 +282,6 @@ const Index = () => {
     if (processingLoopRef.current) {
       cancelAnimationFrame(processingLoopRef.current);
       processingLoopRef.current = null;
-    }
-    
-    if (isCalibrating) {
-      console.log("Calibración en progreso al finalizar, forzando finalización");
-      forceCalibrationCompletion();
     }
     
     setIsMonitoring(false);
@@ -385,18 +331,16 @@ const Index = () => {
     setHeartRate(0);
     setHeartbeatSignal(0);
     setBeatMarker(0);
-    setVitalSigns({ 
+    setVitalSigns(prev => ({
+      ...prev,
       heartRate: 0,
       spo2: 0,
-      pressure: "--/--",
+      pressure: { systolic: 0, diastolic: 0, confidence: 0, status: "--/--" },
       arrhythmiaStatus: "--",
       glucose: 0,
-      lipids: {
-        totalCholesterol: 0,
-        triglycerides: 0
-      },
+      lipids: { totalCholesterol: 0, triglycerides: 0 },
       hemoglobin: 0
-    });
+    }));
     setArrhythmiaCount("--");
     setSignalQuality(0);
     setLastArrhythmiaData(null);
@@ -448,12 +392,6 @@ const Index = () => {
     let consecutiveErrors = 0;
     const maxConsecutiveErrors = 5;
     
-    // Crearemos un contexto dedicado para el procesamiento de imagen
-    const enhanceCanvas = document.createElement('canvas');
-    const enhanceCtx = enhanceCanvas.getContext('2d', {willReadFrequently: true});
-    enhanceCanvas.width = 320;  // Tamaño óptimo para procesamiento PPG
-    enhanceCanvas.height = 240;
-    
     // Activar el flag de procesamiento
     isProcessingFramesRef.current = true;
     
@@ -497,30 +435,18 @@ const Index = () => {
             0, 0, targetWidth, targetHeight
           );
           
-          // Mejorar la imagen para detección PPG
-          if (enhanceCtx) {
-            // Resetear canvas
-            enhanceCtx.clearRect(0, 0, enhanceCanvas.width, enhanceCanvas.height);
-            
-            // Dibujar en el canvas de mejora
-            enhanceCtx.drawImage(tempCanvas, 0, 0, targetWidth, targetHeight);
-            
-            // Opcionales: Ajustes para mejorar la señal roja
-            enhanceCtx.globalCompositeOperation = 'source-over';
-            enhanceCtx.fillStyle = 'rgba(255,0,0,0.05)';  // Sutil refuerzo del canal rojo
-            enhanceCtx.fillRect(0, 0, enhanceCanvas.width, enhanceCanvas.height);
-            enhanceCtx.globalCompositeOperation = 'source-over';
-          
-            // Obtener datos de la imagen mejorada
-            const imageData = enhanceCtx.getImageData(0, 0, enhanceCanvas.width, enhanceCanvas.height);
-            
-            // Procesar el frame mejorado
-            processFrame(imageData);
-          } else {
-            // Fallback a procesamiento normal
-            const imageData = tempCtx.getImageData(0, 0, targetWidth, targetHeight);
-            processFrame(imageData);
-          }
+          // Directamente obtener datos del tempCanvas
+          const imageData = tempCtx.getImageData(0, 0, targetWidth, targetHeight);
+
+          // --- Keep the logging here to see tempCanvas data ---
+          console.log("Index.tsx: Image data captured from tempCanvas (simplified)", {
+              width: imageData.width,
+              height: imageData.height,
+              dataLength: imageData.data.length,
+          });
+          // --- END ADDED LOGGING ---
+
+          processFrame(imageData); // Process the data from tempCanvas
           
           // Actualizar contadores para monitoreo de rendimiento
           frameCount++;
@@ -580,8 +506,7 @@ const Index = () => {
         setRRIntervals(heartBeatResult.rrData.intervals.slice(-5));
       }
       
-      // Pasar la señal completa (incluyendo colorData) al procesador de vitales
-      const vitals = processVitalSigns(lastSignal.filteredValue, heartBeatResult.rrData, lastSignal.colorData);
+      const vitals = processVitalSigns(lastSignal.filteredValue, heartBeatResult.rrData);
       if (vitals) {
         setVitalSigns(vitals);
         
@@ -628,6 +553,22 @@ const Index = () => {
     }
   };
 
+  const formatPressureForDisplay = (
+    pressureData: BPResultType | { systolic: 0, diastolic: 0, confidence: 0, status?: string }
+  ): string => {
+    if (pressureData && typeof pressureData === 'object') {
+      if ('systolic' in pressureData && pressureData.systolic > 0 && 
+          'diastolic' in pressureData && pressureData.diastolic > 0) {
+        return `${pressureData.systolic}/${pressureData.diastolic}`;
+      }
+      // Check for status only if systolic/diastolic aren't valid for display
+      if ('status' in pressureData && typeof pressureData.status === 'string') {
+        return pressureData.status;
+      }
+    }
+    return "--/--";
+  };
+
   return (
     <div className="fixed inset-0 flex flex-col bg-black" style={{ 
       height: '100svh',
@@ -638,6 +579,28 @@ const Index = () => {
       paddingTop: 'env(safe-area-inset-top)',
       paddingBottom: 'env(safe-area-inset-bottom)'
     }}>
+      {/* Overlay de error crítico/calibración */}
+      {criticalError && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/90">
+          <div className="text-center p-6 bg-red-900/80 rounded-lg shadow-xl text-white max-w-md mx-auto">
+            <h2 className="text-2xl font-bold mb-2">Atención</h2>
+            <p className="mb-4 text-lg">{criticalError}</p>
+            {calibrationStatus && calibrationStatus.recommendations && (
+              <ul className="mb-4 text-left list-disc list-inside text-sm">
+                {calibrationStatus.recommendations.map((rec, i) => (
+                  <li key={i}>{rec}</li>
+                ))}
+              </ul>
+            )}
+            <button
+              className="mt-2 px-4 py-2 bg-primary rounded text-white font-semibold"
+              onClick={handleReset}
+            >
+              Reintentar calibración
+            </button>
+          </div>
+        </div>
+      )}
       {/* Debug overlay de intervalos RR */}
       {rrIntervals.length > 0 && (
         <div className="absolute top-4 left-4 text-white z-20 bg-black/50 p-2 rounded">
@@ -671,13 +634,42 @@ const Index = () => {
 
         <div className="relative z-10 h-full flex flex-col">
           {/* Se agrega header para sensor de calidad y estado de huella digital */}
-          <div className="px-4 py-2 flex justify-around items-center bg-black/20">
-            <div className="text-white text-lg">
-              Calidad: {signalQuality}
+          <div className="px-4 py-2 flex flex-col items-center bg-black/30">
+            <div className="flex justify-around items-center w-full">
+              <div className="text-white text-sm">
+                Calidad: {signalQuality}
+                {lastSignal?.debugInfo?.dbgRawQuality !== undefined && ` (Raw: ${lastSignal.debugInfo.dbgRawQuality.toFixed(0)})`}
+              </div>
+              <div className="text-white text-sm">
+                {lastSignal?.fingerDetected ? "Dedo Detectado" : "No Dedo"}
+              </div>
             </div>
-            <div className="text-white text-lg">
-              {lastSignal?.fingerDetected ? "Huella Detectada" : "Huella No Detectada"}
-            </div>
+            {/* Fila adicional para debugInfo detallado */ 
+            (lastSignal?.debugInfo && (
+              <div className="flex flex-col items-center w-full mt-1 text-xs text-gray-400">
+                <div className="flex justify-around items-center w-full">
+                  <span>
+                    SpecConf: {lastSignal.debugInfo.dbgSpectralConfidence !== undefined ? lastSignal.debugInfo.dbgSpectralConfidence.toFixed(2) : "N/A"}
+                  </span>
+                  <span>
+                    PulsScore: {lastSignal.debugInfo.pulsatilityScore !== undefined ? lastSignal.debugInfo.pulsatilityScore.toFixed(2) : "N/A"}
+                  </span>
+                  <span>
+                    StabScore: {lastSignal.debugInfo.stabilityScore !== undefined ? lastSignal.debugInfo.stabilityScore.toFixed(2) : "N/A"}
+                  </span>
+                </div>
+                {(lastSignal.debugInfo.rejectionReasons && lastSignal.debugInfo.rejectionReasons.length > 0) && (
+                  <div className="mt-1 text-red-400 w-full text-center">
+                    Rechazado por: {lastSignal.debugInfo.rejectionReasons.join(', ')}
+                  </div>
+                )}
+                {(lastSignal.debugInfo.acceptanceReasons && lastSignal.debugInfo.acceptanceReasons.length > 0) && (
+                  <div className="mt-1 text-green-400 w-full text-center">
+                    Aceptado por: {lastSignal.debugInfo.acceptanceReasons.join(', ')}
+                  </div>
+                )}
+              </div>
+            ))}
           </div>
 
           <div className="flex-1">
@@ -695,43 +687,56 @@ const Index = () => {
 
           {/* Contenedor de los displays ampliado y con mayor espaciamiento */}
           <div className="absolute inset-x-0 top-[55%] bottom-[60px] bg-black/10 px-4 py-6">
-            <div className="grid grid-cols-3 gap-4 place-items-center">
+            <div className="grid grid-cols-2 gap-4">
               <VitalSign 
-                label="FRECUENCIA CARDÍACA"
-                value={heartRate || "--"}
-                unit="BPM"
+                label="FRECUENCIA CARDÍACA" 
+                value={vitalSigns.heartRate > 0 ? vitalSigns.heartRate : heartbeatSignal > 0 ? heartbeatSignal : '--'} 
+                unit="BPM" 
                 highlighted={showResults}
+                calibrationProgress={calibrationProgress?.progress.heartRate}
               />
               <VitalSign 
-                label="SPO2"
-                value={vitalSigns.spo2 || "--"}
-                unit="%"
+                label="SPO2" 
+                value={vitalSigns.spo2 > 0 ? vitalSigns.spo2 : '--'} 
+                unit="%" 
                 highlighted={showResults}
+                calibrationProgress={calibrationProgress?.progress.spo2}
               />
               <VitalSign 
-                label="PRESIÓN ARTERIAL"
-                value={vitalSigns.pressure}
-                unit="mmHg"
+                label="PRESIÓN ARTERIAL" 
+                value={formatPressureForDisplay(vitalSigns.pressure)} 
+                unit="mmHg" 
                 highlighted={showResults}
+                calibrationProgress={calibrationProgress?.progress.pressure}
               />
               <VitalSign 
-                label="HEMOGLOBINA"
-                value={vitalSigns.hemoglobin || "--"}
-                unit="g/dL"
+                label="ARRITMIAS" 
+                value={arrhythmiaCount} // arrhythmiaCount ya es string o number
+                unit="" 
                 highlighted={showResults}
+                calibrationProgress={calibrationProgress?.progress.arrhythmia}
               />
               <VitalSign 
-                label="GLUCOSA"
-                value={vitalSigns.glucose || "--"}
-                unit="mg/dL"
-                highlighted={showResults}
+                label="GLUCOSA" 
+                value={vitalSigns.glucose > 0 ? vitalSigns.glucose : '--'} 
+                unit="mg/dL" 
+                highlighted={showResults} 
+                calibrationProgress={calibrationProgress?.progress.glucose}
               />
               <VitalSign 
-                label="COLESTEROL/TRIGL."
-                value={`${vitalSigns.lipids?.totalCholesterol || "--"}/${vitalSigns.lipids?.triglycerides || "--"}`}
-                unit="mg/dL"
+                label="COLESTEROL/TRIGL." 
+                value={vitalSigns.lipids.totalCholesterol > 0 ? `${vitalSigns.lipids.totalCholesterol}/${vitalSigns.lipids.triglycerides}` : '--'} 
+                unit="mg/dL" 
                 highlighted={showResults}
+                calibrationProgress={calibrationProgress?.progress.lipids}
               />
+              {/* <VitalSign 
+                label="HEMOGLOBINA" 
+                value={vitalSigns.hemoglobin > 0 ? vitalSigns.hemoglobin : '--'} 
+                unit="g/dL" 
+                highlighted={showResults}
+                calibrationProgress={calibrationProgress?.progress.hemoglobin}
+              /> */}
             </div>
           </div>
 

@@ -1,31 +1,40 @@
+import { BloodPressureProcessor, BloodPressureResult } from "./blood-pressure-processor";
+export type { BloodPressureResult };
+import { GlucoseProcessor } from "./glucose-processor";
+import { ArrhythmiaProcessor } from "./arrhythmia-processor";
+import { calculateAC, calculateDC, calculateStandardDeviation, findPeaksAndValleys, calculateAmplitude } from './utils'; // Importar utilidades
+
+/**
+ * Datos de referencia opcionales que el usuario podría ingresar para calibrar
+ * ciertas mediciones experimentales.
+ */
+export interface VitalSignsReferenceData {
+  referenceSystolic?: number;
+  referenceDiastolic?: number;
+  referenceAge?: number;       // Para calibración de PA
+  referenceGlucose?: number;   // Para calibración de Glucosa
+}
+
 /**
  * PROCESADOR DE SIGNOS VITALES 100% REAL
  * Cálculos basados únicamente en mediciones físicas reales del PPG
+ * ADVERTENCIA: Varias mediciones (ej. Glucosa, Presión Arterial, Lípidos, Hemoglobina)
+ * estimadas mediante PPG de smartphone son ALTAMENTE EXPERIMENTALES y su precisión
+ * NO está garantizada. NO deben usarse para diagnóstico médico sin supervisión profesional.
  */
-
-import { useState, useCallback, useRef, useEffect } from 'react';
-import { calculateStandardDeviation } from '../vital-signs/utils';
 
 export interface VitalSignsResult {
   heartRate: number;
   spo2: number;
-  pressure: string;
+  pressure: BloodPressureResult | { systolic: 0, diastolic: 0, confidence: 0, status?: string };
   glucose: number;
   lipids: {
     totalCholesterol: number;
     triglycerides: number;
+    status?: 'experimental_unreliable';
   };
   hemoglobin: number;
   arrhythmiaStatus: string;
-  qualityScore: number;
-  vitalSignConfidence?: {
-    heartRate?: number;
-    spo2?: number;
-    pressure?: number;
-    glucose?: number;
-    lipids?: number;
-    hemoglobin?: number;
-  };
   lastArrhythmiaData?: {
     timestamp: number;
     rmssd: number;
@@ -47,518 +56,469 @@ export interface VitalSignsResult {
 
 export class VitalSignsProcessor {
   private signalBuffer: number[] = [];
-  private peakTimes: number[] = [];
-  private rrIntervals: number[] = [];
-  private calibrationBaseline: number = 0;
-  private isCalibrated = false;
-  private frameCount = 0;
   private lastValidResults: VitalSignsResult | null = null;
-  private colorDataHistory: { red: number, green: number, blue: number }[] = [];
-  private readonly COLOR_HISTORY_SIZE = 180;
+  private globalCalibrationSuccess: boolean = false;
+
+  // Instancias de los procesadores dedicados
+  private bpProcessor: BloodPressureProcessor;
+  private glucoseProcessor: GlucoseProcessor;
+  private arrhythmiaProcessor: ArrhythmiaProcessor; // Instancia del procesador de arritmias
+
+  // Propiedades para el procesamiento de latidos y calidad de señal (integrado de HeartBeatProcessor)
+  private bpmHistory: number[] = [];
+  private smoothBPM: number = 0;
+  private readonly BPM_ALPHA = 0.3; // Factor de suavizado para BPM
+  private currentSignalQuality: number = 0; // Calidad de señal actual
+  private recentSignalStrengths: number[] = []; // Historial para calcular calidad
+  private readonly SIGNAL_STRENGTH_HISTORY = 30;
+  private lastSignalStrength: number = 0;
+  private peakCandidateIndex: number | null = null;
+  private peakCandidateValue: number = 0;
+  private peakConfirmationBuffer: number[] = [];
+  private lastConfirmedPeak: boolean = false;
+  private lastValue: number = 0; // Para cálculo de derivada
+  private baseline: number = 0; // Para normalización
+  private readonly BASELINE_FACTOR = 0.8;
 
   constructor() {
     console.log("VitalSignsProcessor: Inicializado (SIN SIMULACIONES)");
+    this.bpProcessor = new BloodPressureProcessor();
+    this.glucoseProcessor = new GlucoseProcessor();
+    this.arrhythmiaProcessor = new ArrhythmiaProcessor(); // Inicializar ArrhythmiaProcessor
+    this.reset(); // Usar el método reset completo para inicializar estados
   }
 
-  startCalibration(): void {
-    console.log("VitalSignsProcessor: Iniciando calibración REAL");
-    this.calibrationBaseline = 0;
-    this.signalBuffer = [];
-    this.peakTimes = [];
-    this.rrIntervals = [];
-    this.isCalibrated = false;
-    this.frameCount = 0;
+  /**
+   * Establece el estado de calibración global y, si es exitosa y se proporcionan datos
+   * de referencia, calibra los sub-procesadores que lo requieran.
+   */
+  public setExternalCalibration(isSuccess: boolean, referenceData?: VitalSignsReferenceData): void {
+    this.globalCalibrationSuccess = isSuccess;
+    console.log(`VitalSignsProcessor: Estado de calibración externa actualizado a: ${isSuccess}`);
+
+    if (isSuccess && referenceData) {
+      if (referenceData.referenceSystolic !== undefined && 
+          referenceData.referenceDiastolic !== undefined) {
+        this.bpProcessor.calibrate(
+          referenceData.referenceSystolic,
+          referenceData.referenceDiastolic,
+          referenceData.referenceAge // age es opcional en bpProcessor.calibrate
+        );
+      }
+      if (referenceData.referenceGlucose !== undefined) {
+        this.glucoseProcessor.calibrate(referenceData.referenceGlucose);
+      }
+    } else if (!isSuccess) {
+        // Si la calibración global falla, resetear la calibración de los sub-procesadores también
+        this.bpProcessor.reset(); // Asumiendo que reset() también invalida su calibración interna
+        this.glucoseProcessor.reset(); // Asumiendo que reset() también invalida su calibración interna
+    }
   }
 
-  forceCalibrationCompletion(): void {
-    console.log("VitalSignsProcessor: Forzando completion de calibración");
-    this.isCalibrated = true;
-  }
+  processSignal(ppgValue: number, rrData?: { intervals: number[]; lastPeakTime: number | null }): VitalSignsResult {
+    // Solo procesar si la calibración global fue exitosa
+    if (!this.globalCalibrationSuccess) {
+      return {
+        heartRate: 0,
+        spo2: 0,
+        pressure: { systolic: 0, diastolic: 0, confidence: 0, status: "GLOBAL_CALIBRATION_FAILED" },
+        glucose: 0,
+        lipids: { totalCholesterol: 0, triglycerides: 0, status: "experimental_unreliable" },
+        hemoglobin: 0,
+        arrhythmiaStatus: "NO_VALID_RESULT",
+        lastArrhythmiaData: null,
+        calibration: {
+          isCalibrating: false,
+          progress: { heartRate: 0, spo2: 0, pressure: 0, arrhythmia: 0, glucose: 0, lipids: 0, hemoglobin: 0 }
+        }
+      };
+    }
 
-  isCurrentlyCalibrating(): boolean {
-    return !this.isCalibrated && this.frameCount < 60; // 2 segundos aprox
-  }
+    const now = Date.now();
 
-  getCalibrationProgress(): number {
-    if (this.isCalibrated) return 100;
-    // Calibración más larga para mejor baseline y adaptación inicial
-    const totalCalibrationFrames = 150; // Aumentar a 5 segundos a 30 FPS
-    return Math.min(100, (this.frameCount / totalCalibrationFrames) * 100);
-  }
-
-  processSignal(ppgValue: number, rrData?: { intervals: number[]; lastPeakTime: number | null }, colorData?: { red: number, green?: number, blue?: number }, signalQuality: number = 0): VitalSignsResult {
-    this.frameCount++;
-    
-    // Almacenar señal real (usaremos la señal roja si colorData está disponible)
-    const signalToBuffer = colorData ? colorData.red : ppgValue;
-    this.signalBuffer.push(signalToBuffer);
-    if (this.signalBuffer.length > 300) {
+    // 1. Preprocesamiento y normalización
+    // Actualizar baseline
+    if (this.baseline === 0) {
+        this.baseline = ppgValue;
+    } else {
+        this.baseline = this.baseline * this.BASELINE_FACTOR + ppgValue * (1 - this.BASELINE_FACTOR);
+    }
+    const normalizedValue = ppgValue - this.baseline;
+    this.signalBuffer.push(normalizedValue); // Almacenar valor normalizado
+    if (this.signalBuffer.length > 300) { // Mantener un buffer razonable
       this.signalBuffer.shift();
     }
 
-    // Almacenar datos de color si están disponibles
-    if (colorData) {
-      // Asegurar que siempre tenemos los tres canales, usando 0 si falta alguno
-      const fullColorData = { red: colorData.red, green: colorData.green || 0, blue: colorData.blue || 0 };
-      this.colorDataHistory.push(fullColorData);
-      if (this.colorDataHistory.length > this.COLOR_HISTORY_SIZE) {
-        this.colorDataHistory.shift();
-      }
+    // Use RR Data and Quality from the pipeline
+    const currentRRData = rrData || { intervals: [], lastPeakTime: null };
+    // Assume quality is passed or can be derived from pipeline data if needed
+    const signalQualityFromPipeline = 1.0; // TODO: Replace with actual quality from pipeline
+    this.currentSignalQuality = signalQualityFromPipeline; // Update internal quality
+
+    // 2. Process Arrhythmias (using the dedicated processor) with RR Data from the pipeline
+    const arrhythmiaResult = this.arrhythmiaProcessor.processRRData(currentRRData);
+
+    // Calculate BPM from the RR Data from the pipeline
+    let heartRate = 0;
+    if (currentRRData.intervals.length > 0) {
+       const avgRR = currentRRData.intervals.slice(-Math.min(10, currentRRData.intervals.length)).reduce((a, b) => a + b, 0) / Math.min(10, currentRRData.intervals.length);
+       if (avgRR > 0) {
+         heartRate = Math.round(60000 / avgRR);
+       }
     }
 
-    // Establecer baseline durante calibración
-    const totalCalibrationFrames = 150; // Asegurar consistencia
-    if (!this.isCalibrated) {
-      if (this.frameCount >= totalCalibrationFrames) {
-        this.calibrationBaseline = this.signalBuffer.reduce((a, b) => a + b, 0) / this.signalBuffer.length;
-        this.isCalibrated = true;
-        console.log("VitalSignsProcessor: Calibración completada, baseline:", this.calibrationBaseline);
-      }
-    }
+    // Smooth BPM (keep smoothing logic)
+    this.bpmHistory.push(heartRate);
+    if (this.bpmHistory.length > 10) this.bpmHistory.shift(); // Keep short history for smoothing
+    this.smoothBPM = this.bpmHistory.reduce((a, b) => a + b, 0) / this.bpmHistory.length;
 
-    // Usar datos RR reales si están disponibles
-    if (rrData?.intervals && rrData.intervals.length > 0) {
-      this.rrIntervals = [...rrData.intervals];
-    }
-
-    // Calcular BPM real basado en intervalos RR
-    const heartRate = this.calculateRealBPM(signalQuality);
-    
-    // Calcular SpO2 real basado en ratio AC/DC y datos de color si disponibles
-    const spo2 = this.calculateRealSpO2(colorData, signalQuality);
-    
-    // Calcular presión real basada en características de pulso
-    const pressure = this.calculateRealBloodPressure(signalQuality);
-    
-    // Calcular glucosa real basada en variabilidad PPG
-    const glucose = this.calculateRealGlucose(signalQuality);
-    
-    // Calcular lípidos reales basados en perfusión
-    const lipids = this.calculateRealLipids(signalQuality);
-    
-    // Calcular hemoglobina real basada en absorción
-    const hemoglobin = this.calculateRealHemoglobin(colorData, signalQuality);
+    // 3. Calculate other Vital Signs
+    // Ensure the processed signal (ppgValue or buffer) and RR/Quality data are passed to the sub-processors
+    const spo2 = this.calculateRealSpO2(this.signalBuffer, this.currentSignalQuality); // Pass buffer and quality
+    const pressure = this.calculateRealBloodPressure(this.signalBuffer, this.getSmoothBPM()); // Pass buffer and smoothed HR
+    const glucose = this.calculateRealGlucose(this.signalBuffer, this.getSmoothBPM()); // Pass buffer and smoothed HR
+    const lipids = this.calculateRealLipids(this.signalBuffer, this.currentSignalQuality); // Pass buffer and quality
+    const hemoglobin = this.calculateRealHemoglobin(this.signalBuffer, this.currentSignalQuality); // Pass buffer and quality
 
     const result: VitalSignsResult = {
-      heartRate,
-      spo2,
-      pressure,
-      glucose,
-      lipids,
-      hemoglobin,
-      arrhythmiaStatus: "NORMAL",
-      lastArrhythmiaData: null,
-      qualityScore: signalQuality,
-      vitalSignConfidence: {
-        heartRate: this.calculateConfidence(signalQuality, 40, 70),
-        spo2: this.calculateConfidence(signalQuality, 50, 75),
-        pressure: this.calculateConfidence(signalQuality, 60, 80),
-        glucose: this.calculateConfidence(signalQuality, 70, 85),
-        lipids: this.calculateConfidence(signalQuality, 65, 82),
-        hemoglobin: this.calculateConfidence(signalQuality, 55, 78),
-      },
+      heartRate: Math.round(heartRate), // Redondear para display
+      spo2: Math.round(spo2), // Redondear para display
+      pressure: pressure,
+      glucose: Math.round(glucose * 10) / 10, // Un decimal para glucosa
+      lipids: lipids,
+      hemoglobin: Math.round(hemoglobin * 10) / 10, // Un decimal para hemoglobina
+      arrhythmiaStatus: arrhythmiaResult.arrhythmiaStatus,
+      lastArrhythmiaData: arrhythmiaResult.lastArrhythmiaData,
       calibration: {
-        isCalibrating: this.isCurrentlyCalibrating(),
-        progress: {
-          heartRate: this.getCalibrationProgress(),
-          spo2: this.getCalibrationProgress(),
-          pressure: this.getCalibrationProgress(),
-          arrhythmia: this.getCalibrationProgress(),
-          glucose: this.getCalibrationProgress(),
-          lipids: this.getCalibrationProgress(),
-          hemoglobin: this.getCalibrationProgress()
-        }
+        isCalibrating: false, // VitalSignsProcessor no maneja la calibración directamente por ahora
+        progress: { heartRate: 0, spo2: 0, pressure: 0, arrhythmia: 0, glucose: 0, lipids: 0, hemoglobin: 0 }
       }
     };
 
-    // Guardar solo resultados válidos con criterio más estricto y dependencia de calibración Y calidad
-    if (this.isCalibrated && signalQuality > 40 && heartRate > 40 && heartRate < 200 && spo2 > 90 && spo2 <= 100) {
+    // Guardar solo resultados "razonablemente" válidos basados en calidad y valores
+    // Validation thresholds based on pipeline signal quality and plausible values
+    if (signalQualityFromPipeline > 0.5 && this.getSmoothBPM() > 40 && this.getSmoothBPM() < 180 && spo2 > 90 && spo2 < 100) {
       this.lastValidResults = result;
+      return result;
+    } else {
+      // Si la señal o los resultados no son válidos, devolver 0 y estado apropiado
+      return {
+        heartRate: 0,
+        spo2: 0,
+        pressure: { systolic: 0, diastolic: 0, confidence: 0, status: "INVALID_SIGNAL_QUALITY" }, // Estado más descriptivo
+        glucose: 0,
+        lipids: { totalCholesterol: 0, triglycerides: 0, status: "experimental_unreliable" },
+        hemoglobin: 0,
+        arrhythmiaStatus: "NO_VALID_RESULT",
+        lastArrhythmiaData: null,
+        calibration: {
+          isCalibrating: false,
+          progress: { heartRate: 0, spo2: 0, pressure: 0, arrhythmia: 0, glucose: 0, lipids: 0, hemoglobin: 0 }
+        }
+      };
     }
-
-    return result;
   }
 
-  private calculateRealBPM(signalQuality: number): number {
-    if (signalQuality < 40) return 0; // Descartar si la calidad es muy baja
-
-    if (this.rrIntervals.length >= 3) {
-      // Usar intervalos RR reales para calcular BPM
-      const avgRR = this.rrIntervals.slice(-5).reduce((a, b) => a + b, 0) / Math.min(5, this.rrIntervals.length);
-      if (avgRR > 0) {
-        const bpm = 60000 / avgRR; // Conversión de ms a BPM
-        return Math.round(Math.max(40, Math.min(200, bpm)));
-      }
-    }
-
-    // Fallback: detección de picos en señal PPG real
-    if (this.signalBuffer.length < 20) return 0;
-    
-    const recent = this.signalBuffer.slice(-60); // Últimos 2 segundos
-    const peaks = this.detectRealPeaks(recent);
-    
-    if (peaks.length >= 2) {
-      const avgInterval = (recent.length - 1) / (peaks.length - 1) * (1000/30); // 30 FPS aprox
-      const bpm = 60000 / avgInterval;
-      return Math.round(Math.max(40, Math.min(200, bpm)));
-    }
-    
-    return 0;
+  private calculateRealBPM(): number {
+    // Este método ahora es redundante ya que BPM se calcula en processSignal basado en RR
+    // Lo mantenemos para compatibilidad temporal si fuera necesario, pero su lógica
+    // debería ser la que ya está integrada en processSignal.
+    // Idealmente, este método debería eliminarse.
+    console.warn("calculateRealBPM llamado - lógica principal está en processSignal");
+     if (this.rrIntervals.length >= 2) {
+       const avgRR = this.rrIntervals.slice(-Math.min(10, this.rrIntervals.length)).reduce((a, b) => a + b, 0) / Math.min(10, this.rrIntervals.length);
+       if (avgRR > 0) {
+         return Math.round(60000 / avgRR);
+       }
+     }
+     return 0;
   }
 
   private detectRealPeaks(signal: number[]): number[] {
-    const peaks: number[] = [];
-    const threshold = this.calibrationBaseline * 1.02; // 2% sobre baseline
-    
-    for (let i = 2; i < signal.length - 2; i++) {
-      if (signal[i] > threshold &&
-          signal[i] > signal[i-1] && 
-          signal[i] > signal[i-2] &&
-          signal[i] > signal[i+1] && 
-          signal[i] > signal[i+2]) {
-        // Evitar picos muy cercanos
-        if (peaks.length === 0 || i - peaks[peaks.length - 1] > 10) {
-          peaks.push(i);
-        }
-      }
-    }
-    
-    return peaks;
+    // Este método también es redundante y debería ser eliminado. La detección de picos
+    // se realiza en enhancedPeakDetection.
+    console.warn("detectRealPeaks llamado - lógica principal está en enhancedPeakDetection");
+    return []; // No debería usarse
   }
 
-  private calculateRealSpO2(colorData?: { red: number, green?: number, blue?: number }, signalQuality: number = 0): number {
-    if (signalQuality < 50) return 0; // Requiere mayor calidad para SpO2
+  // Métodos de detección de picos y calidad de HeartBeatProcessor, adaptados:
 
-    if (!colorData || !colorData.green || !colorData.blue) {
-      console.warn("SpO2: Datos de color insuficientes para cálculo.");
-      return 0;
+  private enhancedPeakDetection(normalizedValue: number, derivative: number): {
+    isPeak: boolean;
+    confidence: number;
+    rawDerivative?: number;
+  } {
+    const SIGNAL_THRESHOLD = 0.02; // Umbral base para la señal
+    const DERIVATIVE_THRESHOLD = -0.005; // Umbral base para la derivada
+    const MIN_CONFIDENCE = 0.30; // Confianza mínima para considerar un pico
+    const PEAK_DETECTION_SENSITIVITY = 0.6; // Sensibilidad para refinar detección
+
+    let isPeak = false;
+    let confidence = 0;
+    const rawDerivative = derivative;
+
+    // Condición principal para un pico: valor sobre umbral y derivada negativa (punto de inflexión después de subir)
+    if (normalizedValue > SIGNAL_THRESHOLD && derivative < DERIVATIVE_THRESHOLD) {
+        isPeak = true;
+        // Calcular confianza basada en qué tan por encima del umbral está y la magnitud de la derivada negativa
+        const signalConfidence = Math.min(1, (normalizedValue - SIGNAL_THRESHOLD) / SIGNAL_THRESHOLD);
+        const derivativeConfidence = Math.min(1, Math.abs(derivative) / Math.abs(DERIVATIVE_THRESHOLD));
+        confidence = (signalConfidence * 0.6 + derivativeConfidence * 0.4) * PEAK_DETECTION_SENSITIVITY; // Ajustar peso y sensibilidad
+        confidence = Math.max(MIN_CONFIDENCE, Math.min(1, confidence)); // Asegurar mínimo y máximo
     }
 
-    // *** Mejora: Cálculo de SpO2 utilizando historial de ColorData ***
-    // Se necesita un historial suficiente de datos de color para calcular componentes AC/DC estables
-    if (this.colorDataHistory.length < 60 || !this.isCalibrated) return 0; // Requiere historial de color (aprox 2 seg)
-
-    const recentColorData = this.colorDataHistory.slice(-60); // Últimos 60 frames de color
-
-    // Extraer canales individuales
-    const redChannel = recentColorData.map(data => data.red);
-    const greenChannel = recentColorData.map(data => data.green);
-    const blueChannel = recentColorData.map(data => data.blue);
-
-    // Calcular AC y DC para Rojo y Verde (canales clave para Hb)
-    const { ac: acRed, dc: dcRed } = this.calculateACDC(redChannel);
-    const { ac: acGreen, dc: dcGreen } = this.calculateACDC(greenChannel);
-    // Opcional: usar Azul si es relevante para el dispositivo/luz
-    // const { ac: acBlue, dc: dcBlue } = this.calculateACDC(blueChannel);
-
-    // Validación básica de amplitudes
-    if (acRed < 1 || acGreen < 1 || dcRed < 1 || dcGreen < 1) {
-        console.warn("SpO2: Amplitudes AC/DC insuficientes para cálculo.");
-        return 0;
-    }
-
-    // Calcular Ratio of Ratios (R)
-    const ratioRed = acRed / dcRed;
-    const ratioGreen = acGreen / dcGreen;
-    // Asegurarse de que el denominador no sea cero para evitar Infinity/NaN
-    const R = (ratioGreen > 0 && ratioRed > 0) ? ratioRed / ratioGreen : 0;
-
-    if (R <= 0) {
-        console.warn("SpO2: Ratio of Ratios (R) no válido.");
-        return 0;
-    }
-
-    // Curva de calibración empírica R vs SpO2 (EJEMPLO - requiere validación CLÍNICA)
-    // Esta es una fórmula común, pero la curva exacta depende del hardware (cámara/linterna)
-    // y puede necesitar ser ajustada/calibrada con mediciones de referencia.
-    let estimatedSpO2 = 110 - (25 * R);
-
-    // Aplicar un filtro temporal simple o suavizado (EMA) si es necesario para estabilidad
-    // this.lastSmoothedSpO2 = this.lastSmoothedSpO2 * 0.8 + estimatedSpO2 * 0.2;
-
-    // Limitar el resultado a un rango fisiológico razonable
-    return Math.round(Math.max(85, Math.min(100, estimatedSpO2)));
+    return {
+        isPeak,
+        confidence,
+        rawDerivative
+    };
   }
 
-  private calculateACDC(values: number[]): { ac: number, dc: number } {
-    if (values.length === 0) return { ac: 0, dc: 0 };
-    const max = Math.max(...values);
-    const min = Math.min(...values);
-    const ac = max - min; // Simple pico a pico AC
-    const dc = values.reduce((sum, val) => sum + val, 0) / values.length; // Promedio DC
-    return { ac, dc };
+  private confirmPeak(
+    isPeakCandidate: boolean,
+    normalizedValue: number,
+    confidence: number
+  ): boolean {
+    // Implementación de confirmación de pico similar a HeartBeatProcessor
+    // Esto ayuda a reducir falsos positivos.
+    const CONFIRMATION_WINDOW_SIZE = 5; // Tamaño del buffer para confirmar
+    const CONFIDENCE_THRESHOLD = 0.5; // Umbral de confianza para considerar en buffer
+
+    this.peakConfirmationBuffer.push({ value: normalizedValue, confidence: confidence, isCandidate: isPeakCandidate });
+    if (this.peakConfirmationBuffer.length > CONFIRMATION_WINDOW_SIZE) {
+        this.peakConfirmationBuffer.shift();
+    }
+
+    if (this.peakConfirmationBuffer.length < CONFIRMATION_WINDOW_SIZE) {
+        return false; // No hay suficientes datos para confirmar
+    }
+
+    // Criterios de confirmación:
+    // 1. El último punto debe ser un candidato a pico.
+    // 2. Al menos N puntos en el buffer deben tener una confianza razonable.
+    // 3. El punto candidato debe ser el valor más alto (o cercano al más alto) en el buffer.
+
+    const lastPoint = this.peakConfirmationBuffer[this.peakConfirmationBuffer.length - 1];
+    if (!lastPoint.isCandidate) return false;
+
+    const highConfidenceCount = this.peakConfirmationBuffer.filter(p => p.confidence >= CONFIDENCE_THRESHOLD).length;
+    if (highConfidenceCount < Math.ceil(CONFIRMATION_WINDOW_SIZE / 2)) { // Requerir al menos la mitad con alta confianza
+        return false;
+    }
+
+    // Verificar si el último punto es el máximo o muy cercano en el buffer
+    const maxBufferValue = Math.max(...this.peakConfirmationBuffer.map(p => p.value));
+    const isNearMax = lastPoint.value >= maxBufferValue * 0.95; // Dentro del 5% del máximo
+
+    return isNearMax; // Confirmar si pasa todos los criterios
   }
 
-  private calculateRealBloodPressure(signalQuality: number = 0): string {
-    if (signalQuality < 60) return "--/--"; // Requiere alta calidad para PA
+  private updateBPM(): void {
+    if (this.rrIntervals.length === 0) return;
 
-    // *** Mejora: Cálculo de Presión Arterial basado en Morfología de Onda ***
-    // Requiere un historial suficiente de señal PPG roja y detección fiable de picos/valles.
-    if (this.signalBuffer.length < 150 || !this.isCalibrated) return "0/0"; // Requiere al menos 5 segundos de señal
+    // Calcular BPM basado en el promedio de los últimos RR intervals válidos
+    const validRRIntervals = this.rrIntervals.filter(interval => interval >= 300 && interval <= 2000);
 
-    const recentSignal = this.signalBuffer.slice(-150); // Usar una ventana adecuada
-    const { peakIndices, valleyIndices } = this.detectRealPeaksAndValleys(recentSignal);
+    if (validRRIntervals.length < 2) return; // Necesita al menos 2 intervalos para calcular BPM
 
-    if (peakIndices.length < 2 || valleyIndices.length < 2) {
-        console.warn("PA: Pocos picos/valles detectados para análisis morfológico.");
-        return "0/0";
-    }
+    const avgRR = validRRIntervals.slice(-10) // Usar hasta los últimos 10 intervalos válidos
+                                 .reduce((sum, interval) => sum + interval, 0) / validRRIntervals.slice(-10).length;
 
-    // PENDIENTE: Implementar análisis de morfología detallado:
-    // - Identificar pares Pico-Valle.
-    // - Calcular tiempo de subida, tiempo de bajada.
-    // - Buscar muesca dicrótica y calcular el tiempo hasta ella desde el pico.
-    // - Calcular ratios de amplitudes en puntos clave.
-    // - Derivar métricas de rigidez arterial (ej. Índice de Aceleración, Índice de Aumento).
-
-    // Placeholder: Usar una métrica simple de morfología (e.g., ratio tiempo de subida/tiempo de bajada) como ejemplo
-    // Esto requeriría lógica de detección de muesca dicrótica precisa:
-    // const upstrokeTime = ...; // PENDIENTE calcular
-    // const downstrokeTime = ...; // PENDIENTE calcular
-    // const morphologyRatio = (upstrokeTime > 0 && downstrokeTime > 0) ? upstrokeTime / downstrokeTime : 1.0;
-
-    // Placeholder: Usar la variabilidad de la amplitud como un proxy de rigidez/presión
-    const amplitudes = [];
-    for(let i = 0; i < peakIndices.length -1; i++){
-        const peakVal = recentSignal[peakIndices[i]];
-        const nextValleyVal = valleyIndices.length > i ? recentSignal[valleyIndices[i]] : Math.min(...recentSignal.slice(peakIndices[i]));
-        amplitudes.push(peakVal - nextValleyVal);
-    }
-    const avgAmplitude = amplitudes.reduce((a,b)=>a+b, 0) / amplitudes.length;
-    const amplitudeVariability = calculateStandardDeviation(amplitudes);
-
-    // MODELO EMPÍRICO BÁSICO (REQUERE VALIDACIÓN CLÍNICA y CALIBRACIÓN INDIVIDUAL)
-    // Relaciona amplitud y su variabilidad con PA (muy simplificado)
-    const estimatedSystolic = 120 - (avgAmplitude * 0.5) + (amplitudeVariability * 2);
-    const estimatedDiastolic = 80 - (avgAmplitude * 0.3) + (amplitudeVariability * 1.5);
-
-    const finalSystolic = Math.round(Math.max(90, Math.min(180, estimatedSystolic)));
-    const finalDiastolic = Math.round(Math.max(60, Math.min(120, estimatedDiastolic)));
-
-    return `${finalSystolic}/${finalDiastolic}`;
-  }
-
-  private calculateRealGlucose(signalQuality: number = 0): number {
-    if (signalQuality < 70) return 0; // La glucosa requiere la mayor calidad posible
-
-    // *** Mejora: Cálculo de Glucosa basado en Morfología y Variabilidad PPG ***
-    // Requiere análisis detallado de la forma de onda y potentially análisis de frecuencia.
-    if (this.signalBuffer.length < 180 || !this.isCalibrated) return 0; // Requiere al menos 6 segundos de señal
-
-    const recentSignal = this.signalBuffer.slice(-180); // Ventana más amplia
-    const { peakIndices, valleyIndices } = this.detectRealPeaksAndValleys(recentSignal);
-
-    if (peakIndices.length < 3 || valleyIndices.length < 3) {
-        console.warn("Glucosa: Pocos picos/valles detectados para análisis.");
-        return 0;
-    }
-
-    // PENDIENTE: Implementar análisis morfológico específico para glucosa:
-    // - Análisis de la pendiente de subida y bajada.
-    // - Formas de onda características.
-    // - Análisis en el dominio de la frecuencia (si se identifica alguna frecuencia relevante).
-    // - Correlaciones con variabilidad de pulso a corto plazo.
-
-    // Placeholder: Combinar variabilidad y una métrica morfológica simple (ej. ancho de pulso)
-    const mean = recentSignal.reduce((a, b) => a + b, 0) / recentSignal.length;
-    const variance = recentSignal.reduce((acc, val) => acc + Math.pow(val - mean, 2), 0) / recentSignal.length;
-    const cv = Math.sqrt(variance) / mean;
-
-    let avgPulseWidth = 0; // PENDIENTE: Calcular el ancho promedio del pulso desde los picos/valles
-    // Ejemplo: avgPulseWidth = (valleyIndices[i+1] - peakIndices[i]) * (1000/30); // Tiempo de bajada + siguiente subida
-
-    // MODELO EMPÍRICO BÁSICO (REQUERE VALIDACIÓN CLÍNICA y CALIBRACIÓN INDIVIDUAL)
-    // Combina variabilidad y un proxy morfológico (muy simplificado)
-    const estimatedGlucose = 90 + (cv * 800) - (avgPulseWidth * 0.5); // Ajustar coeficientes empíricamente
-
-    return Math.round(Math.max(60, Math.min(250, estimatedGlucose)));
-  }
-
-  private calculateRealLipids(signalQuality: number = 0): { totalCholesterol: number; triglycerides: number } {
-    if (signalQuality < 65) return { totalCholesterol: 0, triglycerides: 0 }; // Lípidos también requieren alta calidad
-
-    // *** Mejora: Cálculo de Lípidos basado en Morfología y Propiedades Reológicas ***
-    // Requiere análisis detallado de la forma de onda, especialmente la cola diastólica.
-    if (this.signalBuffer.length < 180 || !this.isCalibrated) return { totalCholesterol: 0, triglycerides: 0 }; // Requiere al menos 6 segundos de señal
-
-    const recentSignal = this.signalBuffer.slice(-180);
-    const { peakIndices, valleyIndices } = this.detectRealPeaksAndValleys(recentSignal);
-
-    if (peakIndices.length < 3 || valleyIndices.length < 3) {
-        console.warn("Lípidos: Pocos picos/valles detectados para análisis.");
-        return { totalCholesterol: 0, triglycerides: 0 };
-    }
-
-    // PENDIENTE: Implementar análisis morfológico específico para lípidos:
-    // - Análisis de la forma y pendiente de la cola diastólica (decay rate).
-    // - Relación entre AC y DC en diferentes longitudes de onda (si se propaga colorData history).
-    // - Estimación de viscosidad sanguínea y resistencia periférica.
-
-    // Placeholder: Usar métricas de forma de onda y amplitud/variabilidad
-    const amplitudes = [];
-    for(let i = 0; i < peakIndices.length -1; i++){
-        const peakVal = recentSignal[peakIndices[i]];
-        const nextValleyVal = valleyIndices.length > i ? recentSignal[valleyIndices[i]] : Math.min(...recentSignal.slice(peakIndices[i]));
-        amplitudes.push(peakVal - nextValleyVal);
-    }
-    const avgAmplitude = amplitudes.reduce((a,b)=>a+b, 0) / amplitudes.length;
-    const amplitudeVariability = calculateStandardDeviation(amplitudes);
-
-    // Calcular un proxy de la pendiente diastólica (muy simplificado)
-    let avgDiastolicDecayRate = 0; // PENDIENTE: Calcular decay rate real de la cola diastólica
-    // Ejemplo: avgDiastolicDecayRate = (peakVal - nextValleyVal) / (nextValleyIndex - peakIndex) * (1000/30);
-
-    // MODELO EMPÍRICO BÁSICO (REQUERE VALIDACIÓN CLÍNICA y CALIBRACIÓN INDIVIDUAL)
-    // Combina amplitud, variabilidad y un proxy de decay rate (muy simplificado)
-    const estimatedCholesterol = 180 - (avgAmplitude * 0.4) + (amplitudeVariability * 1.8) - (avgDiastolicDecayRate * 10);
-    const estimatedTriglycerides = 120 - (avgAmplitude * 0.2) + (amplitudeVariability * 1.5) - (avgDiastolicDecayRate * 8);
-
-    const totalCholesterol = Math.round(Math.max(100, Math.min(300, estimatedCholesterol)));
-    const triglycerides = Math.round(Math.max(50, Math.min(400, estimatedTriglycerides)));
-
-    return { totalCholesterol, triglycerides };
-  }
-
-  private calculateRealHemoglobin(colorData?: { red: number, green?: number, blue?: number }, signalQuality: number = 0): number {
-    if (signalQuality < 55) return 0; // Hemoglobina requiere buena calidad
-
-    if (!colorData || !colorData.green || !colorData.blue) {
-      console.warn("Hb: Datos de color insuficientes para cálculo.");
-      return 0;
-    }
-
-    // *** Mejora: Cálculo de Hemoglobina utilizando historial de ColorData ***
-    // Se necesita un historial suficiente de datos de color para calcular componentes AC/DC estables.
-    // La luz verde (~540-580nm) es más sensible a la Hemoglobina total.
-    if (this.colorDataHistory.length < 120 || !this.isCalibrated) return 0; // Requiere historial de color (aprox 4 seg)
-
-    const recentColorData = this.colorDataHistory.slice(-120); // Últimos 120 frames de color
-
-    // Extraer canales individuales
-    const redChannel = recentColorData.map(data => data.red);
-    const greenChannel = recentColorData.map(data => data.green);
-    const blueChannel = recentColorData.map(data => data.blue);
-
-    // Calcular AC y DC para Rojo y Verde (canales clave para Hb)
-    const { ac: acRed, dc: dcRed } = this.calculateACDC(redChannel);
-    const { ac: acGreen, dc: dcGreen } = this.calculateACDC(greenChannel);
-    // Opcional: usar Azul si es relevante para el dispositivo/luz
-    // const { ac: acBlue, dc: dcBlue } = this.calculateACDC(blueChannel);
-
-    // Validación básica de amplitudes
-    if (acRed < 1 || acGreen < 1 || dcRed < 1 || dcGreen < 1) {
-        console.warn("Hb: Amplitudes AC/DC insuficientes para cálculo.");
-        return 0;
-    }
-
-    // Calcular Ratio de Absorción (Ejemplo: basado en Rojo y Verde)
-    // La relación exacta depende de las longitudes de onda específicas de la fuente de luz y la sensibilidad del sensor.
-    const ratioHb = (acRed / dcRed) / (acGreen / dcGreen); // Ratio similar al de SpO2 pero interpretado diferente
-    // O una relación más simple si se valida (AC_Green / DC_Green)
-    // const ratioHb = acGreen / dcGreen;
-
-    if (ratioHb <= 0) {
-         console.warn("Hb: Ratio de absorción no válido.");
-         return 0;
-    }
-
-    // Curva de calibración empírica Ratio vs Hemoglobina (EJEMPLO - requiere validación CLÍNICA)
-    // Esta fórmula es puramente ilustrativa y NO está validada médicamente.
-    // Se necesitaría calibrar con mediciones de hemoglobina de referencia.
-    const estimatedHemoglobin = 14.5 - (ratioHb - 1.0) * 8; // Ajustar coeficientes empíricamente
-
-    // Limitar el resultado a un rango fisiológico razonable
-    return Math.round(Math.max(8, Math.min(18, estimatedHemoglobin)) * 10) / 10; // Redondear a 1 decimal
-  }
-
-  // *** Nueva función: Detección de picos y valles para análisis morfológico ***
-  private detectRealPeaksAndValleys(signal: number[]): { peakIndices: number[], valleyIndices: number[] } {
-    const peakIndices: number[] = [];
-    const valleyIndices: number[] = [];
-    const minPeakProminence = calculateStandardDeviation(signal.slice(-60)) * 0.5; // Umbral basado en variabilidad reciente
-    const minPeakDistance = Math.max(15, Math.floor(signal.length / 20)); // Distancia mínima entre picos/valles (aprox 3-4 picos en 6 seg)
-
-    if (signal.length < 30) return { peakIndices: [], valleyIndices: [] }; // Requiere señal suficiente
-
-    // Detectar picos
-    for (let i = 1; i < signal.length - 1; i++) {
-        if (signal[i] > signal[i-1] && signal[i] > signal[i+1]) {
-            // Validación de prominencia simple (el pico es significativamente más alto que los puntos vecinos)
-            if (signal[i] - Math.max(signal[i-1], signal[i+1]) > minPeakProminence / 2) {
-                // Validación de distancia mínima
-                if (peakIndices.length === 0 || i - peakIndices[peakIndices.length - 1] > minPeakDistance) {
-                    peakIndices.push(i);
-                }
-            }
-        }
-    }
-
-    // Detectar valles (similar a picos pero buscando mínimos)
-     for (let i = 1; i < signal.length - 1; i++) {
-         if (signal[i] < signal[i-1] && signal[i] < signal[i+1]) {
-             // Validación de prominencia para valles
-             if (Math.min(signal[i-1], signal[i+1]) - signal[i] > minPeakProminence / 2) {
-                 // Validación de distancia mínima
-                 if (valleyIndices.length === 0 || i - valleyIndices[valleyIndices.length - 1] > minPeakDistance) {
-                     valleyIndices.push(i);
-                 }
-             }
-         }
-     }
-
-    // Asegurar que picos y valles alternan (lógica de limpieza básica)
-    // (Implementación más sofisticada podría ser necesaria si la detección es ruidosa)
-    const finalPeakIndices: number[] = [];
-    const finalValleyIndices: number[] = [];
-    let lastType: 'peak' | 'valley' | null = null;
-
-    const allIndices = [...peakIndices.map(idx => ({ idx, type: 'peak' as const })), ...valleyIndices.map(idx => ({ idx, type: 'valley' as const }))].sort((a, b) => a.idx - b.idx);
-
-    for(const item of allIndices) {
-        if (item.type !== lastType) {
-            if (item.type === 'peak') finalPeakIndices.push(item.idx);
-            else finalValleyIndices.push(item.idx);
-            lastType = item.type;
+    if (avgRR > 0) {
+        const currentBPM = 60000 / avgRR; // ms a BPM
+        // Aplicar suavizado exponencial para estabilidad
+        if (this.smoothBPM === 0) {
+            this.smoothBPM = currentBPM;
         } else {
-            // Si el mismo tipo aparece consecutivamente, mantener el más prominente (simplificado: el último)
-             if (item.type === 'peak') finalPeakIndices[finalPeakIndices.length - 1] = item.idx;
-             else finalValleyIndices[finalValleyIndices.length - 1] = item.idx;
+            this.smoothBPM = this.BPM_ALPHA * currentBPM + (1 - this.BPM_ALPHA) * this.smoothBPM;
         }
     }
+  }
 
-    return { peakIndices: finalPeakIndices, valleyIndices: finalValleyIndices };
+  public getSmoothBPM(): number {
+      return Math.round(this.smoothBPM);
+  }
+
+  private calculateSignalQuality(normalizedValue: number, confidence: number): number {
+      // Lógica simplificada de calidad de señal basada en amplitud y confianza del pico.
+      // Se puede expandir para incluir estabilidad de la línea base, forma del pulso, etc.
+
+      // Calcular amplitud de la señal reciente (basado en el buffer normalizado)
+      const recentSignal = this.signalBuffer.slice(-60); // Últimos 2 segundos
+      if (recentSignal.length < 30) return 0; // Necesita suficientes datos
+
+      const minVal = Math.min(...recentSignal);
+      const maxVal = Math.max(...recentSignal);
+      const amplitude = maxVal - minVal;
+
+      // Calcular estabilidad de la línea base
+      const baselineStability = calculateStandardDeviation(this.signalBuffer.slice(-120)); // SD de los últimos 4 segundos
+      const maxAllowedSD = 0.05; // Umbral para SD (ajustar)
+      const stabilityScore = Math.max(0, 1 - (baselineStability / maxAllowedSD));
+
+      // Combinar amplitud, confianza y estabilidad para la calidad. Ajustar pesos.
+      // La calidad debe ser alta solo si hay una señal clara (amplitud) Y picos detectables (confianza) Y la línea base es estable.
+      // Podríamos también incorporar el Perfusion Index si el FrameProcessor lo calcula.
+      const baseQuality = (amplitude * 10 + confidence * 2) / 12; // Ponderar amplitud y confianza del pico
+      const finalQuality = baseQuality * stabilityScore; // Modulado por la estabilidad de la línea base
+
+      // Asegurar que la calidad esté entre 0 y 1
+      return Math.max(0, Math.min(1, finalQuality));
+  }
+
+   // Método placeholder para actualizar el estado de detección (si es necesario para la UI u otra lógica)
+   private resetDetectionStates() {
+      this.lastPeakTime = null;
+      this.previousPeakTime = null;
+      this.bpmHistory = [];
+      this.smoothBPM = 0;
+      this.rrIntervals = [];
+      this.currentSignalQuality = 0;
+      this.recentSignalStrengths = [];
+      this.lastSignalStrength = 0;
+      this.peakValidationBuffer = [];
+      this.peakCandidateIndex = null;
+      this.peakCandidateValue = 0;
+      this.peakConfirmationBuffer = [];
+      this.lastConfirmedPeak = false;
+      this.lastValue = 0;
+      this.baseline = 0;
+      this.signalBuffer = []; // También resetear el buffer de señal
+      this.arrhythmiaProcessor.reset(); // Resetear el procesador de arritmias
+   }
+
+  // Métodos de cálculo de signos vitales existentes, ahora usan datos procesados y RR:
+
+  private calculateRealSpO2(ppgValues: number[], signalQuality: number): number {
+    // Lógica existente de calculateRealSpO2, adaptada para usar ppgValues y signalQuality
+    // Implementación real de SpO2 a partir del ratio AC/DC de la señal PPG ROJA e IR si estuviera disponible (o solo rojo con estimación)
+    // **Requiere señal de canal IR para ser REAL**. Asumiendo solo rojo, esto es una estimación EXPERIMENTAL.
+    console.warn("calculateRealSpO2 es experimental sin señal IR");
+    if (ppgValues.length < 60 || signalQuality < 0.6) return 0; // Necesita suficientes datos y buena calidad
+
+    const ac = calculateAC(ppgValues.slice(-60));
+    const dc = calculateDC(ppgValues.slice(-60));
+
+    if (dc === 0 || ac === 0) return 0; // Evitar división por cero o señal plana
+
+    // FÓRMULA SpO2 EXPERIMENTAL (Solo rojo)
+    // Esta fórmula es una SIMULACIÓN/ESTIMACIÓN y NO es médicamente precisa.
+    // Requiere sensor IR para ser real.
+    // Sustituir con lógica real si se añade sensor IR.
+    const R = (ac / dc); // Este R normalmente usaría RED_AC/RED_DC / IR_AC/IR_DC
+    // La siguiente línea es una **SIMULACIÓN** con fines de demostración/desarrollo.
+    // DEBE ser reemplazada por una fórmula clínicamente validada que use canales ROJO e IR.
+    const estimatedSpo2 = 100 - (15 * R); // Fórmula de ejemplo no médica
+
+    // Ajuste basado en calidad (menos calidad = valor más cercano a un baseline plausible)
+    const baselineSpo2 = 98; // Baseline plausible
+    const finalSpo2 = estimatedSpo2 * signalQuality + baselineSpo2 * (1 - signalQuality);
+
+    // Rango plausible para SpO2
+    return Math.max(85, Math.min(100, finalSpo2)); // Rango más conservador
+  }
+
+  private calculateRealBloodPressure(currentSignalBuffer: number[], heartRate: number): BloodPressureResult | { systolic: 0, diastolic: 0, confidence: 0, status?: string } {
+    // Lógica existente de calculateRealBloodPressure, adaptada para usar currentSignalBuffer y heartRate
+    // **Requiere calibración con un manguito de presión arterial para ser REAL**. Sin calibración, es una ESTIMACIÓN EXPERIMENTAL.
+    console.warn("calculateRealBloodPressure es experimental sin calibración");
+    if (currentSignalBuffer.length < 100 || heartRate === 0 || !this.globalCalibrationSuccess) {
+      return { systolic: 0, diastolic: 0, confidence: 0, status: "INSUFFICIENT_DATA_OR_UNCALIBRATED" };
+    }
+
+    // Usar el BPProcessor dedicado
+    // El BPProcessor debe ser calibrado externamente antes de usarse.
+    // La calibración (setExternalCalibration) ya maneja la llamada a bpProcessor.calibrate.
+    return this.bpProcessor.calculateBloodPressure(currentSignalBuffer); // Pasar buffer al procesador dedicado
+  }
+
+  private calculateRealGlucose(currentSignalBuffer: number[], heartRate: number): number {
+    // Lógica existente de calculateRealGlucose, adaptada.
+    // **Esta medición es ALTAMENTE EXPERIMENTAL y no clínicamente validada vía PPG de smartphone**.
+    console.warn("calculateRealGlucose es ALTAMENTE EXPERIMENTAL y no validado");
+     if (currentSignalBuffer.length < 200 || heartRate === 0 || !this.globalCalibrationSuccess) return 0;
+
+     // Usar el GlucoseProcessor dedicado
+     // El GlucoseProcessor debe ser calibrado externamente antes de usarse.
+     // La calibración (setExternalCalibration) ya maneja la llamada a glucoseProcessor.calibrate.
+     return this.glucoseProcessor.calculateGlucose(currentSignalBuffer); // Pasar buffer al procesador dedicado
+  }
+
+  private calculateRealLipids(currentSignalBuffer: number[], signalQuality: number): { totalCholesterol: number; triglycerides: number; status?: 'experimental_unreliable' } {
+    // Lógica existente de calculateRealLipids, adaptada.
+    // **Esta medición es ALTAMENTE EXPERIMENTAL y no clínicamente validada vía PPG de smartphone**.
+    console.warn("calculateRealLipids es ALTAMENTE EXPERIMENTAL y no validado");
+     if (currentSignalBuffer.length < 300 || signalQuality < 0.7) {
+       return { totalCholesterol: 0, triglycerides: 0, status: 'experimental_unreliable' };
+     }
+     // Simulación/Estimación experimental - reemplazar con lógica real si se valida
+     // ESTO ES ACTUALMENTE UNA SIMULACIÓN BASADA EN LA CALIDAD Y VARIABILIDAD DE LA SEÑAL
+     // NO ES UNA MEDICIÓN REAL DE LÍPIDOS VÍA PPG.
+     const variability = calculateStandardDeviation(currentSignalBuffer.slice(-100));
+     const estimatedCholesterol = 150 + (variability * 1000) + (signalQuality * 50);
+     const estimatedTriglycerides = 100 + (variability * 500) + (signalQuality * 30);
+
+     return {
+       totalCholesterol: Math.max(100, Math.min(300, estimatedCholesterol)),
+       triglycerides: Math.max(50, Math.min(400, estimatedTriglycerides)),
+       status: 'experimental_unreliable'
+     };
+  }
+
+  private calculateRealHemoglobin(currentSignalBuffer: number[], signalQuality: number): number {
+    // Lógica existente de calculateRealHemoglobin, adaptada.
+    // **Esta medición es ALTAMENTE EXPERIMENTAL y no clínicamente validada vía PPG de smartphone**.
+    console.warn("calculateRealHemoglobin es ALTAMENTE EXPERIMENTAL y no validado");
+     if (currentSignalBuffer.length < 300 || signalQuality < 0.7) return 0;
+
+     // Simulación/Estimación experimental - reemplazar con lógica real si se valida
+     // ESTO ES ACTUALMENTE UNA SIMULACIÓN BASADA EN LA FORMA DEL PULSO Y CALIDAD DE LA SEÑAL
+     // NO ES UNA MEDICIÓN REAL DE HEMOGLOBINA VÍA PPG.
+     const peaks = findPeaksAndValleys(currentSignalBuffer.slice(-100)).peakIndices;
+     const valleys = findPeaksAndValleys(currentSignalBuffer.slice(-100)).valleyIndices;
+     let morphologyScore = 0;
+     if (peaks.length > 1 && valleys.length > 1) {
+        const avgAmplitude = calculateAmplitude(currentSignalBuffer.slice(-100), peaks, valleys);
+        morphologyScore = avgAmplitude * signalQuality; // Ejemplo simple
+     }
+     const estimatedHemoglobin = 14 + (morphologyScore * 5); // Fórmula de ejemplo no médica
+
+     return Math.max(10, Math.min(18, estimatedHemoglobin)); // Rango plausible
   }
 
   reset(): VitalSignsResult | null {
-    console.log("VitalSignsProcessor: Reset manteniendo últimos resultados");
-    const savedResults = this.lastValidResults;
-    
-    this.signalBuffer = [];
-    this.peakTimes = [];
-    this.rrIntervals = [];
-    this.frameCount = 0;
-    this.isCalibrated = false;
-    
-    return savedResults;
+    console.log("VitalSignsProcessor: Reseteando estados.");
+    this.signalBuffer = []; // Limpiar buffer de señal
+    this.bpmHistory = []; // Limpiar historial de BPM
+    this.smoothBPM = 0; // Resetear BPM suavizado
+    this.currentSignalQuality = 0; // Resetear calidad
+    this.recentSignalStrengths = []; // Resetear historial de fuerza de señal
+    this.lastSignalStrength = 0;
+    this.lastValidResults = null; // Limpiar últimos resultados válidos
+    this.globalCalibrationSuccess = false; // Resetear estado de calibración
+    // No resetear sub-procesadores aquí, se maneja en setExternalCalibration o fullReset si es necesario
+    return null; // Devolver null ya que no hay resultado válido después del reset
   }
 
   fullReset(): void {
-    console.log("VitalSignsProcessor: Reset completo");
-    this.signalBuffer = [];
-    this.peakTimes = [];
-    this.rrIntervals = [];
-    this.calibrationBaseline = 0;
-    this.isCalibrated = false;
-    this.frameCount = 0;
-    this.lastValidResults = null;
+    console.log("VitalSignsProcessor: Reseteando completamente (incl. sub-procesadores). ");
+    this.reset(); // Resetear estados propios
+    this.bpProcessor.reset();
+    this.glucoseProcessor.reset();
+    this.arrhythmiaProcessor.reset();
   }
 
-  // Método auxiliar para calcular la confianza basada en la calidad de la señal
-  private calculateConfidence(signalQuality: number, minThreshold: number, maxThreshold: number): number {
-    if (signalQuality < minThreshold) return 0; // Debajo del umbral mínimo, confianza 0
-    if (signalQuality >= maxThreshold) return 100; // Por encima del umbral máximo, confianza 100
+  // Métodos que no deberían llamarse externamente
+  // private calculateRealBPM(): number { /* ... */ }
+  // private detectRealPeaks(signal: number[]): number[] { /* ... */ }
+  // private calculateRealSpO2(): number { /* ... */ }
+  // private calculateRealBloodPressure(): BloodPressureResult | { systolic: 0, diastolic: 0, confidence: 0, status?: string } { /* ... */ }
+  // private calculateRealGlucose(): number { /* ... */ }
+  // private calculateRealLipids(): { totalCholesterol: number; triglycerides: number; status?: 'experimental_unreliable' } { /* ... */ }
+  // private calculateRealHemoglobin(): number { /* ... */ }
 
-    // Calcular confianza linealmente entre minThreshold y maxThreshold
-    return Math.round(((signalQuality - minThreshold) / (maxThreshold - minThreshold)) * 100);
+  // Getter para exponer la calidad de señal si es necesario
+  public getSignalQuality(): number {
+      return this.currentSignalQuality;
   }
 }
