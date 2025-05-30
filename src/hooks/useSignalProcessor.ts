@@ -244,7 +244,6 @@ export const useSignalProcessor = () => {
     processFrame,
     signalHistory: signalHistoryRef.current,
     qualityTransitions: qualityTransitionsRef.current,
-    criticalError,
-    pipelineRef: processorRef
+    criticalError
   };
 };

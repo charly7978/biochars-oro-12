@@ -1,5 +1,3 @@
-import { VitalSignsReferenceData } from '../vital-signs/VitalSignsProcessor'; // Importar la interfaz
-
 /**
  * Sistema de calibración automática médica para PPG
  */
@@ -268,7 +266,15 @@ export class AutoCalibrationSystem {
   /**
    * Obtener resultados de calibración
    */
-  public getCalibrationResults(): CalibrationResult {
+  public getCalibrationResults(): {
+    success: boolean;
+    baseline: any;
+    thresholds: any;
+    signalParams: any;
+    accuracy: number;
+    stabilityScore: number; // Nuevo: score de estabilidad
+    recommendations: string[];
+  } {
     const recommendations: string[] = [];
     let success = true;
     
@@ -314,8 +320,7 @@ export class AutoCalibrationSystem {
       signalParams: this.calibrationData.signalParams,
       accuracy: Math.round(accuracy),
       stabilityScore: Math.round(stabilityScore),
-      recommendations,
-      referenceData: undefined // Añadir datos de referencia para procesadores de SV
+      recommendations
     };
   }
   
@@ -356,26 +361,4 @@ export class AutoCalibrationSystem {
     const phaseDuration = this.PHASE_DURATIONS[this.currentPhase] || 5000;
     return Math.min(100, Math.round((phaseElapsed / phaseDuration) * 100));
   }
-  
-  /**
-   * Resetear el sistema de calibración a su estado inicial.
-   */
-  public reset(): void {
-    console.log("AutoCalibrationSystem: Reseteando estado.");
-    this.resetData();
-    this.currentPhase = this.CALIBRATION_PHASES.BASELINE; // Volver a la fase inicial
-    this.phaseStartTime = Date.now(); // Reiniciar tiempo de fase
-  }
-}
-
-// Exportar la interfaz CalibrationResult
-export interface CalibrationResult {
-  success: boolean;
-  baseline: { red: number; green: number; blue: number } | null;
-  thresholds: { min: number; max: number } | null;
-  signalParams: { gain: number; offset: number } | null;
-  accuracy: number;
-  stabilityScore: number; 
-  recommendations: string[];
-  referenceData?: VitalSignsReferenceData; // Añadir datos de referencia para procesadores de SV
 }

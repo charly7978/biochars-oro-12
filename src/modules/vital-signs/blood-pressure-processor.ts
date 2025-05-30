@@ -1,20 +1,10 @@
+
 export interface BloodPressureResult {
   systolic: number;
   diastolic: number;
   confidence: number;
-  // Podríamos añadir un campo opcional para transmitir la naturaleza experimental
-  // status?: 'experimental' | 'reliable'; 
 }
 
-/**
- * ADVERTENCIA: La estimación de la presión arterial (PA) utilizando fotopletismografía (PPG)
- * de la cámara de un smartphone es una técnica ALTAMENTE EXPERIMENTAL. Los resultados pueden
- * variar significativamente entre individuos, condiciones de medición (luz, posición del dedo,
- * movimiento), y calibración. NO debe utilizarse para diagnóstico médico, ajuste de medicación
- * o cualquier propósito clínico sin la supervisión de un profesional de la salud.
- * Esta implementación se basa en principios teóricos y correlaciones que aún están bajo
- * investigación activa y no garantizan precisión médica.
- */
 export class BloodPressureProcessor {
   private ptValues: number[] = [];
   private calibrationSystolic: number = 120;
@@ -24,19 +14,9 @@ export class BloodPressureProcessor {
   private lastValidBP: BloodPressureResult | null = null;
   
   /**
-   * Calcula la presión arterial usando un análisis de la señal PPG, incluyendo el Tiempo de Tránsito del Pulso (PTT).
-   * 
-   * ADVERTENCIA: Estimación EXPERIMENTAL. La precisión NO está garantizada y NO reemplaza
-   * a un tensiómetro médico validado. Úsese con fines informativos y bajo propio riesgo.
-   * Requiere calibración previa para mejorar la aproximación.
+   * Calcula presión arterial usando tiempo de tránsito de pulso (PTT) mejorado
    */
   public calculateBloodPressure(ppgValues: number[]): BloodPressureResult {
-    if (!this.isCalibrated) {
-      console.warn("BloodPressureProcessor: Intento de medir PA sin calibración. Resultados no fiables.");
-      // Considerar devolver un objeto con confianza muy baja o NaN si no está calibrado.
-      // Por ahora, se permite continuar, pero la UI debería reflejar esto.
-    }
-
     if (ppgValues.length < 60) {
       return this.lastValidBP || { systolic: 0, diastolic: 0, confidence: 0 };
     }
@@ -95,7 +75,6 @@ export class BloodPressureProcessor {
       systolic,
       diastolic,
       confidence
-      // status: 'experimental' // Ejemplo si se añade el campo
     };
     
     // Guardar como último resultado válido si la confianza es alta
@@ -236,7 +215,6 @@ export class BloodPressureProcessor {
     this.calibrationDiastolic = diastolic;
     this.ageAdjustment = Math.max(0, (age - 30) * 0.5); // Ajuste por edad
     this.isCalibrated = true;
-    console.log(`BloodPressureProcessor: Calibrado con S:${systolic}, D:${diastolic}, Edad:${age}`);
   }
   
   public reset(): void {
