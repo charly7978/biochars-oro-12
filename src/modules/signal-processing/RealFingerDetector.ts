@@ -1,222 +1,306 @@
 
 /**
- * DETECTOR DE DEDOS REALES - SISTEMA CIENTÍFICAMENTE CORRECTO
- * Basado en características físicas reales de dedos humanos
- * Anti-falsificación robusto que rechaza objetos artificiales
+ * DETECTOR DE DEDOS REAL - SIN SIMULACIONES
+ * Optimizado para detección real con cámara
  */
 
-export interface FingerDetectionMetrics {
-  skinToneValid: boolean;
-  textureValid: boolean;
-  perfusionDetected: boolean;
-  pulsationDetected: boolean;
-  antiSpoofingPassed: boolean;
+export interface FingerDetectionResult {
+  isFingerDetected: boolean;
   confidence: number;
+  quality: number;
+  reasons: string[];
+  metrics: {
+    redIntensity: number;
+    rgRatio: number;
+    textureScore: number;
+    stability: number;
+  };
 }
 
 export class RealFingerDetector {
-  private pulseHistory: number[] = [];
-  private skinTextureBuffer: number[] = [];
-  private lastPerfusionTime = 0;
-  private consecutiveValidFrames = 0;
+  private detectionHistory: boolean[] = [];
+  private redHistory: number[] = [];
+  private calibrationSamples: number[] = [];
+  private isCalibrated = false;
+  private baselineRed = 0;
   
-  // Rangos científicamente correctos para piel humana
-  private readonly REAL_SKIN_RANGES = {
-    RED: { min: 120, max: 200 },    // Hemoglobina + melanina
-    GREEN: { min: 80, max: 150 },   // Menor absorción
-    BLUE: { min: 60, max: 120 }     // Mayor absorción
+  // UMBRALES AJUSTADOS PARA DEDOS HUMANOS REALES
+  private readonly REAL_THRESHOLDS = {
+    MIN_RED: 60,          // Más bajo para dedos reales
+    MAX_RED: 250,         // Más alto para permitir variación natural
+    MIN_RG_RATIO: 1.05,   // Más permisivo para dedos reales
+    MAX_RG_RATIO: 3.5,    // Mayor rango para condiciones variables
+    MIN_TEXTURE: 0.02,    // Más bajo para detectar piel suave
+    MIN_STABILITY: 0.08,  // Más permisivo para movimiento natural
+    CALIBRATION_SAMPLES: 10,
+    MIN_CONFIDENCE: 0.4   // Umbral más bajo para dedos reales
   };
   
-  // Ratio R/G para detección de hemoglobina real
-  private readonly HEMOGLOBIN_RATIO = { min: 1.2, max: 2.0 };
-  
-  // Variabilidad de textura para piel real (5-20%)
-  private readonly SKIN_TEXTURE_VARIANCE = { min: 0.05, max: 0.20 };
-  
-  // Micro-pulsaciones cardíacas (0.5-3% variación)
-  private readonly CARDIAC_VARIATION = { min: 0.005, max: 0.03 };
-
-  /**
-   * Detecta si hay un dedo real presente
-   */
-  detectRealFinger(imageData: ImageData): FingerDetectionMetrics {
-    const { avgRed, avgGreen, avgBlue, textureVariance } = this.analyzeImageData(imageData);
+  detectFinger(imageData: ImageData): FingerDetectionResult {
+    // Extraer métricas básicas
+    const metrics = this.extractBasicMetrics(imageData);
     
-    // 1. Validación de tono de piel real
-    const skinToneValid = this.validateSkinTone(avgRed, avgGreen, avgBlue);
-    
-    // 2. Validación de textura de piel
-    const textureValid = this.validateSkinTexture(textureVariance);
-    
-    // 3. Detección de perfusión sanguínea
-    const perfusionDetected = this.detectBloodPerfusion(avgRed, avgGreen);
-    
-    // 4. Detección de micro-pulsaciones
-    const pulsationDetected = this.detectCardiacPulsation(avgRed);
-    
-    // 5. Sistema anti-falsificación
-    const antiSpoofingPassed = this.antiSpoofingCheck(avgRed, avgGreen, avgBlue, textureVariance);
-    
-    // Calcular confianza basada en todos los factores
-    const confidence = this.calculateConfidence({
-      skinToneValid,
-      textureValid,
-      perfusionDetected,
-      pulsationDetected,
-      antiSpoofingPassed
-    });
-    
-    // Actualizar contadores de frames consecutivos válidos
-    if (skinToneValid && perfusionDetected) {
-      this.consecutiveValidFrames++;
-    } else {
-      this.consecutiveValidFrames = 0;
+    // Auto-calibración simple
+    if (!this.isCalibrated) {
+      this.performSimpleCalibration(metrics.redIntensity);
     }
     
+    // Validaciones mejoradas para dedos humanos
+    const validation = this.performHumanFingerValidation(metrics);
+    
+    // Decisión optimizada para dedos reales
+    const isDetected = this.makeHumanFingerDecision(validation, metrics);
+    
+    // Actualizar historial
+    this.updateHistory(metrics.redIntensity, isDetected);
+    
+    // Calcular calidad optimizada para humanos
+    const quality = this.calculateHumanFingerQuality(metrics, isDetected, validation.confidence);
+    
     return {
-      skinToneValid,
-      textureValid,
-      perfusionDetected,
-      pulsationDetected,
-      antiSpoofingPassed,
-      confidence
+      isFingerDetected: isDetected,
+      confidence: validation.confidence,
+      quality,
+      reasons: validation.reasons,
+      metrics: {
+        redIntensity: metrics.redIntensity,
+        rgRatio: metrics.rgRatio,
+        textureScore: metrics.textureScore,
+        stability: this.calculateStability()
+      }
     };
   }
   
-  private analyzeImageData(imageData: ImageData) {
+  private extractBasicMetrics(imageData: ImageData) {
     const { data, width, height } = imageData;
     
-    // Analizar área central (50% del frame)
+    // Área central más grande para capturar mejor el dedo
     const centerX = width / 2;
     const centerY = height / 2;
-    const radius = Math.min(width, height) * 0.25;
+    const radius = Math.min(width, height) * 0.25; // Área más grande
     
     let redSum = 0, greenSum = 0, blueSum = 0;
     let pixelCount = 0;
     const intensities: number[] = [];
     
-    for (let y = Math.max(0, centerY - radius); y < Math.min(height, centerY + radius); y++) {
-      for (let x = Math.max(0, centerX - radius); x < Math.min(width, centerX + radius); x++) {
-        const distance = Math.sqrt((x - centerX) ** 2 + (y - centerY) ** 2);
-        if (distance <= radius) {
-          const index = (Math.floor(y) * width + Math.floor(x)) * 4;
-          const r = data[index];
-          const g = data[index + 1];
-          const b = data[index + 2];
-          
-          redSum += r;
-          greenSum += g;
-          blueSum += b;
-          intensities.push((r + g + b) / 3);
-          pixelCount++;
+    for (let y = centerY - radius; y < centerY + radius; y += 3) {
+      for (let x = centerX - radius; x < centerX + radius; x += 3) {
+        if (x >= 0 && x < width && y >= 0 && y < height) {
+          const distance = Math.sqrt((x - centerX) ** 2 + (y - centerY) ** 2);
+          if (distance <= radius) {
+            const index = (Math.floor(y) * width + Math.floor(x)) * 4;
+            const r = data[index];
+            const g = data[index + 1];
+            const b = data[index + 2];
+            
+            redSum += r;
+            greenSum += g;
+            blueSum += b;
+            intensities.push((r + g + b) / 3);
+            pixelCount++;
+          }
         }
       }
     }
     
-    const avgRed = pixelCount > 0 ? redSum / pixelCount : 0;
-    const avgGreen = pixelCount > 0 ? greenSum / pixelCount : 0;
-    const avgBlue = pixelCount > 0 ? blueSum / pixelCount : 0;
-    
-    // Calcular varianza de textura
-    const meanIntensity = intensities.reduce((a, b) => a + b, 0) / intensities.length;
-    const variance = intensities.reduce((acc, val) => acc + (val - meanIntensity) ** 2, 0) / intensities.length;
-    const textureVariance = Math.sqrt(variance) / meanIntensity;
-    
-    return { avgRed, avgGreen, avgBlue, textureVariance };
-  }
-  
-  private validateSkinTone(red: number, green: number, blue: number): boolean {
-    // Verificar rangos RGB para piel humana
-    const redValid = red >= this.REAL_SKIN_RANGES.RED.min && red <= this.REAL_SKIN_RANGES.RED.max;
-    const greenValid = green >= this.REAL_SKIN_RANGES.GREEN.min && green <= this.REAL_SKIN_RANGES.GREEN.max;
-    const blueValid = blue >= this.REAL_SKIN_RANGES.BLUE.min && blue <= this.REAL_SKIN_RANGES.BLUE.max;
-    
-    return redValid && greenValid && blueValid;
-  }
-  
-  private validateSkinTexture(textureVariance: number): boolean {
-    // La piel real tiene variabilidad natural pero controlada
-    this.skinTextureBuffer.push(textureVariance);
-    if (this.skinTextureBuffer.length > 10) {
-      this.skinTextureBuffer.shift();
+    if (pixelCount === 0) {
+      return { redIntensity: 0, rgRatio: 1, textureScore: 0 };
     }
     
-    const avgVariance = this.skinTextureBuffer.reduce((a, b) => a + b, 0) / this.skinTextureBuffer.length;
-    return avgVariance >= this.SKIN_TEXTURE_VARIANCE.min && avgVariance <= this.SKIN_TEXTURE_VARIANCE.max;
-  }
-  
-  private detectBloodPerfusion(red: number, green: number): boolean {
-    // Ratio R/G debe estar en rango de hemoglobina oxigenada
-    if (green === 0) return false;
+    const avgRed = redSum / pixelCount;
+    const avgGreen = greenSum / pixelCount;
     
-    const ratio = red / green;
-    const perfusionValid = ratio >= this.HEMOGLOBIN_RATIO.min && ratio <= this.HEMOGLOBIN_RATIO.max;
-    
-    if (perfusionValid) {
-      this.lastPerfusionTime = Date.now();
+    // Textura más permisiva para piel humana
+    let textureScore = 0;
+    if (intensities.length > 10) {
+      const mean = intensities.reduce((a, b) => a + b, 0) / intensities.length;
+      const variance = intensities.reduce((acc, val) => acc + Math.pow(val - mean, 2), 0) / intensities.length;
+      textureScore = Math.sqrt(variance) / 255;
     }
     
-    // Perfusión debe mantenerse en los últimos 2 segundos
-    return perfusionValid && (Date.now() - this.lastPerfusionTime < 2000);
+    return {
+      redIntensity: avgRed,
+      rgRatio: avgGreen > 5 ? avgRed / avgGreen : 1.0,
+      textureScore: Math.min(1.0, textureScore)
+    };
   }
   
-  private detectCardiacPulsation(red: number): boolean {
-    this.pulseHistory.push(red);
-    if (this.pulseHistory.length > 60) { // ~2 segundos a 30fps
-      this.pulseHistory.shift();
+  private performSimpleCalibration(redIntensity: number): void {
+    this.calibrationSamples.push(redIntensity);
+    
+    if (this.calibrationSamples.length >= this.REAL_THRESHOLDS.CALIBRATION_SAMPLES) {
+      this.baselineRed = this.calibrationSamples.reduce((a, b) => a + b, 0) / this.calibrationSamples.length;
+      this.isCalibrated = true;
+      
+      console.log("RealFingerDetector: Calibración completada para dedos humanos", {
+        baseline: this.baselineRed.toFixed(1),
+        samples: this.calibrationSamples.length
+      });
+    }
+  }
+  
+  private performHumanFingerValidation(metrics: any) {
+    const reasons: string[] = [];
+    let score = 0;
+    
+    // 1. Validación de intensidad roja más permisiva (30%)
+    if (metrics.redIntensity >= this.REAL_THRESHOLDS.MIN_RED && 
+        metrics.redIntensity <= this.REAL_THRESHOLDS.MAX_RED) {
+      score += 0.30;
+      reasons.push(`✓ Rojo válido: ${metrics.redIntensity.toFixed(1)}`);
+      
+      // Bonus para rangos típicos de dedo humano
+      if (metrics.redIntensity >= 80 && metrics.redIntensity <= 200) {
+        score += 0.15;
+        reasons.push(`✓ Rango óptimo para dedo humano`);
+      }
+    } else {
+      reasons.push(`✗ Rojo fuera de rango: ${metrics.redIntensity.toFixed(1)}`);
     }
     
-    if (this.pulseHistory.length < 20) return false;
+    // 2. Validación del ratio R/G más permisiva (25%)
+    if (metrics.rgRatio >= this.REAL_THRESHOLDS.MIN_RG_RATIO && 
+        metrics.rgRatio <= this.REAL_THRESHOLDS.MAX_RG_RATIO) {
+      score += 0.25;
+      reasons.push(`✓ Ratio R/G: ${metrics.rgRatio.toFixed(2)}`);
+      
+      // Bonus para ratios típicos de piel
+      if (metrics.rgRatio >= 1.2 && metrics.rgRatio <= 2.0) {
+        score += 0.10;
+        reasons.push(`✓ Ratio típico de piel humana`);
+      }
+    } else {
+      reasons.push(`✗ Ratio R/G anómalo: ${metrics.rgRatio.toFixed(2)}`);
+    }
     
-    const mean = this.pulseHistory.reduce((a, b) => a + b, 0) / this.pulseHistory.length;
-    if (mean === 0) return false;
+    // 3. Validación de textura permisiva (15%)
+    if (metrics.textureScore >= this.REAL_THRESHOLDS.MIN_TEXTURE) {
+      score += 0.15;
+      reasons.push(`✓ Textura: ${(metrics.textureScore * 100).toFixed(1)}%`);
+    } else {
+      // No penalizar mucho la textura baja en dedos
+      score += 0.05;
+      reasons.push(`~ Textura baja pero aceptable: ${(metrics.textureScore * 100).toFixed(1)}%`);
+    }
     
-    const variance = this.pulseHistory.reduce((acc, val) => acc + (val - mean) ** 2, 0) / this.pulseHistory.length;
+    // 4. Validación de estabilidad permisiva (15%)
+    const stability = this.calculateStability();
+    if (stability >= this.REAL_THRESHOLDS.MIN_STABILITY) {
+      score += 0.15;
+      reasons.push(`✓ Estabilidad: ${(stability * 100).toFixed(1)}%`);
+    } else {
+      // Algo de puntaje incluso con baja estabilidad
+      score += 0.05;
+      reasons.push(`~ Estabilidad baja: ${(stability * 100).toFixed(1)}%`);
+    }
+    
+    // Bonus por calibración y consistencia
+    if (this.isCalibrated && this.baselineRed > 0) {
+      const deviation = Math.abs(metrics.redIntensity - this.baselineRed) / this.baselineRed;
+      if (deviation < 0.5) { // Más permisivo
+        score += 0.10;
+        reasons.push(`✓ Consistente con calibración`);
+      }
+    }
+    
+    return {
+      score: Math.min(1.0, score),
+      reasons,
+      confidence: Math.min(1.0, score)
+    };
+  }
+  
+  private makeHumanFingerDecision(validation: any, metrics: any): boolean {
+    // Umbral más bajo para dedos humanos
+    if (validation.confidence < this.REAL_THRESHOLDS.MIN_CONFIDENCE) {
+      return false;
+    }
+    
+    // Filtro temporal más permisivo
+    this.detectionHistory.push(validation.confidence >= this.REAL_THRESHOLDS.MIN_CONFIDENCE);
+    if (this.detectionHistory.length > 4) {
+      this.detectionHistory.shift();
+    }
+    
+    // Permitir detección más rápida
+    if (this.detectionHistory.length >= 2) {
+      const recentDetections = this.detectionHistory.slice(-2);
+      const positiveCount = recentDetections.filter(d => d).length;
+      
+      // Solo necesita 1 de 2 detecciones positivas
+      return positiveCount >= 1;
+    }
+    
+    // Para las primeras muestras, ser menos estricto
+    return validation.confidence >= 0.5;
+  }
+  
+  private calculateHumanFingerQuality(metrics: any, isDetected: boolean, confidence: number): number {
+    if (!isDetected) {
+      return Math.max(8, Math.min(25, confidence * 25));
+    }
+    
+    let quality = 30 + (confidence * 40); // Base más alta para dedos detectados
+    
+    // Bonus por métricas típicas de dedo humano
+    if (metrics.redIntensity >= 80 && metrics.redIntensity <= 200) {
+      quality += 25; // Gran bonus para rango humano típico
+    }
+    
+    if (metrics.rgRatio >= 1.2 && metrics.rgRatio <= 2.5) {
+      quality += 20; // Bonus para ratio típico de piel
+    }
+    
+    // Bonus moderado por textura y estabilidad
+    quality += metrics.textureScore * 10;
+    quality += this.calculateStability() * 8;
+    
+    // Penalización reducida para valores extremos
+    if (metrics.redIntensity > 240 || metrics.redIntensity < 50) {
+      quality -= 10; // Penalización menor
+    }
+    
+    return Math.min(95, Math.max(20, Math.round(quality)));
+  }
+  
+  private updateHistory(redIntensity: number, detected: boolean): void {
+    this.redHistory.push(redIntensity);
+    if (this.redHistory.length > 6) {
+      this.redHistory.shift();
+    }
+  }
+  
+  private calculateStability(): number {
+    if (this.redHistory.length < 2) return 0.5; // Valor neutral inicial
+    
+    const recent = this.redHistory.slice(-4);
+    const mean = recent.reduce((a, b) => a + b, 0) / recent.length;
+    
+    if (mean === 0) return 0.0;
+    
+    const variance = recent.reduce((acc, val) => acc + Math.pow(val - mean, 2), 0) / recent.length;
     const cv = Math.sqrt(variance) / mean;
     
-    // Micro-variaciones cardíacas deben estar en rango fisiológico
-    return cv >= this.CARDIAC_VARIATION.min && cv <= this.CARDIAC_VARIATION.max;
-  }
-  
-  private antiSpoofingCheck(red: number, green: number, blue: number, textureVariance: number): boolean {
-    // Rechazar pantallas (demasiado uniformes)
-    if (textureVariance < 0.01) return false;
-    
-    // Rechazar objetos muy brillantes o muy oscuros
-    const totalIntensity = red + green + blue;
-    if (totalIntensity < 150 || totalIntensity > 600) return false;
-    
-    // Rechazar colores no naturales (demasiado saturados)
-    const maxChannel = Math.max(red, green, blue);
-    const minChannel = Math.min(red, green, blue);
-    const saturation = maxChannel > 0 ? (maxChannel - minChannel) / maxChannel : 0;
-    if (saturation > 0.6) return false;
-    
-    // Verificar que no sea demasiado uniforme temporalmente
-    return this.consecutiveValidFrames < 100; // Evitar detección estática perpetua
-  }
-  
-  private calculateConfidence(metrics: Omit<FingerDetectionMetrics, 'confidence'>): number {
-    let confidence = 0;
-    
-    // Pesos basados en importancia científica
-    if (metrics.skinToneValid) confidence += 0.25;
-    if (metrics.perfusionDetected) confidence += 0.30;
-    if (metrics.pulsationDetected) confidence += 0.25;
-    if (metrics.textureValid) confidence += 0.10;
-    if (metrics.antiSpoofingPassed) confidence += 0.10;
-    
-    // Bonus por frames consecutivos válidos (estabilidad)
-    const stabilityBonus = Math.min(0.15, this.consecutiveValidFrames / 100);
-    confidence += stabilityBonus;
-    
-    return Math.min(1.0, confidence);
+    return Math.max(0.0, Math.min(1.0, 1 - (cv * 1.5))); // Menos sensible a variaciones
   }
   
   reset(): void {
-    this.pulseHistory = [];
-    this.skinTextureBuffer = [];
-    this.lastPerfusionTime = 0;
-    this.consecutiveValidFrames = 0;
+    this.detectionHistory = [];
+    this.redHistory = [];
+    this.calibrationSamples = [];
+    this.isCalibrated = false;
+    this.baselineRed = 0;
+  }
+  
+  getCalibrationStatus(): {
+    isCalibrated: boolean;
+    progress: number;
+    baseline: number;
+  } {
+    return {
+      isCalibrated: this.isCalibrated,
+      progress: Math.min(100, (this.calibrationSamples.length / this.REAL_THRESHOLDS.CALIBRATION_SAMPLES) * 100),
+      baseline: this.baselineRed
+    };
   }
 }

@@ -1,108 +1,92 @@
+
 import { ProcessedSignal, ProcessingError, SignalProcessor as SignalProcessorInterface } from '../../types/signal';
-import { FingerDetectionCore, FingerDetectionResult } from './FingerDetectionCore';
-import { SignalProcessingCore, ProcessedSignalData } from './SignalProcessingCore';
-import { RealSignalQualityAnalyzer } from './RealSignalQualityAnalyzer';
+import { RealFingerDetector, FingerDetectionResult } from './RealFingerDetector';
+import { QualityCalculator } from './QualityCalculator';
 
 /**
- * PROCESADOR PPG 100% REAL SIN SIMULACIÓN
- * Sistema basado únicamente en métricas físicas reales medidas
+ * PROCESADOR PPG SIMPLE - SIN SIMULACIONES
  */
 export class PPGSignalProcessor implements SignalProcessorInterface {
   public isProcessing: boolean = false;
   
-  // Componentes principales
-  private fingerDetector: FingerDetectionCore;
-  private signalProcessor: SignalProcessingCore;
-  private qualityAnalyzer: RealSignalQualityAnalyzer;
+  // Componentes simplificados
+  private fingerDetector: RealFingerDetector;
+  private qualityCalculator: QualityCalculator;
   
-  // Estado del procesador
+  // Estado simple
   private frameCount = 0;
-  private isCalibrating = false;
   private detectionHistory: boolean[] = [];
   private signalBuffer: number[] = [];
-  private noiseBuffer: number[] = [];
-  private qualityHistory: number[] = [];
   
   constructor(
     public onSignalReady?: (signal: ProcessedSignal) => void,
     public onError?: (error: ProcessingError) => void
   ) {
-    console.log("PPGSignalProcessor REAL: Inicializando componentes (SIN SIMULACIÓN)");
+    console.log("PPGSignalProcessor: Inicializando procesador real");
     
-    this.fingerDetector = new FingerDetectionCore();
-    this.signalProcessor = new SignalProcessingCore();
-    this.qualityAnalyzer = new RealSignalQualityAnalyzer();
+    this.fingerDetector = new RealFingerDetector();
+    this.qualityCalculator = new QualityCalculator();
     
-    console.log("PPGSignalProcessor REAL: Componentes inicializados");
+    console.log("PPGSignalProcessor: Componentes reales inicializados");
   }
 
   async initialize(): Promise<void> {
-    console.log("PPGSignalProcessor REAL: initialize()");
+    console.log("PPGSignalProcessor: Inicializando sistema real");
     try {
       this.frameCount = 0;
       this.detectionHistory = [];
       this.signalBuffer = [];
-      this.noiseBuffer = [];
-      this.qualityHistory = [];
       
-      // Reset de componentes
+      // Reset componentes
       this.fingerDetector.reset();
-      this.signalProcessor.reset();
-      this.qualityAnalyzer.reset();
+      this.qualityCalculator.reset();
       
-      console.log("PPGSignalProcessor REAL: Inicialización completada");
+      console.log("PPGSignalProcessor: Sistema real inicializado");
     } catch (error) {
-      console.error("PPGSignalProcessor REAL: Error en inicialización", error);
-      this.handleError("INIT_ERROR", "Error inicializando procesador real");
+      console.error("PPGSignalProcessor: Error en inicialización", error);
+      this.handleError("INIT_ERROR", "Error inicializando procesador");
     }
   }
 
   start(): void {
-    console.log("PPGSignalProcessor REAL: start()");
+    console.log("PPGSignalProcessor: Iniciando medición real");
     if (this.isProcessing) return;
     
     this.isProcessing = true;
     this.initialize();
     
-    console.log("PPGSignalProcessor REAL: Sistema iniciado correctamente");
+    console.log("PPGSignalProcessor: Sistema real activo");
   }
 
   stop(): void {
-    console.log("PPGSignalProcessor REAL: stop()");
+    console.log("PPGSignalProcessor: Deteniendo medición real");
     this.isProcessing = false;
     
     // Reset completo
     this.fingerDetector.reset();
-    this.signalProcessor.reset();
-    this.qualityAnalyzer.reset();
+    this.qualityCalculator.reset();
     
     this.frameCount = 0;
     this.detectionHistory = [];
     this.signalBuffer = [];
-    this.noiseBuffer = [];
-    this.qualityHistory = [];
     
-    console.log("PPGSignalProcessor REAL: Sistema detenido");
+    console.log("PPGSignalProcessor: Sistema real detenido");
   }
 
   async calibrate(): Promise<boolean> {
     try {
-      console.log("PPGSignalProcessor REAL: Iniciando calibración");
+      console.log("PPGSignalProcessor: Iniciando calibración real");
       await this.initialize();
       
-      this.isCalibrating = true;
-      
-      // Calibración real - no automática
+      // La calibración es automática en los primeros frames
       setTimeout(() => {
-        this.isCalibrating = false;
-        console.log("PPGSignalProcessor REAL: Calibración completada");
+        console.log("PPGSignalProcessor: Calibración real completada");
       }, 2000);
       
       return true;
     } catch (error) {
-      console.error("PPGSignalProcessor REAL: Error en calibración", error);
+      console.error("PPGSignalProcessor: Error en calibración", error);
       this.handleError("CALIBRATION_ERROR", "Error en calibración");
-      this.isCalibrating = false;
       return false;
     }
   }
@@ -112,111 +96,95 @@ export class PPGSignalProcessor implements SignalProcessorInterface {
 
     try {
       this.frameCount++;
-      const shouldLog = this.frameCount % 30 === 0;
+      const shouldLog = this.frameCount % 60 === 0;
 
-      // 1. DETECCIÓN DE DEDO REAL
+      // 1. DETECCIÓN REAL DE DEDO
       const detectionResult: FingerDetectionResult = this.fingerDetector.detectFinger(imageData);
       
-      // 2. EXTRACCIÓN DE SEÑAL REAL
-      const rawSignalValue = this.extractRealSignal(imageData);
-      const realNoiseLevel = this.calculateRealNoise(imageData);
+      // 2. EXTRACCIÓN SIMPLE DE SEÑAL PPG
+      const rawSignalValue = this.extractSimplePPGSignal(imageData);
       
-      // Almacenar para análisis temporal real
+      // Almacenar señal
       this.signalBuffer.push(rawSignalValue);
-      this.noiseBuffer.push(realNoiseLevel);
-      if (this.signalBuffer.length > 150) {
+      if (this.signalBuffer.length > 50) {
         this.signalBuffer.shift();
-        this.noiseBuffer.shift();
       }
       
-      // 3. PROCESAMIENTO DE SEÑAL REAL
-      let signalData: ProcessedSignalData;
-      if (detectionResult.detected) {
-        signalData = this.signalProcessor.processSignal(
-          rawSignalValue, 
-          detectionResult.quality / 100
-        );
-      } else {
-        signalData = {
-          rawValue: rawSignalValue,
-          filteredValue: rawSignalValue,
-          amplifiedValue: 0,
-          timestamp: Date.now()
-        };
-      }
+      // 3. FILTRADO SIMPLE
+      const filteredValue = this.applySimpleFilter(rawSignalValue);
 
-      // 4. CÁLCULO DE CALIDAD REAL (SIN SIMULACIÓN)
-      const realQuality = this.qualityAnalyzer.calculateQuality(
-        signalData.rawValue,
-        realNoiseLevel,
-        detectionResult.metrics.hemoglobinScore,
-        detectionResult.metrics.pulsationStrength,
-        detectionResult.detected
+      // 4. CÁLCULO DE CALIDAD REAL
+      const pulsationStrength = this.calculateSimplePulsation();
+      const realQuality = this.qualityCalculator.calculateQuality(
+        rawSignalValue,
+        pulsationStrength,
+        detectionResult.isFingerDetected
       );
 
-      // Almacenar calidad real medida
-      this.qualityHistory.push(realQuality);
-      if (this.qualityHistory.length > 100) {
-        this.qualityHistory.shift();
+      // 5. FILTRO TEMPORAL SIMPLE
+      this.detectionHistory.push(detectionResult.isFingerDetected);
+      if (this.detectionHistory.length > 3) {
+        this.detectionHistory.shift();
       }
+      
+      const finalDetected = this.detectionHistory.length >= 2 ? 
+        this.detectionHistory.slice(-2).filter(d => d).length >= 1 : 
+        detectionResult.isFingerDetected;
 
-      // 5. APLICAR HISTÉRESIS REAL PARA ESTABILIDAD
-      const finalDetected = this.applyRealHysteresis(detectionResult.detected);
-
-      // 6. CREAR SEÑAL PROCESADA FINAL
+      // 6. CREAR SEÑAL PROCESADA
       const processedSignal: ProcessedSignal = {
-        timestamp: signalData.timestamp,
-        rawValue: signalData.rawValue,
-        filteredValue: signalData.filteredValue,
+        timestamp: Date.now(),
+        rawValue: rawSignalValue,
+        filteredValue: filteredValue,
         quality: realQuality,
         fingerDetected: finalDetected,
-        roi: detectionResult.roi,
-        perfusionIndex: this.calculateRealPerfusionIndex(detectionResult.metrics)
+        roi: { x: 0, y: 0, width: imageData.width, height: imageData.height },
+        perfusionIndex: this.calculateSimplePerfusion()
       };
 
-      // 7. LOGGING
+      // 7. LOGGING REAL
       if (shouldLog || finalDetected) {
-        console.log("PPGSignalProcessor REAL: Resultado", {
+        console.log("PPGSignalProcessor REAL: Estado", {
           frameCount: this.frameCount,
           fingerDetected: finalDetected,
-          realQuality: realQuality,
+          quality: realQuality,
           rawSignal: rawSignalValue.toFixed(1),
-          realNoise: realNoiseLevel.toFixed(1),
           confidence: detectionResult.confidence.toFixed(2),
-          reasons: detectionResult.reasons
+          calibrationProgress: this.fingerDetector.getCalibrationStatus().progress
         });
       }
 
-      // 8. ENVIAR SEÑAL PROCESADA
+      // 8. ENVIAR SEÑAL
       this.onSignalReady(processedSignal);
       
     } catch (error) {
-      console.error("PPGSignalProcessor REAL: Error procesando frame", error);
-      this.handleError("PROCESSING_ERROR", "Error en procesamiento de frame");
+      console.error("PPGSignalProcessor: Error procesando frame real", error);
+      this.handleError("PROCESSING_ERROR", "Error en procesamiento real");
     }
   }
 
   /**
-   * Extrae señal PPG real de los datos de imagen
+   * Extrae señal PPG simple del canal rojo
    */
-  private extractRealSignal(imageData: ImageData): number {
+  private extractSimplePPGSignal(imageData: ImageData): number {
     const { data, width, height } = imageData;
     
-    // Área central para extracción de señal real
+    // Área central simple
     const centerX = width / 2;
     const centerY = height / 2;
-    const radius = Math.min(width, height) * 0.25;
+    const radius = Math.min(width, height) * 0.3;
     
     let redSum = 0;
     let pixelCount = 0;
     
-    for (let y = centerY - radius; y < centerY + radius; y += 2) {
-      for (let x = centerX - radius; x < centerX + radius; x += 2) {
+    // Muestreo simple
+    for (let y = centerY - radius; y < centerY + radius; y += 4) {
+      for (let x = centerX - radius; x < centerX + radius; x += 4) {
         if (x >= 0 && x < width && y >= 0 && y < height) {
           const distance = Math.sqrt((x - centerX) ** 2 + (y - centerY) ** 2);
           if (distance <= radius) {
             const index = (Math.floor(y) * width + Math.floor(x)) * 4;
-            redSum += data[index]; // Canal rojo para PPG
+            redSum += data[index]; // Solo canal rojo
             pixelCount++;
           }
         }
@@ -227,125 +195,47 @@ export class PPGSignalProcessor implements SignalProcessorInterface {
   }
 
   /**
-   * Calcula nivel de ruido real de la imagen
+   * Filtro simple de señal
    */
-  private calculateRealNoise(imageData: ImageData): number {
-    const { data, width, height } = imageData;
+  private applySimpleFilter(currentValue: number): number {
+    if (this.signalBuffer.length < 3) return currentValue;
     
-    // Muestrear área periférica para estimar ruido de fondo real
-    const samples: number[] = [];
-    const sampleSize = Math.min(100, width * height / 100);
-    
-    for (let i = 0; i < sampleSize; i++) {
-      const randomIndex = Math.floor(Math.random() * (width * height)) * 4;
-      if (randomIndex < data.length - 3) {
-        const grayValue = (data[randomIndex] + data[randomIndex + 1] + data[randomIndex + 2]) / 3;
-        samples.push(grayValue);
-      }
-    }
-    
-    if (samples.length === 0) return 0;
-    
-    // Calcular desviación estándar real como medida de ruido
-    const mean = samples.reduce((a, b) => a + b, 0) / samples.length;
-    const variance = samples.reduce((acc, val) => acc + (val - mean) ** 2, 0) / samples.length;
-    
-    return Math.sqrt(variance);
+    // Filtro promedio móvil simple
+    const recent = this.signalBuffer.slice(-3);
+    return recent.reduce((a, b) => a + b, 0) / recent.length;
   }
 
   /**
-   * Calcula calidad real basada en métricas físicas medidas
+   * Calcula pulsación simple
    */
-  private calculateRealQuality(
-    signalValue: number,
-    noiseLevel: number,
-    detectionResult: FingerDetectionResult
-  ): number {
-    // Calcular estabilidad temporal real
-    const realStability = this.calculateRealSignalStability();
+  private calculateSimplePulsation(): number {
+    if (this.signalBuffer.length < 5) return 0;
     
-    // Calcular consistencia temporal real
-    const realConsistency = this.calculateRealTemporalConsistency();
+    const recent = this.signalBuffer.slice(-5);
+    const max = Math.max(...recent);
+    const min = Math.min(...recent);
+    const mean = recent.reduce((a, b) => a + b, 0) / recent.length;
     
-    return this.qualityAnalyzer.calculateQuality(
-      signalValue,
-      noiseLevel,
-      detectionResult.metrics.hemoglobinScore,
-      detectionResult.metrics.pulsationStrength,
-      detectionResult.detected
-    );
+    return mean > 0 ? (max - min) / mean : 0;
   }
 
   /**
-   * Calcula estabilidad real de la señal basada en mediciones
+   * Calcula perfusión simple
    */
-  private calculateRealSignalStability(): number {
-    if (this.signalBuffer.length < 10) return 0.5;
+  private calculateSimplePerfusion(): number {
+    if (this.signalBuffer.length < 10) return 1.0;
     
     const recent = this.signalBuffer.slice(-10);
-    const mean = recent.reduce((a, b) => a + b, 0) / recent.length;
-    const variance = recent.reduce((acc, val) => acc + (val - mean) ** 2, 0) / recent.length;
-    const cv = mean > 0 ? Math.sqrt(variance) / mean : 1;
-    
-    // Mapear coeficiente de variación a estabilidad
-    return Math.max(0, Math.min(1, 1 - cv));
-  }
-
-  /**
-   * Calcula consistencia temporal real
-   */
-  private calculateRealTemporalConsistency(): number {
-    if (this.signalBuffer.length < 15) return 0.5;
-    
-    const recent = this.signalBuffer.slice(-15);
-    let consistency = 0;
-    
-    // Analizar tendencia y suavidad de la señal real
-    for (let i = 2; i < recent.length; i++) {
-      const diff1 = Math.abs(recent[i] - recent[i-1]);
-      const diff2 = Math.abs(recent[i-1] - recent[i-2]);
-      const smoothness = 1 - Math.abs(diff1 - diff2) / (Math.max(diff1, diff2) + 1);
-      consistency += smoothness;
-    }
-    
-    return consistency / (recent.length - 2);
-  }
-
-  /**
-   * Aplicar histéresis real para estabilizar detección
-   */
-  private applyRealHysteresis(currentDetection: boolean): boolean {
-    this.detectionHistory.push(currentDetection);
-    if (this.detectionHistory.length > 8) {
-      this.detectionHistory.shift();
-    }
-    
-    if (this.detectionHistory.length < 4) return currentDetection;
-    
-    // Requiere mayoría de detecciones positivas en ventana temporal
-    const recentDetections = this.detectionHistory.filter(d => d).length;
-    return recentDetections >= Math.ceil(this.detectionHistory.length / 2);
-  }
-
-  /**
-   * Calcular índice de perfusión real
-   */
-  private calculateRealPerfusionIndex(metrics: any): number {
-    if (!metrics || this.signalBuffer.length < 20) return 0;
-    
-    // Basado en amplitud real de pulsación PPG
-    const recent = this.signalBuffer.slice(-20);
     const max = Math.max(...recent);
     const min = Math.min(...recent);
     const dc = recent.reduce((a, b) => a + b, 0) / recent.length;
     
-    if (dc === 0) return 0;
+    if (dc === 0) return 1.0;
     
-    // Índice de perfusión real: (AC / DC) * 100
     const ac = (max - min) / 2;
-    const perfusionIndex = (ac / dc) * 100;
+    const perfusion = (ac / dc) * 100;
     
-    return Math.max(0.1, Math.min(12.0, perfusionIndex));
+    return Math.max(0.5, Math.min(10.0, perfusion));
   }
 
   private handleError(code: string, message: string): void {
@@ -362,14 +252,13 @@ export class PPGSignalProcessor implements SignalProcessorInterface {
   public getPerformanceStats() {
     return {
       frameCount: this.frameCount,
-      isCalibrating: this.isCalibrating,
       detectionRate: this.detectionHistory.filter(d => d).length / Math.max(1, this.detectionHistory.length),
-      avgQuality: this.qualityHistory.length > 0 ? 
-        this.qualityHistory.reduce((a, b) => a + b, 0) / this.qualityHistory.length : 0
+      avgSignal: this.signalBuffer.length > 0 ? 
+        this.signalBuffer.reduce((a, b) => a + b, 0) / this.signalBuffer.length : 0
     };
   }
   
   public getLastValidBPM(): number | null {
-    return null; // Simplificado por ahora
+    return null;
   }
 }
