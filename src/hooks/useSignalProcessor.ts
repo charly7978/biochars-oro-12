@@ -1,7 +1,5 @@
-import { useState, useCallback, useRef } from 'react';
-import { PPGSignalProcessor } from '../modules/SignalProcessor';
-import { ProcessedSignal, ProcessingError } from '../types/signal';
-import { analyzeFrame } from '@/modules/signal-processing/SignalProcessingCore';
+import { useState, useCallback } from "react";
+import { analyzeFrame } from "@/modules/signal-processing/SignalProcessingCore";
 
 /**
  * Custom hook for managing PPG signal processing

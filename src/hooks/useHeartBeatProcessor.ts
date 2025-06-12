@@ -14,7 +14,7 @@ interface HeartBeatResult {
   };
 }
 
-export const useHeartBeatProcessor = () => {
+export function useHeartBeatProcessor() {
   const processorRef = useRef<HeartBeatProcessor | null>(null);
   const [currentBPM, setCurrentBPM] = useState<number>(0);
   const [confidence, setConfidence] = useState<number>(0);
