@@ -125,12 +125,12 @@ export class SignalAnalyzer {
 
 /**
  * Detección robusta de picos: prominencia y distancia mínima (para evitar falsos positivos).
- * minProminence: 0.15 (más sensible), minDistance: 10 (frames, ~333ms a 30fps)
+ * minProminence: 0.2 (normalizado), minDistance: 12 (frames, ~400ms a 30fps)
  */
 export function detectPeaks(
   signal: number[],
-  minProminence = 0.15,
-  minDistance = 10
+  minProminence = 0.2,
+  minDistance = 12
 ): number[] {
   const peaks: number[] = [];
   let lastPeak = -minDistance;
@@ -144,10 +144,6 @@ export function detectPeaks(
         lastPeak = i;
       }
     }
-  }
-  // Logging para depuración
-  if (process.env.NODE_ENV === "development") {
-    console.log("detectPeaks", { peaks, minProminence, minDistance });
   }
   return peaks;
 }
