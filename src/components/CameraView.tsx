@@ -1,6 +1,7 @@
-
-import React, { useRef, useEffect, useState } from 'react';
+import React, { useRef, useEffect, useState } from "react";
 import { toast } from "@/components/ui/use-toast";
+import { useSignalProcessor } from "@/hooks/useSignalProcessor";
+import { useHeartBeatProcessor } from "@/hooks/useHeartBeatProcessor";
 
 interface CameraViewProps {
   onStreamReady?: (stream: MediaStream) => void;
@@ -16,6 +17,10 @@ const CameraView = ({
   signalQuality = 0,
 }: CameraViewProps) => {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const bufferRef = useRef<number[]>([]);
+  const signalProc = useSignalProcessor();
+  const heartProc = useHeartBeatProcessor();
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [torchEnabled, setTorchEnabled] = useState(false);
   const frameIntervalRef = useRef<number>(1000 / 30); // 30 FPS
@@ -27,6 +32,8 @@ const CameraView = ({
   const requestedTorch = useRef<boolean>(false);
   const attemptCount = useRef<number>(0);
   const streamRef = useRef<MediaStream | null>(null);
+  const [streaming, setStreaming] = useState(false);
+  const [rawSignal, setRawSignal] = useState<number[]>([]);
 
   const stopCamera = () => {
     if (stream) {
@@ -407,19 +414,78 @@ const CameraView = ({
     };
   }, [stream, isMonitoring, isFingerDetected, deviceSupportsAutoFocus]);
 
+  // Captura frames y procesa señal
+  useEffect(() => {
+    let animationId: number;
+    function processFrame() {
+      if (!videoRef.current || !canvasRef.current) return;
+      const video = videoRef.current;
+      const canvas = canvasRef.current;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const frame = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+      // Extrae el canal rojo promedio
+      let sumRed = 0;
+      let n = 0;
+      for (let i = 0; i < frame.length; i += 4) {
+        sumRed += frame[i];
+        n++;
+      }
+      const avgRed = sumRed / n;
+      // Actualiza buffer de señal cruda
+      setRawSignal((prev) => {
+        const next = [...prev, avgRed];
+        if (next.length > 300) next.shift();
+        return next;
+      });
+      // Procesa señal si hay suficiente buffer
+      if (rawSignal.length > 60) {
+        signalProc.process(frame, canvas.width, canvas.height, rawSignal);
+        if (signalProc.peaks && signalProc.peaks.length > 1) {
+          heartProc.processPeaks(signalProc.peaks);
+        }
+      }
+      animationId = requestAnimationFrame(processFrame);
+    }
+    if (streaming) {
+      animationId = requestAnimationFrame(processFrame);
+    }
+    return () => {
+      cancelAnimationFrame(animationId);
+    };
+    // eslint-disable-next-line
+  }, [streaming, rawSignal, signalProc, heartProc]);
+
   return (
-    <video
-      ref={videoRef}
-      autoPlay
-      playsInline
-      muted
-      className="absolute top-0 left-0 min-w-full min-h-full w-auto h-auto z-0 object-cover"
-      style={{
-        willChange: 'transform',
-        transform: 'translateZ(0)',
-        backfaceVisibility: 'hidden'
-      }}
-    />
+    <div>
+      <video
+        ref={videoRef}
+        autoPlay
+        playsInline
+        muted
+        className="absolute top-0 left-0 min-w-full min-h-full w-auto h-auto z-0 object-cover"
+        style={{
+          willChange: 'transform',
+          transform: 'translateZ(0)',
+          backfaceVisibility: 'hidden'
+        }}
+      />
+      <canvas ref={canvasRef} style={{ display: "none" }} />
+      {/* Puedes mostrar aquí la calidad de señal, advertencias, BPM, etc */}
+      <div>
+        {signalProc.warning && (
+          <div style={{ color: "red" }}>{signalProc.warning}</div>
+        )}
+        {heartProc.bpm && (
+          <div>
+            <strong>BPM:</strong> {heartProc.bpm}
+          </div>
+        )}
+      </div>
+    </div>
   );
 };
 

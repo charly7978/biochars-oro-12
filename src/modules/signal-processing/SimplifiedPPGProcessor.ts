@@ -1,4 +1,3 @@
-
 /**
  * PROCESADOR PPG SIMPLIFICADO - VERSIÓN DEFINITIVA
  * Pipeline optimizado sin redundancias
@@ -95,3 +94,6 @@ export class SimplifiedPPGProcessor {
     this.frameCount = 0;
   }
 }
+
+// Eliminar este archivo si no hay lógica única.
+// Si hay funciones útiles, muévelas a SignalProcessingCore.ts antes de borrar.
