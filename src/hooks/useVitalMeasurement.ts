@@ -1,5 +1,6 @@
-
 import { useState, useEffect } from 'react';
+import { useSignalProcessor } from "./useSignalProcessor";
+import { useHeartBeatProcessor } from "./useHeartBeatProcessor";
 
 interface VitalMeasurements {
   heartRate: number;
@@ -9,6 +10,9 @@ interface VitalMeasurements {
 }
 
 export const useVitalMeasurement = (isMeasuring: boolean) => {
+  const signalProc = useSignalProcessor();
+  const heartProc = useHeartBeatProcessor();
+  
   const [measurements, setMeasurements] = useState<VitalMeasurements>({
     heartRate: 0,
     spo2: 0,
@@ -16,6 +20,13 @@ export const useVitalMeasurement = (isMeasuring: boolean) => {
     arrhythmiaCount: 0
   });
   const [elapsedTime, setElapsedTime] = useState(0);
+
+  // Cuando cambian los picos, recalcula BPM y RR
+  useEffect(() => {
+    if (signalProc.peaks && signalProc.peaks.length > 1) {
+      heartProc.processPeaks(signalProc.peaks);
+    }
+  }, [signalProc.peaks]);
 
   useEffect(() => {
     console.log('useVitalMeasurement - Estado detallado:', {
@@ -143,6 +154,8 @@ export const useVitalMeasurement = (isMeasuring: boolean) => {
   return {
     ...measurements,
     elapsedTime: Math.min(elapsedTime, 30),
-    isComplete: elapsedTime >= 30
+    isComplete: elapsedTime >= 30,
+    // warning prioritaria
+    warning: signalProc.warning || heartProc.warning,
   };
 };

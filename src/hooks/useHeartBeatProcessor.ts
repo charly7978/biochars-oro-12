@@ -1,4 +1,3 @@
-
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { HeartBeatProcessor } from '../modules/HeartBeatProcessor';
 
@@ -263,12 +262,43 @@ export const useHeartBeatProcessor = () => {
     }
   }, []);
 
+  const [bpm, setBpm] = useState<number | null>(null);
+  const [rrIntervals, setRRIntervals] = useState<number[]>([]);
+  const [warning, setWarning] = useState<string | null>(null);
+
+  // peaks: number[], fps: number
+  const processPeaks = useCallback((peaks: number[], fps = 30) => {
+    if (peaks.length < 2) {
+      setBpm(null);
+      setRRIntervals([]);
+      setWarning("No se detectan latidos válidos.");
+      return;
+    }
+    // RR intervals en ms
+    const intervals = [];
+    for (let i = 1; i < peaks.length; i++) {
+      intervals.push((peaks[i] - peaks[i - 1]) * (1000 / fps));
+    }
+    setRRIntervals(intervals);
+
+    // BPM promedio
+    const avgRR = intervals.reduce((a, b) => a + b, 0) / intervals.length;
+    const bpmValue = avgRR > 0 ? Math.round(60000 / avgRR) : null;
+    setBpm(bpmValue);
+
+    setWarning(null);
+  }, []);
+
   return {
     currentBPM,
     confidence,
     signalQuality, // Exponiendo la calidad de señal
     processSignal,
     reset,
-    setArrhythmiaState
+    setArrhythmiaState,
+    bpm,
+    rrIntervals,
+    warning,
+    processPeaks,
   };
 };

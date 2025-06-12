@@ -124,21 +124,24 @@ export class SignalAnalyzer {
 }
 
 /**
- * Detección de picos en señales
- * @param signal Señal de entrada
- * @param minProminence Prominencia mínima para considerar un pico
- * @returns Índices de los picos detectados
+ * Detección robusta de picos: prominencia y distancia mínima (para evitar falsos positivos).
+ * minProminence: 0.2 (normalizado), minDistance: 12 (frames, ~400ms a 30fps)
  */
-export function detectPeaks(signal: number[], minProminence = 0.05): number[] {
+export function detectPeaks(
+  signal: number[],
+  minProminence = 0.2,
+  minDistance = 12
+): number[] {
   const peaks: number[] = [];
+  let lastPeak = -minDistance;
   for (let i = 1; i < signal.length - 1; i++) {
     if (signal[i] > signal[i-1] && signal[i] > signal[i+1]) {
-      // Prominencia: diferencia con el mínimo local anterior y posterior
       const leftMin = Math.min(...signal.slice(Math.max(0, i-10), i));
       const rightMin = Math.min(...signal.slice(i+1, Math.min(signal.length, i+11)));
       const prominence = signal[i] - Math.max(leftMin, rightMin);
-      if (prominence > minProminence) {
+      if (prominence > minProminence && (i - lastPeak) >= minDistance) {
         peaks.push(i);
+        lastPeak = i;
       }
     }
   }
