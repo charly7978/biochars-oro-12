@@ -122,3 +122,25 @@ export class SignalAnalyzer {
     console.log("SignalAnalyzer: Reset simplificado completo");
   }
 }
+
+/**
+ * Detección de picos en señales
+ * @param signal Señal de entrada
+ * @param minProminence Prominencia mínima para considerar un pico
+ * @returns Índices de los picos detectados
+ */
+export function detectPeaks(signal: number[], minProminence = 0.05): number[] {
+  const peaks: number[] = [];
+  for (let i = 1; i < signal.length - 1; i++) {
+    if (signal[i] > signal[i-1] && signal[i] > signal[i+1]) {
+      // Prominencia: diferencia con el mínimo local anterior y posterior
+      const leftMin = Math.min(...signal.slice(Math.max(0, i-10), i));
+      const rightMin = Math.min(...signal.slice(i+1, Math.min(signal.length, i+11)));
+      const prominence = signal[i] - Math.max(leftMin, rightMin);
+      if (prominence > minProminence) {
+        peaks.push(i);
+      }
+    }
+  }
+  return peaks;
+}
