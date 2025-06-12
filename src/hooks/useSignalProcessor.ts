@@ -1,5 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from "react";
+import { PPGSignalProcessor } from "@/modules/SignalProcessor";
 import { analyzeFrame } from "@/modules/signal-processing/SignalProcessingCore";
+import type { ProcessedSignal, ProcessingError } from "@/types/signal";
 
 /**
  * Custom hook for managing PPG signal processing
@@ -260,7 +262,7 @@ export const useSignalProcessor = () => {
     setFiltered(result.filtered);
     setPeaks(result.peaks);
     setValid(result.valid);
-    setSignal(rawSignal);
+    setLastSignal(rawSignal as any); // Ajuste temporal, idealmente debe ser ProcessedSignal
 
     if (!result.valid) {
       setWarning("Señal insuficiente o dedo no detectado. Ajuste el dedo y asegúrese de cubrir la cámara y linterna.");
