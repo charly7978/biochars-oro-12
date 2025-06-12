@@ -6,7 +6,7 @@ export class ArrhythmiaProcessor {
   // Configuración ultra-conservadora
   private readonly RR_WINDOW_SIZE = 20; // Ventana más grande para análisis robusto
   private readonly RMSSD_THRESHOLD = 80; // Umbral muy alto y conservador
-  private readonly ARRHYTHMIA_LEARNING_PERIOD = 12000; // Período de aprendizaje muy extendido
+  private readonly ARRHYTHMIA_LEARNING_PERIOD = 6000; // Período de aprendizaje muy extendido
   private readonly SD1_THRESHOLD = 60; // Umbral Poincaré muy conservador
   private readonly PERFUSION_INDEX_MIN = 0.6; // PI mínimo muy alto
   
@@ -17,7 +17,7 @@ export class ArrhythmiaProcessor {
   
   // Control agresivo de falsos positivos
   private readonly MIN_ARRHYTHMIA_INTERVAL = 8000; // 8 segundos mínimo entre arritmias
-  private readonly MAX_ARRHYTHMIAS_PER_MINUTE = 1; // Máximo 1 arritmia por minuto
+  private readonly MAX_ARRHYTHMIAS_PER_MINUTE = 2; // Máximo 1 arritmia por minuto
   private readonly MIN_SIGNAL_QUALITY = 0.8; // Calidad mínima muy alta
   
   // Validación ultra-estricta
