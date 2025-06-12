@@ -30,10 +30,10 @@ export class RealFingerDetector {
     MAX_RED: 250,         // Más alto para permitir variación natural
     MIN_RG_RATIO: 1.05,   // Más permisivo para dedos reales
     MAX_RG_RATIO: 3.5,    // Mayor rango para condiciones variables
-    MIN_TEXTURE: 0.025,    // Ligeramente más alto para reducir falsos positivos en textura
+    MIN_TEXTURE: 0.085,    // Ligeramente más alto para reducir falsos positivos en textura
     MIN_STABILITY: 0.08,  // Más permisivo para movimiento natural
     CALIBRATION_SAMPLES: 10,
-    MIN_CONFIDENCE: 0.42   // Ligeramente más alto para reducir falsos positivos
+    MIN_CONFIDENCE: 0.62   // Ligeramente más alto para reducir falsos positivos
   };
   
   detectFinger(imageData: ImageData): FingerDetectionResult {
