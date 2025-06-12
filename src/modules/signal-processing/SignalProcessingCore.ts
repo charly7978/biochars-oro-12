@@ -146,14 +146,21 @@ export function analyzeFrame(
 ): { valid: boolean, peaks: number[], filtered: number[] } {
   const finger = isFingerPresent(frame, width, height);
   if (!finger) {
+    if (process.env.NODE_ENV === "development") {
+      console.log("analyzeFrame: dedo no detectado");
+    }
     return { valid: false, peaks: [], filtered: [] };
   }
   // Filtrado y normalización
   const filtered = bandpassFilter(rawSignal, 30, 0.5, 4);
   const norm = normalizeSignal(filtered);
-  const peaks = detectPeaks(norm, 0.2, 12);
+  const peaks = detectPeaks(norm, 0.15, 10);
 
   // Validación: al menos 2 picos en 8 segundos (~240 frames a 30fps)
-  if (peaks.length < 2) return { valid: false, peaks: [], filtered: norm };
+  const valid = peaks.length >= 2;
+  if (process.env.NODE_ENV === "development") {
+    console.log("analyzeFrame", { finger, peaks, normSample: norm.slice(-10), valid });
+  }
+  if (!valid) return { valid: false, peaks: [], filtered: norm };
   return { valid: true, peaks, filtered: norm };
 }

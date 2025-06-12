@@ -258,6 +258,13 @@ export const useSignalProcessor = () => {
 
   // frame: Uint8ClampedArray, width: number, height: number, rawSignal: number[]
   const process = useCallback((frame, width, height, rawSignal) => {
+    if (!frame || !rawSignal || rawSignal.length < 30) {
+      setWarning("Esperando señal suficiente...");
+      setValid(false);
+      setFiltered([]);
+      setPeaks([]);
+      return;
+    }
     const result = analyzeFrame(frame, width, height, rawSignal);
     setFiltered(result.filtered);
     setPeaks(result.peaks);
@@ -268,6 +275,19 @@ export const useSignalProcessor = () => {
       setWarning("Señal insuficiente o dedo no detectado. Ajuste el dedo y asegúrese de cubrir la cámara y linterna.");
     } else {
       setWarning(null);
+    }
+
+    // Logging para depuración
+    if (process.env.NODE_ENV === "development") {
+      console.log("useSignalProcessor: process", {
+        frameSample: frame.slice(0, 12),
+        width,
+        height,
+        rawSignalSample: rawSignal.slice(-10),
+        filteredSample: result.filtered?.slice(-10),
+        peaks: result.peaks,
+        valid: result.valid,
+      });
     }
   }, []);
 
