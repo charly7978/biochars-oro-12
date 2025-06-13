@@ -328,17 +328,17 @@ export class RealFingerDetector {
   }
 }
 
-export function detectFinger(sensorData: {
-  pressure: number;
-  fingerprintPattern: boolean;
-  brightness: number; // valor de 0 (oscuro) a 1 (muy brillante)
+export function detectFinger(sensorData: { 
+  pressure: number; 
+  fingerprintPattern: boolean; 
+  // Removed brightness parameter for a more unique finger check
 }): "FINGER_ON" | "FINGER_OFF" {
-  const PRESSURE_THRESHOLD = 0.8;
-  const HIGH_BRIGHTNESS_THRESHOLD = 0.5; // Si el brillo supera este valor, se considera dedo fuera
-
-  // Regla inapelable: si hay brillo alto, el dedo no está presente.
-  if (sensorData.brightness > HIGH_BRIGHTNESS_THRESHOLD) {
-    return "FINGER_OFF";
+  const PRESSURE_THRESHOLD = 0.5; // Reverted to a moderate pressure requirement
+  if (sensorData.fingerprintPattern && sensorData.pressure >= PRESSURE_THRESHOLD) {
+    return "FINGER_ON";
+  }
+  return "FINGER_OFF";
+}
   }
 
   // De lo contrario, si se cumplen las condiciones del dedo, se retorna FINGER_ON
