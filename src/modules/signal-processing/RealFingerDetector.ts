@@ -1,4 +1,3 @@
-
 /**
  * DETECTOR DE DEDOS REAL - SIN SIMULACIONES
  * Optimizado para detección real con cámara
@@ -211,6 +210,13 @@ export class RealFingerDetector {
   }
   
   private makeHumanFingerDecision(validation: any, metrics: any): boolean {
+    // Nueva lógica: si la intensidad roja es extremadamente baja, el dedo no está presente.
+    // Esto actúa como una anulación clara cuando se retira el dedo de la cámara.
+    if (metrics.redIntensity < 20) { // Umbral muy bajo, indicativo de ausencia de dedo
+        console.log("RealFingerDetector: Dedo no detectado (intensidad roja muy baja)", { redIntensity: metrics.redIntensity.toFixed(1) });
+        return false;
+    }
+
     // Umbral más bajo para dedos humanos
     if (validation.confidence < this.REAL_THRESHOLDS.MIN_CONFIDENCE) {
       return false;
