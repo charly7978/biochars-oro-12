@@ -16,64 +16,78 @@ export interface ProcessedSignalData {
   timestamp: number;
 }
 
+// Sustituye el array por un buffer circular simple
+class CircularBuffer {
+  private buffer: number[];
+  private maxSize: number;
+  private pointer: number = 0;
+  private filled: boolean = false;
+
+  constructor(size: number) {
+    this.maxSize = size;
+    this.buffer = new Array(size).fill(0);
+  }
+
+  push(value: number) {
+    this.buffer[this.pointer] = value;
+    this.pointer = (this.pointer + 1) % this.maxSize;
+    if (this.pointer === 0) this.filled = true;
+  }
+
+  getValues(): number[] {
+    if (!this.filled) return this.buffer.slice(0, this.pointer);
+    return [...this.buffer.slice(this.pointer), ...this.buffer.slice(0, this.pointer)];
+  }
+
+  length(): number {
+    return this.filled ? this.maxSize : this.pointer;
+  }
+
+  clear() {
+    this.pointer = 0;
+    this.filled = false;
+    this.buffer.fill(0);
+  }
+}
+
 export class SignalProcessingCore {
   private kalmanFilter: OptimizedKalmanFilter;
   private sgFilter: SavitzkyGolayFilter;
   private baseline: number = 0;
-  private signalHistory: number[] = [];
-  
+  private signalHistory: CircularBuffer;
+
   constructor() {
     this.kalmanFilter = new OptimizedKalmanFilter();
     this.sgFilter = new SavitzkyGolayFilter();
+    this.signalHistory = new CircularBuffer(100);
   }
   
   /**
    * Procesar señal PPG simple y efectivo
    */
   processSignal(redValue: number, quality: number): ProcessedSignalData {
-    // Establecer baseline inicial
+    // Baseline adaptativo rápido pero estable
     if (this.baseline === 0) {
       this.baseline = redValue;
     } else {
-      // Baseline adaptativo más rápido para señales débiles
-      this.baseline = this.baseline * 0.97 + redValue * 0.03;
+      this.baseline = this.baseline * 0.98 + redValue * 0.02;
     }
 
     // Filtrado Kalman
     const kalmanFiltered = this.kalmanFilter.filter(redValue);
 
-    // Filtrado Savitzky-Golay menos agresivo (ventana más pequeña si es configurable)
+    // Filtrado Savitzky-Golay
     const sgFiltered = this.sgFilter.filter(kalmanFiltered);
 
     // Normalización respecto al baseline
     const normalized = sgFiltered - this.baseline;
 
-    // Amplificación dinámica: aumentar mínimo y máximo para señales débiles
+    // Amplificación dinámica
     const amplificationFactor = this.calculateDynamicAmplification();
     const amplified = normalized * amplificationFactor;
 
     // Actualizar historial de señal *amplificada*
     this.signalHistory.push(amplified);
-    if (this.signalHistory.length > 100) {
-      this.signalHistory.shift();
-    }
-
-    // Diagnóstico: log de rango de señal y amplificación
-    if (process.env.NODE_ENV === "development" && Math.random() < 0.01) {
-      const min = Math.min(...this.signalHistory);
-      const max = Math.max(...this.signalHistory);
-      console.log("[SignalProcessingCore] Diagnóstico señal:", {
-        raw: redValue,
-        kalmanFiltered,
-        sgFiltered,
-        baseline: this.baseline,
-        normalized,
-        amplified,
-        min,
-        max,
-        amplificationFactor
-      });
-    }
 
     return {
       rawValue: redValue,
@@ -87,24 +101,20 @@ export class SignalProcessingCore {
    * Calcular factor de amplificación dinámico
    */
   private calculateDynamicAmplification(): number {
-    if (this.signalHistory.length < 20) return 10; // Aumentar mínimo
-    // Usar el historial de la señal *ya procesada y amplificada* para estimar su rango dinámico
-    const recentProcessedSignal = this.signalHistory.slice(-20);
-    const minVal = Math.min(...recentProcessedSignal);
-    const maxVal = Math.max(...recentProcessedSignal);
+    const history = this.signalHistory.getValues();
+    if (history.length < 20) return 10;
+    const minVal = Math.min(...history);
+    const maxVal = Math.max(...history);
     const currentAmplitude = maxVal - minVal;
 
-    const TARGET_AMPLITUDE = 80; // Aumentar amplitud deseada
-    const MIN_AMP_FACTOR = 10;   // Aumentar mínimo
-    const MAX_AMP_FACTOR = 60;   // Aumentar máximo
+    const TARGET_AMPLITUDE = 60;
+    const MIN_AMP_FACTOR = 8;
+    const MAX_AMP_FACTOR = 40;
 
-    if (currentAmplitude < 1e-6) return MAX_AMP_FACTOR; // Evitar división por cero
+    if (currentAmplitude < 1e-6) return MAX_AMP_FACTOR;
 
     let factor = TARGET_AMPLITUDE / currentAmplitude;
-
-    // Limitar el factor para evitar amplificación excesiva o insuficiente
     factor = Math.max(MIN_AMP_FACTOR, Math.min(MAX_AMP_FACTOR, factor));
-
     return factor;
   }
 
@@ -130,23 +140,23 @@ export class SignalProcessingCore {
    * Obtener estadísticas de la señal
    */
   getSignalStats() {
-    if (this.signalHistory.length < 10) return { mean: 0, variance: 0, snr: 0 };
-    
-    const mean = this.signalHistory.reduce((a, b) => a + b, 0) / this.signalHistory.length;
-    const variance = this.signalHistory.reduce((acc, val) => acc + Math.pow(val - mean, 2), 0) / this.signalHistory.length;
+    const history = this.signalHistory.getValues();
+    if (history.length < 10) return { mean: 0, variance: 0, snr: 0 };
+    const mean = history.reduce((a, b) => a + b, 0) / history.length;
+    const variance = history.reduce((acc, val) => acc + Math.pow(val - mean, 2), 0) / history.length;
     const snr = variance > 0 ? Math.abs(mean) / Math.sqrt(variance) : 0;
-    
     return { mean, variance, snr };
   }
   
   reset(): void {
     this.baseline = 0;
-    this.signalHistory = [];
+    this.signalHistory.clear();
     this.kalmanFilter.reset();
     this.sgFilter.reset();
   }
 }
 
+// Ajusta la detección de picos para mayor sensibilidad
 export function analyzeFrame(
   frame: Uint8ClampedArray,
   width: number,
@@ -163,7 +173,8 @@ export function analyzeFrame(
   // Filtrado y normalización
   const filtered = bandpassFilter(rawSignal, 30, 0.5, 4);
   const norm = normalizeSignal(filtered);
-  const peaks = detectPeaks(norm, 0.12, 8); // Umbral y distancia más permisivos
+  // Umbral más bajo y menor distancia para captar latidos débiles
+  const peaks = detectPeaks(norm, 0.08, 6);
 
   // Validación: al menos 2 picos en 8 segundos (~240 frames a 30fps)
   const valid = peaks.length >= 2;
