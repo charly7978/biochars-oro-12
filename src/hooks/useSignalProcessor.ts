@@ -129,6 +129,11 @@ export const useSignalProcessor = () => {
       hasOnErrorCallback: !!processorRef.current.onError
     });
     
+    // Activar procesamiento automáticamente al montar el hook
+    if (processorRef.current) {
+      processorRef.current.isProcessing = true;
+    }
+    
     return () => {
       if (processorRef.current) {
         console.log("useSignalProcessor: Cleaning up processor");
