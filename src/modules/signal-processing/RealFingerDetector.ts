@@ -25,7 +25,7 @@ export class RealFingerDetector {
   
   // UMBRALES AJUSTADOS PARA DEDOS HUMANOS REALES
   private readonly REAL_THRESHOLDS = {
-    MIN_RED: 90,          // Más bajo para dedos reales
+    MIN_RED: 10,          // Más bajo para dedos reales
     MAX_RED: 290,         // Más alto para permitir variación natural
     MIN_RG_RATIO: 1.05,   // Más permisivo para dedos reales
     MAX_RG_RATIO: 4.0,    // Mayor rango para condiciones variables
@@ -145,12 +145,12 @@ export class RealFingerDetector {
     // 1. Validación de intensidad roja más permisiva (30%)
     if (metrics.redIntensity >= this.REAL_THRESHOLDS.MIN_RED && 
         metrics.redIntensity <= this.REAL_THRESHOLDS.MAX_RED) {
-      score += 0.40;
+      score += 0.20;
       reasons.push(`✓ Rojo válido: ${metrics.redIntensity.toFixed(1)}`);
       
       // Bonus para rangos típicos de dedo humano
       if (metrics.redIntensity >= 80 && metrics.redIntensity <= 200) {
-        score += 0.60;
+        score += 0.50;
         reasons.push(`✓ Rango óptimo para dedo humano`);
       }
     } else {
@@ -197,7 +197,7 @@ export class RealFingerDetector {
     if (this.isCalibrated && this.baselineRed > 0) {
       const deviation = Math.abs(metrics.redIntensity - this.baselineRed) / this.baselineRed;
       if (deviation < 0.5) { // Más permisivo
-        score += 0.50;
+        score += 0.10;
         reasons.push(`✓ Consistente con calibración`);
       }
     }
