@@ -25,7 +25,7 @@ export class RealFingerDetector {
   
   // UMBRALES AJUSTADOS PARA DEDOS HUMANOS REALES
   private readonly REAL_THRESHOLDS = {
-    MIN_RED: 90,          // Más bajo para dedos reales
+    MIN_RED: 10,          // Más bajo para dedos reales
     MAX_RED: 290,         // Más alto para permitir variación natural
     MIN_RG_RATIO: 1.05,   // Más permisivo para dedos reales
     MAX_RG_RATIO: 4.0,    // Mayor rango para condiciones variables
@@ -189,7 +189,7 @@ export class RealFingerDetector {
       reasons.push(`✓ Estabilidad: ${(stability * 100).toFixed(1)}%`);
     } else {
       // Algo de puntaje incluso con baja estabilidad
-      score += 0.05;
+      score += 0.01;
       reasons.push(`~ Estabilidad baja: ${(stability * 100).toFixed(1)}%`);
     }
     
@@ -251,11 +251,11 @@ export class RealFingerDetector {
       const positiveCount = recentDetections.filter(d => d).length;
       
       // Solo necesita 1 de 2 detecciones positivas
-      return positiveCount >= 1;
+      return positiveCount >= 3;
     }
     
     // Para las primeras muestras, ser menos estricto
-    return validation.confidence >= 0.4;
+    return validation.confidence >= 0.8;
   }
   
   private calculateHumanFingerQuality(metrics: any, isDetected: boolean, confidence: number): number {
@@ -263,7 +263,7 @@ export class RealFingerDetector {
       return Math.max(8, Math.min(25, confidence * 25));
     }
     
-    let quality = 30 + (confidence * 40); // Base más alta para dedos detectados
+    let quality = 30 + (confidence * 50); // Base más alta para dedos detectados
     
     // Bonus por métricas típicas de dedo humano
     if (metrics.redIntensity >= 80 && metrics.redIntensity <= 200) {
@@ -279,7 +279,7 @@ export class RealFingerDetector {
     quality += this.calculateStability() * 8;
     
     // Penalización reducida para valores extremos
-    if (metrics.redIntensity > 240 || metrics.redIntensity < 50) {
+    if (metrics.redIntensity > 200 || metrics.redIntensity < 70) {
       quality -= 10; // Penalización menor
     }
     
@@ -333,8 +333,8 @@ export function detectFinger(sensorData: {
   fingerprintPattern: boolean;
   brightness: number; // valor de 0 (oscuro) a 1 (muy brillante)
 }): "FINGER_ON" | "FINGER_OFF" {
-  const PRESSURE_THRESHOLD = 0.8;
-  const HIGH_BRIGHTNESS_THRESHOLD = 0.4; // Si el brillo supera este valor, se considera dedo fuera
+  const PRESSURE_THRESHOLD = 0.9;
+  const HIGH_BRIGHTNESS_THRESHOLD = 0.2; // Si el brillo supera este valor, se considera dedo fuera
 
   // Regla inapelable: si hay brillo alto, el dedo no está presente.
   if (sensorData.brightness > HIGH_BRIGHTNESS_THRESHOLD) {
