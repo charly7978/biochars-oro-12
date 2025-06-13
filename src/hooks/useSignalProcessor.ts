@@ -49,7 +49,11 @@ export const useSignalProcessor = () => {
       });
       
       // Use signal with medical validation - no forcing detection
-      setLastSignal(signal);
+      setLastSignal({
+        ...signal,
+        rawHistory: signalHistoryRef.current.map(s => s.rawValue).slice(-100),
+        filteredHistory: signalHistoryRef.current.map(s => s.filteredValue).slice(-100)
+      });
       setError(null);
       setFramesProcessed(prev => prev + 1);
       
@@ -269,7 +273,6 @@ export const useSignalProcessor = () => {
     setFiltered(result.filtered);
     setPeaks(result.peaks);
     setValid(result.valid);
-    setSignal(rawSignal);
 
     if (!result.valid) {
       setWarning("Señal insuficiente o dedo no detectado. Ajuste el dedo y asegúrese de cubrir la cámara y linterna.");
@@ -278,17 +281,17 @@ export const useSignalProcessor = () => {
     }
 
     // Logging para depuración
-    if (process.env.NODE_ENV === "development") {
-      console.log("useSignalProcessor: process", {
-        frameSample: frame.slice(0, 12),
-        width,
-        height,
-        rawSignalSample: rawSignal.slice(-10),
-        filteredSample: result.filtered?.slice(-10),
-        peaks: result.peaks,
-        valid: result.valid,
-      });
-    }
+    // if (process.env.NODE_ENV === "development") {
+    //   console.log("useSignalProcessor: process", {
+    //     frameSample: frame.slice(0, 12),
+    //     width,
+    //     height,
+    //     rawSignalSample: rawSignal.slice(-10),
+    //     filteredSample: result.filtered?.slice(-10),
+    //     peaks: result.peaks,
+    //     valid: result.valid,
+    //   });
+    // }
   }, []);
 
   return {

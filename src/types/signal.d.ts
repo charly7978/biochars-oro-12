@@ -13,6 +13,9 @@ export interface ProcessedSignal {
     height: number;
   };
   perfusionIndex?: number;
+  // DEBUG: Historial de señal cruda y filtrada para visualización temporal
+  rawHistory?: number[];
+  filteredHistory?: number[];
 }
 
 export interface ProcessingError {
