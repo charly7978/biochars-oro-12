@@ -36,7 +36,7 @@ const CardTitle = React.forwardRef<
   <h3
     ref={ref}
     className={cn(
-      "text-center text-base font-bold leading-tight tracking-normal text-gray-800", // Tamaño reducido y color ajustado
+      "text-center text-sm font-bold leading-tight tracking-normal text-black", // Tamaño reducido y color ajustado
       className
     )}
     {...props}
@@ -50,7 +50,7 @@ const CardDescription = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <p
     ref={ref}
-    className={cn("text-xs text-gray-600", className)} // Tamaño reducido y color ajustado
+    className={cn("text-xs text-gray-700", className)} // Tamaño reducido y color ajustado
     {...props}
   />
 ))
@@ -60,7 +60,7 @@ const CardContent = React.forwardRef<
   HTMLDivElement,
   React.HTMLAttributes<HTMLDivElement>
 >(({ className, ...props }, ref) => (
-  <div ref={ref} className={cn("p-2 pt-0", className)} {...props} />
+  <div ref={ref} className={cn("p-2 pt-0 text-center", className)} {...props} /> // Centralización asegurada
 ))
 CardContent.displayName = "CardContent"
 

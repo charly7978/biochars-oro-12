@@ -320,11 +320,11 @@ const VitalSign = ({
       )}
       onClick={handleClick}
     >
-      <div className="text-sm font-semibold uppercase tracking-wider text-gray-300 mb-1 text-center">
+      <div className="text-sm font-semibold text-gray-700 text-center">
         {label}
       </div>
       
-      <div className="flex-1 flex flex-col items-center justify-center font-bold text-xl sm:text-2xl transition-all duration-300">
+      <div className="flex-1 flex flex-col items-center justify-center font-bold text-lg sm:text-2xl transition-all duration-300">
         <span className="text-gradient-soft animate-value-glow">
           {isArrhytmia && typeof value === 'string' ? value.split('|')[0] : displayValue()}
         </span>

@@ -435,6 +435,10 @@ const PPGSignalMeter = ({
           RESET
         </button>
       </div>
+
+      <div className="text-lg font-bold text-gray-800 text-center">
+        {value}
+      </div>
     </div>
   );
 };
