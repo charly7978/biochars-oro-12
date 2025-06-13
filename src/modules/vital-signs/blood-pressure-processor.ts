@@ -1,51 +1,51 @@
+
 export interface BloodPressureResult {
   systolic: number;
   diastolic: number;
-  timestamp: number;
+  confidence: number;
 }
 
-// Parámetros avanzados para calibración y suavizado, actualizables vía feedback.
-let calibrationFactor = 1.0;
-let smoothingWindow = 5; // Número de muestras para el promedio móvil
-
-// Función auxiliar que calcula el promedio móvil de un arreglo de números.
-const calculateMovingAverage = (data: number[]): number => {
-  return data.reduce((acc, val) => acc + val, 0) / data.length;
-};
-
-// Algoritmo avanzado para el procesamiento de la señal de presión arterial.
-// Se toma la última porción de la señal, se suaviza y se aplica un factor de calibración.
-// La salida generada es referencial y de uso como primera medida diaria.
-export function processBloodPressureSignal(rawSignal: number[]): BloodPressureResult {
-  // Utiliza las últimas 'smoothingWindow' muestras para suavizar la señal.
-  const recentData = rawSignal.slice(-smoothingWindow);
-  const smoothedValue = calculateMovingAverage(recentData);
+export class BloodPressureProcessor {
+  private ptValues: number[] = [];
+  private calibrationSystolic: number = 120;
+  private calibrationDiastolic: number = 80;
+  private isCalibrated: boolean = false;
+  private ageAdjustment: number = 0;
+  private lastValidBP: BloodPressureResult | null = null;
   
-  // Se aplica el factor de calibración para ajustar la escala a mmHg.
-  const estimatedValue = smoothedValue * calibrationFactor;
-  
-  // Se estiman valores sistólicos y diastólicos aplicando un offset referencial.
-  const systolic = estimatedValue + 10;  // Ejemplo: suma de 10 mmHg para sistólica.
-  const diastolic = estimatedValue - 10; // Ejemplo: resta de 10 mmHg para diastólica.
-  
-  return {
-    systolic,
-    diastolic,
-    timestamp: Date.now(),
-  };
-}
-
-// Método para recibir feedback y ajustar los parámetros de forma dinámica.
-export function updateBloodPressureFeedback(newParams: { calibrationFactor?: number; smoothingWindow?: number }): void {
-  if (newParams.calibrationFactor !== undefined) {
-    calibrationFactor = newParams.calibrationFactor;
-    console.log("Actualizado calibrationFactor:", calibrationFactor);
-  }
-  if (newParams.smoothingWindow !== undefined) {
-    smoothingWindow = newParams.smoothingWindow;
-    console.log("Actualizado smoothingWindow:", smoothingWindow);
-  }
-}
+  /**
+   * Calcula presión arterial usando tiempo de tránsito de pulso (PTT) mejorado
+   */
+  public calculateBloodPressure(ppgValues: number[]): BloodPressureResult {
+    if (ppgValues.length < 60) {
+      return this.lastValidBP || { systolic: 0, diastolic: 0, confidence: 0 };
+    }
+    
+    // Detectar picos y calcular intervalos de tiempo
+    const peaks = this.detectPeaks(ppgValues);
+    if (peaks.length < 3) {
+      return this.lastValidBP || { systolic: 0, diastolic: 0, confidence: 0 };
+    }
+    
+    // Calcular tiempo de tránsito de pulso (PTT)
+    const ptt = this.calculatePTT(peaks, ppgValues);
+    this.ptValues.push(ptt);
+    
+    // Mantener buffer de valores PTT
+    if (this.ptValues.length > 20) {
+      this.ptValues.shift();
+    }
+    
+    if (this.ptValues.length < 5) {
+      return this.lastValidBP || { systolic: 0, diastolic: 0, confidence: 0 };
+    }
+    
+    // Calcular presión usando relación PTT inversa
+    const avgPTT = this.ptValues.reduce((a, b) => a + b, 0) / this.ptValues.length;
+    const pttStability = this.calculatePTTStability();
+    
+    // Algoritmo mejorado basado en investigación médica
+    const baselinePTT = 200; // ms típico
     const pttRatio = baselinePTT / Math.max(avgPTT, 50);
     
     // Calcular presión sistólica
