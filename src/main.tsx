@@ -12,7 +12,7 @@ async function getRealSensorData(): Promise<number[]> {
 
 function Main() {
   const [rawSignal, setRawSignal] = useState<number[]>([]);
-  const [bloodPressure, setBloodPressure] = useState<any>(null);
+  const [bloodPressure, setBloodPressure] = useState<{ systolic: number; diastolic: number } | null>(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -37,19 +37,23 @@ function Main() {
     if (rawSignal.length > 0) {
       const { bloodPressure } = processVitalSigns(rawSignal);
       setBloodPressure(bloodPressure);
-      // Aquí puedes actualizar la UI o el estado global con bloodPressure
-      // Ejemplo: mostrar en consola
-      console.log("Presión arterial estimada:", bloodPressure);
     }
   }, [rawSignal]);
 
   return (
     <div>
       <App />
-      {/* Puedes mostrar bloodPressure en la UI aquí si lo deseas */}
+      {/* Ejemplo de display directo, reemplaza por tu integración real */}
+      {bloodPressure && (
+        <div className="fixed bottom-4 right-4 bg-white/80 rounded-lg shadow-lg p-4 text-black text-center z-50">
+          <div className="font-bold text-lg">Presión Arterial</div>
+          <div className="text-2xl font-mono">
+            {bloodPressure.systolic}/{bloodPressure.diastolic} mmHg
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-ReactDOM.render(<Main />, document.getElementById("root"));
 ReactDOM.render(<Main />, document.getElementById("root"));
