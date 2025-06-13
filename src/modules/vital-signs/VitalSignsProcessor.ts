@@ -3,7 +3,7 @@
  * Cálculos basados únicamente en mediciones físicas reales del PPG
  */
 
-import { GlucoseProcessor } from "./glucose-processor";
+import { GlucoseProcessor, GlucoseFeatures } from "./glucose-processor";
 
 export interface VitalSignsResult {
   heartRate: number;
@@ -14,11 +14,7 @@ export interface VitalSignsResult {
     glucoseRange: [number, number];
     confidence: number;
     variability: number;
-    features: {
-      spectralGlucoseIndicator: number;
-      vascularResistanceIndex: number;
-      pulseMorphologyScore: number;
-    };
+    features: GlucoseFeatures;
   };
   lipids: {
     totalCholesterol: number;
@@ -74,7 +70,7 @@ export class VitalSignsProcessor {
   forceCalibrationCompletion(): void {
     console.log("VitalSignsProcessor: Forzando completion de calibración");
     this.isCalibrated = true;
-    this.glucoseProcessor.calibrate(95); // Forzar una calibración con un valor base
+    this.glucoseProcessor.calibrate(this.glucoseProcessor.calculateGlucose(this.signalBuffer, this.rrIntervals).estimatedGlucose); // Calibrar glucosa con el primer valor estimado, pasando rrIntervals
   }
 
   isCurrentlyCalibrating(): boolean {
@@ -100,7 +96,7 @@ export class VitalSignsProcessor {
       if (this.frameCount >= 60) {
         this.calibrationBaseline = this.signalBuffer.reduce((a, b) => a + b, 0) / this.signalBuffer.length;
         this.isCalibrated = true;
-        this.glucoseProcessor.calibrate(this.glucoseProcessor.calculateGlucose(this.signalBuffer).estimatedGlucose); // Calibrar glucosa con el primer valor estimado
+        this.glucoseProcessor.calibrate(this.glucoseProcessor.calculateGlucose(this.signalBuffer, this.rrIntervals).estimatedGlucose); // Calibrar glucosa con el primer valor estimado, pasando rrIntervals
         console.log("VitalSignsProcessor: Calibración completada, baseline:", this.calibrationBaseline);
       }
     }
@@ -259,12 +255,16 @@ export class VitalSignsProcessor {
           spectralGlucoseIndicator: 0,
           vascularResistanceIndex: 0,
           pulseMorphologyScore: 0,
+          upstrokeTime: 0,
+          dicroticNotchPresence: 0,
+          augmentationIndex: 0,
+          areaUnderCurve: 0,
         },
       };
     }
     
     // Utilizar el procesador de glucosa para obtener resultados detallados
-    return this.glucoseProcessor.calculateGlucose(this.signalBuffer);
+    return this.glucoseProcessor.calculateGlucose(this.signalBuffer, this.rrIntervals);
   }
 
   private calculateRealLipids(): { totalCholesterol: number; triglycerides: number } {
