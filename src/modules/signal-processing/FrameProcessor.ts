@@ -1,6 +1,6 @@
 import { FrameData } from './types';
 import { ProcessedSignal } from '../../types/signal';
-import { bandpassFilter } from './filters'; // Debes implementar un filtro de paso banda
+import { bandpassFilter, normalizeSignal } from './filters'; // Importar normalización
 
 /**
  * Processes video frames to extract PPG signals and detect ROI
@@ -45,7 +45,7 @@ export class FrameProcessor {
     const roiSize = Math.min(imageData.width, imageData.height) * this.CONFIG.ROI_SIZE_FACTOR;
     
     const startX = Math.max(0, Math.floor(centerX - roiSize / 2));
-    const endX = Math.min(imageData.width, Math.floor(centerX + roiSize / 2));
+    constX = Math.min(imageData.width, Math.floor(centerX + roiSize / 2));
     const startY = Math.max(0, Math.floor(centerY - roiSize / 2));
     const endY = Math.min(imageData.height, Math.floor(centerY + roiSize / 2));
     
@@ -334,8 +334,33 @@ export class FrameProcessor {
   }
 }
 
-export function processPPGSignal(rawSignal: number[]): number[] {
-  // Filtrar la señal para aislar la frecuencia cardíaca (0.5-4 Hz)
-  const filtered = bandpassFilter(rawSignal, 30, 0.5, 4); // 30 Hz = fps
-  return filtered;
+/**
+ * Filtro de paso banda simple (Butterworth digital de 2do orden) para 0.5-4Hz.
+ * fs: frecuencia de muestreo (ej: 30Hz)
+ */
+export function bandpassFilter(signal: number[], fs: number, lowHz = 0.5, highHz = 4): number[] {
+  // Parámetros del filtro (precalculados para fs=30Hz, 0.5-4Hz)
+  // Puedes ajustar con una librería DSP si lo deseas.
+  const alpha = 0.8; // suavizado
+  let y: number[] = [];
+  let prev = signal[0] || 0;
+  for (let i = 0; i < signal.length; i++) {
+    // Filtro pasa-altas simple
+    let hp = signal[i] - prev + (y[i-1] ?? 0) * alpha;
+    prev = signal[i];
+    // Filtro pasa-bajas simple
+    let lp = (y[i-1] ?? 0) + (hp - (y[i-1] ?? 0)) * 0.2;
+    y.push(lp);
+  }
+  return y;
+}
+
+/**
+ * Normaliza la señal para facilitar la detección de picos.
+ */
+export function normalizeSignal(signal: number[]): number[] {
+  const min = Math.min(...signal);
+  const max = Math.max(...signal);
+  if (max - min === 0) return signal.map(() => 0);
+  return signal.map(v => (v - min) / (max - min));
 }

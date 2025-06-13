@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { cn } from "@/lib/utils";
+import CameraView from "./CameraView";
 
 interface HeartRateMonitorProps {
   value: number;
@@ -177,12 +178,16 @@ const HeartRateMonitor = ({
   };
 
   return (
-    <canvas
-      ref={canvasRef}
-      width={400}
-      height={120}
-      className={cn("w-full h-full bg-black/30 rounded-md", className)}
-    />
+    <div>
+      <h2>Monitor de Frecuencia Cardíaca</h2>
+      <CameraView />
+      <canvas
+        ref={canvasRef}
+        width={400}
+        height={120}
+        className={cn("w-full h-full bg-black/30 rounded-md", className)}
+      />
+    </div>
   );
 };
 

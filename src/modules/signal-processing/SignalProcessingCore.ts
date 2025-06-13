@@ -6,7 +6,7 @@
 import { OptimizedKalmanFilter } from './OptimizedKalmanFilter';
 import { SavitzkyGolayFilter } from './SavitzkyGolayFilter';
 import { isFingerPresent } from './FingerDetectionCore';
-import { processPPGSignal } from './FrameProcessor';
+import { bandpassFilter, normalizeSignal } from './FrameProcessor';
 import { detectPeaks } from './SignalAnalyzer';
 
 export interface ProcessedSignalData {
@@ -138,14 +138,22 @@ export class SignalProcessingCore {
   }
 }
 
-export function analyzeFrame(frame: Uint8ClampedArray, width: number, height: number, rawSignal: number[]): { valid: boolean, peaks: number[] } {
+export function analyzeFrame(
+  frame: Uint8ClampedArray,
+  width: number,
+  height: number,
+  rawSignal: number[]
+): { valid: boolean, peaks: number[], filtered: number[] } {
   const finger = isFingerPresent(frame, width, height);
   if (!finger) {
-    return { valid: false, peaks: [] };
+    return { valid: false, peaks: [], filtered: [] };
   }
-  const filtered = processPPGSignal(rawSignal);
-  const peaks = detectPeaks(filtered);
-  // Si hay muy pocos picos o la señal es muy ruidosa, marcar como inválida
-  if (peaks.length < 2) return { valid: false, peaks: [] };
-  return { valid: true, peaks };
+  // Filtrado y normalización
+  const filtered = bandpassFilter(rawSignal, 30, 0.5, 4);
+  const norm = normalizeSignal(filtered);
+  const peaks = detectPeaks(norm, 0.2, 12);
+
+  // Validación: al menos 2 picos en 8 segundos (~240 frames a 30fps)
+  if (peaks.length < 2) return { valid: false, peaks: [], filtered: norm };
+  return { valid: true, peaks, filtered: norm };
 }
