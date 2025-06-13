@@ -1,8 +1,19 @@
+import { calculateAC, calculateDC, findPeaksAndValleys, calculateStandardDeviation } from "../vital-signs/utils";
+import { SavitzkyGolayFilter } from "../signal-processing/SavitzkyGolayFilter";
+
 export class GlucoseProcessor {
   private glucoseHistory: number[] = [];
   private baselineGlucose: number = 95; // mg/dL normal fasting
   private isCalibrated: boolean = false;
   
+  // Propiedades para almacenar los resultados del filtro Savitzky-Golay
+  private savitzkyGolayFilter: SavitzkyGolayFilter;
+  private lastFilteredSignal: number[] = [];
+  
+  constructor() {
+    this.savitzkyGolayFilter = new SavitzkyGolayFilter(15); // Tamaño de ventana ajustado para PPG, puede necesitar optimización
+  }
+
   /**
    * Calcula niveles de glucosa usando análisis avanzado de PPG
    */
@@ -12,13 +23,11 @@ export class GlucoseProcessor {
     confidence: number;
     variability: number;
     features: {
-      spectralGlucoseIndicator: number;
-      vascularResistanceIndex: number;
-      pulseMorphologyScore: number;
+      spectralGlucoseIndicator: number; // Reutilizado para un índice combinado
+      vascularResistanceIndex: number; // Reutilizado para el índice de perfusión
+      pulseMorphologyScore: number; // Reutilizado para la variabilidad del pulso
     };
   } {
-    // La implementación se rediseñará aquí.
-    // Se necesita un mínimo de datos para el procesamiento.
     if (ppgValues.length < 60) {
       return {
         estimatedGlucose: 0,
@@ -33,281 +42,169 @@ export class GlucoseProcessor {
       };
     }
 
-    // Aquí se implementará la nueva lógica de extracción de características
-    // y el algoritmo de estimación de glucosa basado en principios fisiológicos
-    // y patrones de señal PPG reales.
+    // 1. Preprocesamiento: Filtrado Savitzky-Golay
+    const filteredPPG: number[] = [];
+    for (const value of ppgValues) {
+      filteredPPG.push(this.savitzkyGolayFilter.filter(value));
+    }
+    this.lastFilteredSignal = filteredPPG; // Almacenar para futuros cálculos si es necesario
 
-    // PLACEHOLDER: Valores de retorno temporales
+    // 2. Extracción de características
+    const ac = calculateAC(filteredPPG);
+    const dc = calculateDC(filteredPPG);
+    const perfusionIndex = dc > 0 ? (ac / dc) * 100 : 0; // Índice de perfusión (AC/DC ratio)
+    
+    const { peakIndices } = findPeaksAndValleys(filteredPPG);
+    const { rrIntervals, rrStdDev } = this.calculateRRIntervalsAndStdDev(peakIndices);
+    const pulseVariability = rrStdDev; // Usar la desviación estándar de los intervalos RR como variabilidad del pulso
+
+    const normalizedAmplitude = this.normalizeSignalAmplitude(filteredPPG);
+    
+    // Coeficientes ilustrativos (necesitarían ser determinados por entrenamiento con datos reales)
+    // Estos valores son PLACEHOLDERS y deben ser calibrados en un entorno real.
+    // La relación es compleja y no lineal en la realidad.
+    const weightPerfusion = -0.5; // Mayor índice de perfusión podría indicar menor glucosa (negativa)
+    const weightPulseVariability = 0.2; // Mayor variabilidad del pulso podría correlacionarse con glucosa (positiva)
+    const weightNormalizedAmplitude = 0.8; // La amplitud puede variar con la glucosa
+
+    // 3. Estimación de glucosa (modelo de regresión lineal simple)
+    let estimatedGlucose = 
+      this.baselineGlucose + 
+      (perfusionIndex * weightPerfusion) + 
+      (pulseVariability * weightPulseVariability) + 
+      (normalizedAmplitude * weightNormalizedAmplitude);
+    
+    // Asegurar que la glucosa esté en un rango fisiológico razonable
+    estimatedGlucose = Math.max(70, Math.min(250, estimatedGlucose)); // Ajustar límites según sea necesario
+    
+    // Aplicar filtro temporal a la estimación (para estabilidad)
+    this.glucoseHistory.push(estimatedGlucose);
+    if (this.glucoseHistory.length > 10) {
+      this.glucoseHistory.shift();
+    }
+    const smoothedGlucose = this.glucoseHistory.reduce((a, b) => a + b, 0) / this.glucoseHistory.length;
+
+    // 4. Cálculo de confianza y variabilidad de la medición
+    // Basado en la calidad de la señal de entrada y la consistencia de las características.
+    const confidence = this.calculateConfidence(filteredPPG, perfusionIndex, pulseVariability, normalizedAmplitude);
+    const variability = this.calculateVariability(this.glucoseHistory);
+
+    // Definir un rango basado en la estimación y la confianza/variabilidad
+    const rangeOffset = (1 - confidence) * 20 + variability * 0.5; // Ajustar factores
+    const glucoseRange: [number, number] = [
+      Math.max(70, smoothedGlucose - rangeOffset),
+      Math.min(250, smoothedGlucose + rangeOffset),
+    ];
+
     return {
-      estimatedGlucose: 0,
-      glucoseRange: [0, 0],
-      confidence: 0,
-      variability: 0,
+      estimatedGlucose: Math.round(smoothedGlucose),
+      glucoseRange,
+      confidence,
+      variability,
       features: {
-        spectralGlucoseIndicator: 0,
-        vascularResistanceIndex: 0,
-        pulseMorphologyScore: 0,
+        spectralGlucoseIndicator: perfusionIndex, // Usado para PI
+        vascularResistanceIndex: normalizedAmplitude, // Usado para amplitud normalizada
+        pulseMorphologyScore: pulseVariability, // Usado para variabilidad del pulso
       },
     };
   }
   
-  private preprocessPPGSignal(values: number[]): number[] {
-    // 1. Eliminación de tendencia DC (baseline wander removal)
-    const mean = values.reduce((a, b) => a + b, 0) / values.length;
-    let detrended = values.map(val => val - mean);
-
-    // La señal ya viene pre-filtrada con Butterworth desde PPGSignalProcessor
-    // Por lo tanto, solo necesitamos normalizarla aquí.
-    const filtered = detrended; // Ya filtrada, solo se renombra para claridad
-
-    // 2. Normalización (0 a 1)
-    const minVal = Math.min(...filtered);
-    const maxVal = Math.max(...filtered);
-    if (maxVal - minVal === 0) return new Array(filtered.length).fill(0); // Evitar división por cero
-
-    const normalized = filtered.map(val => (val - minVal) / (maxVal - minVal));
-
-    return normalized;
-  }
-  
-  private extractGlucoseSpectralFeatures(values: number[]): { glucoseIndicator: number } {
-    const N = values.length;
-    if (N === 0) return { glucoseIndicator: 0 };
-
-    // Aplicar ventana Hanning para reducir el 'spectral leakage'
-    const windowed = values.map((val, i) => 
-      val * (0.5 - 0.5 * Math.cos(2 * Math.PI * i / (N - 1)))
-    );
-
-    // Realizar una Transformada Discreta de Fourier (DFT) simplificada para obtener el espectro.
-    // Para una FFT completa se necesitaría una implementación más robusta o una librería externa.
-    const spectrum: number[] = new Array(Math.floor(N / 2));
-    for (let k = 0; k < Math.floor(N / 2); k++) {
-      let real = 0;
-      let imag = 0;
-      for (let n = 0; n < N; n++) {
-        const angle = -2 * Math.PI * k * n / N;
-        real += windowed[n] * Math.cos(angle);
-        imag += windowed[n] * Math.sin(angle);
-      }
-      spectrum[k] = Math.sqrt(real * real + imag * imag) / N;
+  private calculateRRIntervalsAndStdDev(peakIndices: number[]): { rrIntervals: number[]; rrStdDev: number } {
+    const rrIntervals: number[] = [];
+    if (peakIndices.length < 2) {
+      return { rrIntervals: [], rrStdDev: 0 };
     }
 
-    // Definir bandas de frecuencia de interés para glucosa (ejemplo, basado en investigación genérica de PPG)
-    // Estas bandas pueden necesitar afinación con investigación específica.
-    const SAMPLE_RATE = 30; // Asumiendo 30 FPS
-    const freqResolution = SAMPLE_RATE / N;
-
-    // Frecuencias bajas (0.5-1.5 Hz) - relacionadas con actividad vasomotora
-    const lowFreqMinBin = Math.floor(0.5 / freqResolution);
-    const lowFreqMaxBin = Math.floor(1.5 / freqResolution);
-
-    // Frecuencias medias (1.5-3.0 Hz) - relacionadas con la actividad cardíaca (primer y segundo armónico de HR)
-    const midFreqMinBin = Math.floor(1.5 / freqResolution);
-    const midFreqMaxBin = Math.floor(3.0 / freqResolution);
-
-    // Frecuencias altas (3.0-8.0 Hz) - menos relacionadas directamente con glucosa, más con ruido y artefactos
-    const highFreqMinBin = Math.floor(3.0 / freqResolution);
-    const highFreqMaxBin = Math.floor(8.0 / freqResolution);
-
-    let lowFreqPower = 0;
-    for (let i = lowFreqMinBin; i <= lowFreqMaxBin && i < spectrum.length; i++) {
-      lowFreqPower += spectrum[i] * spectrum[i]; // Potencia = Magnitud^2
-    }
-
-    let midFreqPower = 0;
-    for (let i = midFreqMinBin; i <= midFreqMaxBin && i < spectrum.length; i++) {
-      midFreqPower += spectrum[i] * spectrum[i];
-    }
-
-    let highFreqPower = 0;
-    for (let i = highFreqMinBin; i <= highFreqMaxBin && i < spectrum.length; i++) {
-      highFreqPower += spectrum[i] * spectrum[i];
-    }
-
-    // Usar una relación de potencia como indicador de glucosa. 
-    // Por ejemplo, una relación entre la potencia de baja frecuencia y la potencia total.
-    // La relación exacta debe ser científicamente validada.
-    const totalPower = lowFreqPower + midFreqPower + highFreqPower;
-    const glucoseIndicator = totalPower > 0 ? (lowFreqPower / totalPower) : 0; // Ejemplo: más baja frecuencia puede indicar algo
-
-    return { glucoseIndicator };
-  }
-  
-  private calculateVascularResistance(values: number[]): number {
-    // Detectar picos y sus inicios para calcular la pendiente de ascenso (proxy de rigidez arterial)
-    const peakIndices = this.findPeaks(values);
-    if (peakIndices.length < 2) return 0; // Necesitamos al menos dos picos para calcular intervalos
-
-    let resistanceScore = 0;
-    let validSlopes = 0;
-
-    for (const peakIndex of peakIndices) {
-      const upstrokeStart = this.findUpstrokeStart(values, peakIndex);
-      if (upstrokeStart !== -1 && upstrokeStart < peakIndex) {
-        const slope = (values[peakIndex] - values[upstrokeStart]) / (peakIndex - upstrokeStart); // Amplitud/Tiempo
-        
-        // Una mayor pendiente de ascenso podría correlacionarse con menor resistencia vascular (e.g. en estados de normoglucemia)
-        // La relación exacta debe ser validada científicamente. Esto es un placeholder.
-        resistanceScore += slope; 
-        validSlopes++;
-      }
+    for (let i = 1; i < peakIndices.length; i++) {
+      rrIntervals.push(peakIndices[i] - peakIndices[i - 1]);
     }
     
-    return validSlopes > 0 ? resistanceScore / validSlopes : 0; // Promedio de pendientes
+    const rrStdDev = calculateStandardDeviation(rrIntervals);
+    return { rrIntervals, rrStdDev };
   }
   
-  private analyzePulseMorphologyForGlucose(values: number[]): number {
-    // Calcular Área Bajo la Curva (AUC) de la onda de pulso normalizada
-    // Un AUC mayor o cambios en la forma podrían correlacionarse con niveles de glucosa
-    // Esto es un placeholder y debe basarse en investigación fisiológica.
+  private normalizeSignalAmplitude(values: number[]): number {
     if (values.length === 0) return 0;
-
-    let auc = 0;
-    for (let i = 0; i < values.length - 1; i++) {
-      // Aproximación trapezoidal del área
-      auc += (values[i] + values[i + 1]) / 2;
-    }
-
-    // Normalizar AUC por la longitud de la señal para que sea comparable
-    const normalizedAuc = auc / values.length;
-
-    // La relación exacta y su impacto deben ser científicamente validados.
-    // Esto es un ejemplo de cómo podría influir.
-    return normalizedAuc * 10; // Ajustar factor de escalado
-  }
-  
-  private findUpstrokeStart(values: number[], peakIndex: number): number {
-    // Busca hacia atrás desde el pico para encontrar el inicio del ascenso (valle previo)
-    if (peakIndex === 0) return -1;
-
-    let current = peakIndex;
-    // Buscar el punto donde la derivada cambia de negativa a positiva o llega a un mínimo local
-    while (current > 0 && values[current] >= values[current - 1]) {
-      current--;
-    }
-    // Retroceder un poco más para asegurar el inicio del ascenso
-    return Math.max(0, current - 2); 
-  }
-  
-  // Nuevo método para encontrar picos de forma más robusta (se podría refactorizar con utilities.ts)
-  private findPeaks(values: number[]): number[] {
-      const peakIndices: number[] = [];
-      if (values.length < 5) return peakIndices; // Necesita suficientes puntos para detección
-
-      for (let i = 2; i < values.length - 2; i++) {
-          // Un pico es un punto que es mayor que sus vecinos cercanos
-          if (values[i] > values[i-1] && values[i] > values[i+1] &&
-              values[i] > values[i-2] && values[i] > values[i+2]) {
-              peakIndices.push(i);
-          }
-      }
-      return peakIndices;
-  }
-
-  private calculateDerivatives(values: number[]): number[] {
-    const derivatives: number[] = [];
-    for (let i = 1; i < values.length; i++) {
-      derivatives.push(values[i] - values[i-1]);
-    }
-    return derivatives;
-  }
-  
-  private isPeak(values: number[], index: number): boolean {
-    return index > 0 && index < values.length - 1 && values[index] > values[index - 1] && values[index] > values[index + 1];
-  }
-  
-  private calculateUpstrokeTime(values: number[], peakIndex: number): number {
-    const start = this.findUpstrokeStart(values, peakIndex);
-    if (start === -1) return 0;
-    return peakIndex - start;
-  }
-  
-  private calculateDownstrokeTime(values: number[], peakIndex: number): number {
-    const N = values.length;
-    if (peakIndex >= N - 1) return 0;
-
-    let current = peakIndex;
-    // Buscar el siguiente valle o el punto donde el valor deja de decrecer
-    while (current < N - 1 && values[current] >= values[current + 1]) {
-      current++;
-    }
-    // Retroceder un poco para asegurar el final del descenso
-    return Math.min(N - 1, current + 2) - peakIndex;
-  }
-  
-  private applyTemporalFilter(newValue: number): number {
-    // Asegurar que solo se almacenen valores válidos para el historial
-    if (newValue > 0) {
-      this.glucoseHistory.push(newValue);
-      if (this.glucoseHistory.length > 10) { // Mantener un historial de 10 mediciones
-        this.glucoseHistory.shift();
-      }
-    }
-    
-    // Aplicar una media móvil simple para suavizar el resultado
-    if (this.glucoseHistory.length === 0) return newValue; // Si no hay historial, devolver el valor actual
-
-    const sum = this.glucoseHistory.reduce((a, b) => a + b, 0);
-    return sum / this.glucoseHistory.length;
-  }
-
-  private calculateConfidence(signal: number[]): number {
-    // Evaluar la confianza en la medición de glucosa
-    // Esto debería basarse en la calidad de la señal de entrada, la consistencia de las características
-    // y la estabilidad de las mediciones de glucosa a lo largo del tiempo.
-    
-    if (signal.length === 0) return 0;
-
-    // Ejemplo: Confianza basada en la varianza de la señal (menos ruido = más confianza)
-    const mean = signal.reduce((a, b) => a + b, 0) / signal.length;
-    const variance = signal.reduce((a, b) => a + (b - mean) ** 2, 0) / signal.length;
-    const stdDev = Math.sqrt(variance);
-
-    // Escalar la desviación estándar a una confianza (ej: inversa, saturando en 0-1)
-    // Ajustar los parámetros para que reflejen la calidad real de la señal.
-    const signalQualityConfidence = Math.max(0, 1 - (stdDev / 50)); // Si stdDev es 50, confianza 0; si es 0, confianza 1
-
-    // También se puede incorporar la consistencia de las mediciones históricas de glucosa
-    let historicalConsistencyConfidence = 1.0;
-    if (this.glucoseHistory.length > 2) {
-        const histStdDev = this.calculateStandardDeviation(this.glucoseHistory);
-        // Si las mediciones históricas son muy variables, la confianza disminuye
-        historicalConsistencyConfidence = Math.max(0, 1 - (histStdDev / 10)); // Ajustar factor
-    }
-
-    // Combinar confianzas (ej: promedio o producto)
-    return (signalQualityConfidence + historicalConsistencyConfidence) / 2;
-  }
-
-  private calculateVariability(): number {
-    // Medir la variabilidad de las estimaciones recientes de glucosa
-    if (this.glucoseHistory.length < 2) return 0; // Se necesitan al menos 2 puntos para calcular variabilidad
-
-    const stdDev = this.calculateStandardDeviation(this.glucoseHistory);
-    // Normalizar la desviación estándar a un rango de variabilidad (ej: 0-1)
-    // Un valor más alto indica mayor variabilidad.
-    return Math.min(1, stdDev / 20); // Ajustar el divisor para escalar la variabilidad
-  }
-  
-  private calculateStandardDeviation(values: number[]): number {
-    if (values.length === 0) return 0;
+    const max = Math.max(...values);
+    const min = Math.min(...values);
+    const range = max - min;
     const mean = values.reduce((a, b) => a + b, 0) / values.length;
-    const variance = values.reduce((a, b) => a + (b - mean) ** 2, 0) / values.length;
-    return Math.sqrt(variance);
+    
+    return mean > 0 ? range / mean : 0; // Amplitud relativa al nivel base
   }
   
+  private calculateConfidence(filteredSignal: number[], perfusionIndex: number, pulseVariability: number, normalizedAmplitude: number): number {
+    // Una confianza más alta se da con señales estables, un índice de perfusión razonable
+    // y una variabilidad de pulso dentro de rangos normales.
+    // Esto es un placeholder para una lógica de calidad de señal más avanzada.
+    const signalStdDev = calculateStandardDeviation(filteredSignal); 
+    
+    let confidence = 1.0;
+    
+    // Reducir confianza si la desviación estándar de la señal es muy alta (ruido)
+    if (signalStdDev > 0.05) { // Umbral arbitrario, necesita ajuste
+      confidence -= Math.min(0.5, (signalStdDev - 0.05) * 5); 
+    }
+    
+    // Reducir confianza si el índice de perfusión está fuera de un rango razonable
+    if (perfusionIndex < 0.5 || perfusionIndex > 5.0) { // Rango arbitrario, necesita ajuste
+      confidence -= 0.2;
+    }
+
+    // Reducir confianza si la variabilidad del pulso es anormalmente alta o baja (indica problemas)
+    if (pulseVariability < 5 || pulseVariability > 20) { // Umbral arbitrario, necesita ajuste
+      confidence -= 0.1;
+    }
+    
+    return Math.max(0, Math.min(1, confidence)); // Asegurar que esté entre 0 y 1
+  }
+  
+  private calculateVariability(glucoseHistory: number[]): number {
+    if (glucoseHistory.length < 5) return 0; // Se necesita un historial para calcular variabilidad
+    return calculateStandardDeviation(glucoseHistory);
+  }
+
   public calibrate(knownGlucose: number): void {
-    // Ajustar la línea base de glucosa en función de una medición conocida.
-    // Esto es crucial para la precisión y debe hacerse en condiciones controladas.
-    this.baselineGlucose = knownGlucose;
-    this.isCalibrated = true;
-    console.log(`Glucosa calibrada a: ${knownGlucose} mg/dL`);
+    // La calibración ahora afectará el baselineGlucose para ajustar el modelo.
+    // Para una calibración real, se necesitarían múltiples puntos de datos y un modelo de regresión.
+    // Aquí, simplemente ajustamos el baseline para que el modelo actual se aproxime al valor conocido.
+    
+    if (this.lastFilteredSignal.length > 0) {
+      const ac = calculateAC(this.lastFilteredSignal);
+      const dc = calculateDC(this.lastFilteredSignal);
+      const perfusionIndex = dc > 0 ? (ac / dc) * 100 : 0;
+      const { peakIndices } = findPeaksAndValleys(this.lastFilteredSignal);
+      const { rrStdDev } = this.calculateRRIntervalsAndStdDev(peakIndices);
+      const pulseVariability = rrStdDev;
+      const normalizedAmplitude = this.normalizeSignalAmplitude(this.lastFilteredSignal);
+
+      // Coeficientes ilustrativos para la calibración inversa
+      const weightPerfusion = -0.5;
+      const weightPulseVariability = 0.2;
+      const weightNormalizedAmplitude = 0.8;
+
+      // Calcular la "contribución" de las características al valor actual.
+      const featuresContribution = 
+        (perfusionIndex * weightPerfusion) + 
+        (pulseVariability * weightPulseVariability) + 
+        (normalizedAmplitude * weightNormalizedAmplitude);
+      
+      // Ajustar el baselineGlucose para que la ecuación dé el knownGlucose
+      this.baselineGlucose = knownGlucose - featuresContribution;
+      this.isCalibrated = true;
+      console.log(`GlucoseProcessor: Calibrado. Nuevo baselineGlucose: ${this.baselineGlucose.toFixed(2)} mg/dL`);
+    } else {
+      console.warn("GlucoseProcessor: No hay suficientes datos para calibrar.");
+      this.isCalibrated = false;
+    }
   }
-  
+
   public reset(): void {
     this.glucoseHistory = [];
     this.isCalibrated = false;
+    this.savitzkyGolayFilter.reset(); // Restablecer el filtro
+    this.lastFilteredSignal = [];
+    this.baselineGlucose = 95; // Restablecer a un valor predeterminado normal
     console.log("GlucoseProcessor: Reset completo");
   }
 }
