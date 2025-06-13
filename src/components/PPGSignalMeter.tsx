@@ -390,6 +390,14 @@ const PPGSignalMeter = ({
 
   return (
     <div className="fixed inset-0 bg-black/5 backdrop-blur-[1px]">
+      {/* Bloque informativo en la mitad superior */}
+      <div className="absolute top-0 left-0 right-0 h-1/2 flex items-center justify-center pointer-events-none">
+        <div className="bg-white/70 rounded-lg px-4 py-2 shadow backdrop-blur-sm text-xs text-gray-800">
+          {/* Se puede reemplazar este texto con datos dinámicos si es necesario */}
+          Monitoreo Cardiaco: Observa las ondas y picos que indican la actividad del ritmo; valores críticos se resaltan.
+        </div>
+      </div>
+      
       <canvas
         ref={canvasRef}
         width={CANVAS_WIDTH}
@@ -447,6 +455,41 @@ const PPGSignalMeter = ({
           <span className="text-[8px] text-center font-medium text-black/80">
             {isFingerDetected ? "Dedo detectado" : "Ubique su dedo"}
           </span>
+        </div>
+      </div>
+
+      {/* Sección de información adicional sobre la actividad cardiaca */}
+      <div className="absolute bottom-80 left-0 right-0 flex flex-col items-center z-20">
+        <div className="bg-white/80 rounded-lg px-3 py-2 shadow-md backdrop-blur-md text-xs text-gray-800">
+          <p>
+            Ritmo Cardiaco: {value > 0 ? Math.round(value) + " BPM" : "--"}
+          </p>
+          <p>Calidad de Señal: {quality}%</p>
+          {arrhythmiaStatus ? (
+            <p className="text-red-600 font-semibold">
+              Arritmia: {arrhythmiaStatus}
+            </p>
+          ) : (
+            <p>Estabilidad: Normal</p>
+          )}
+          {rawArrhythmiaData ? (
+            <>
+              <p>
+                RMSSD: {rawArrhythmiaData.rmssd.toFixed(2)} | RR Variación:{" "}
+                {rawArrhythmiaData.rrVariation.toFixed(2)}
+              </p>
+              <p>
+                Variabilidad:{" "}
+                {rawArrhythmiaData.rmssd > 50 ? (
+                  <span className="text-green-600 font-semibold">Alta</span>
+                ) : (
+                  <span className="text-yellow-600 font-semibold">Baja</span>
+                )}
+              </p>
+            </>
+          ) : (
+            <p>Datos de variabilidad: --</p>
+          )}
         </div>
       </div>
 
