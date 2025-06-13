@@ -14,7 +14,7 @@ interface HeartBeatResult {
   };
 }
 
-export function useHeartBeatProcessor() {
+export const useHeartBeatProcessor = () => {
   const processorRef = useRef<HeartBeatProcessor | null>(null);
   const [currentBPM, setCurrentBPM] = useState<number>(0);
   const [confidence, setConfidence] = useState<number>(0);
@@ -268,7 +268,7 @@ export function useHeartBeatProcessor() {
 
   // peaks: number[], fps: number
   const processPeaks = useCallback((peaks: number[], fps = 30) => {
-    if (peaks.length < 2) {
+    if (!peaks || peaks.length < 2) {
       setBpm(null);
       setRRIntervals([]);
       setWarning("No se detectan latidos válidos.");
@@ -287,6 +287,15 @@ export function useHeartBeatProcessor() {
     setBpm(bpmValue);
 
     setWarning(null);
+
+    // Logging para depuración
+    if (process.env.NODE_ENV === "development") {
+      console.log("useHeartBeatProcessor: processPeaks", {
+        peaks,
+        intervals,
+        bpmValue,
+      });
+    }
   }, []);
 
   return {

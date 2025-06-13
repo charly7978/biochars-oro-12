@@ -351,5 +351,3 @@ export class RealFingerDetector {
     };
   }
 }
-
-// Eliminar este archivo si FingerDetectionCore.ts ya cubre la detección de dedo.
