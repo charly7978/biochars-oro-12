@@ -76,7 +76,7 @@ export class RealFingerDetector {
     // Área central más grande para capturar mejor el dedo
     const centerX = width / 2;
     const centerY = height / 2;
-    const radius = Math.min(width, height) * 0.15; // Área más grande
+    const radius = Math.min(width, height) * 0.19; // Área más grande
     
     let redSum = 0, greenSum = 0, blueSum = 0;
     let pixelCount = 0;
@@ -255,7 +255,7 @@ export class RealFingerDetector {
     }
     
     // Para las primeras muestras, ser menos estricto
-    return validation.confidence >= 0.5;
+    return validation.confidence >= 0.4;
   }
   
   private calculateHumanFingerQuality(metrics: any, isDetected: boolean, confidence: number): number {
@@ -334,7 +334,7 @@ export function detectFinger(sensorData: {
   brightness: number; // valor de 0 (oscuro) a 1 (muy brillante)
 }): "FINGER_ON" | "FINGER_OFF" {
   const PRESSURE_THRESHOLD = 0.8;
-  const HIGH_BRIGHTNESS_THRESHOLD = 0.5; // Si el brillo supera este valor, se considera dedo fuera
+  const HIGH_BRIGHTNESS_THRESHOLD = 0.4; // Si el brillo supera este valor, se considera dedo fuera
 
   // Regla inapelable: si hay brillo alto, el dedo no está presente.
   if (sensorData.brightness > HIGH_BRIGHTNESS_THRESHOLD) {
