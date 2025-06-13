@@ -28,7 +28,7 @@ export class RealFingerDetector {
     MIN_RED: 10,          // Más bajo para dedos reales
     MAX_RED: 210,         // Más alto para permitir variación natural
     MIN_RG_RATIO: 1.05,   // Más permisivo para dedos reales
-    MAX_RG_RATIO: 2.0,    // Mayor rango para condiciones variables
+    MAX_RG_RATIO: 4.0,    // Mayor rango para condiciones variables
     MIN_TEXTURE: 0.01,    // Más bajo para detectar piel suave
     MIN_STABILITY: 0.08,  // Más permisivo para movimiento natural
     CALIBRATION_SAMPLES: 14,
