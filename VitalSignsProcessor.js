@@ -21,68 +21,42 @@ export class VitalSignsProcessor {
 	arrhythmiaDetected = false;
 	measurementStartTime = Date.now();
 	signalOptimizer;
+	debugCallback = null; // Función para actualizar estado visual
 
 	constructor() {
 		this.signalOptimizer = new SignalOptimizer();
 	}
 
+	setDebugCallback(callback) {
+		this.debugCallback = callback;
+	}
+
 	detectArrhythmia() {
 		if (this.rrIntervals.length < this.RR_WINDOW_SIZE) {
-			console.log("VitalSignsProcessor: Insuficientes intervalos RR para RMSSD", {
-				current: this.rrIntervals.length,
-				needed: this.RR_WINDOW_SIZE
-			});
+			if(this.debugCallback) this.debugCallback("Insuficientes intervalos RR para RMSSD");
 			return;
 		}
-
 		const recentRR = this.rrIntervals.slice(-this.RR_WINDOW_SIZE);
-		
 		let sumSquaredDiff = 0;
 		for (let i = 1; i < recentRR.length; i++) {
-			const diff = recentRR[i] - recentRR[i-1];
+			const diff = recentRR[i] - recentRR[i - 1];
 			sumSquaredDiff += diff * diff;
 		}
-		
 		const rmssd = Math.sqrt(sumSquaredDiff / (recentRR.length - 1));
-		
 		const avgRR = recentRR.reduce((a, b) => a + b, 0) / recentRR.length;
 		const lastRR = recentRR[recentRR.length - 1];
 		const prematureBeat = Math.abs(lastRR - avgRR) > (avgRR * 0.25);
-		
-		console.log("VitalSignsProcessor: Análisis RMSSD", {
-			timestamp: new Date().toISOString(),
-			rmssd,
-			threshold: this.RMSSD_THRESHOLD,
-			recentRR,
-			avgRR,
-			lastRR,
-			prematureBeat
-		});
-
-		const newArrhythmiaState = rmssd > this.RMSSD_THRESHOLD && prematureBeat;
-
-		if (newArrhythmiaState !== this.arrhythmiaDetected) {
-			this.arrhythmiaDetected = newArrhythmiaState;
-			console.log("VitalSignsProcessor: Cambio en estado de arritmia", {
-				previousState: !this.arrhythmiaDetected,
-				newState: this.arrhythmiaDetected,
-				cause: {
-					rmssdExceeded: rmssd > this.RMSSD_THRESHOLD,
-					prematureBeat,
-					rmssdValue: rmssd
-				}
-			});
+		if(this.debugCallback) {
+			this.debugCallback(`RMSSD: ${rmssd}; ${rmssd > this.RMSSD_THRESHOLD && prematureBeat ? "Arritmia" : "Normal"}`);
 		}
+		const newArrhythmiaState = rmssd > this.RMSSD_THRESHOLD && prematureBeat;
+		this.arrhythmiaDetected = newArrhythmiaState;
 	}
 
 	processSignal(ppgValue, rrData) {
-		console.log("VitalSignsProcessor: Entrada de señal", {
-			ppgValue,
-			isLearning: this.isLearningPhase,
-			rrIntervalsCount: this.rrIntervals.length,
-			receivedRRData: rrData
-		});
-
+		if(this.debugCallback) {
+			this.debugCallback(`Procesando señal: ppgValue=${ppgValue}`);
+		}
 		const filteredValue = this.applySMAFilter(ppgValue);
 		this.ppgValues.push(filteredValue);
 		if (this.ppgValues.length > this.WINDOW_SIZE) {
@@ -106,15 +80,9 @@ export class VitalSignsProcessor {
 			this.isLearningPhase = false;
 			arrhythmiaStatus = this.arrhythmiaDetected ? "ARRITMIA DETECTADA" : "SIN ARRITMIAS";
 		}
-
-		console.log("VitalSignsProcessor: Estado actual", {
-			timestamp: currentTime,
-			isLearningPhase: this.isLearningPhase,
-			arrhythmiaDetected: this.arrhythmiaDetected,
-			arrhythmiaStatus,
-			rrIntervals: this.rrIntervals.length
-		});
-
+		if(this.debugCallback) {
+			this.debugCallback(`Estado: ${this.isLearningPhase ? "En aprendizaje" : "Calibrado"}`);
+		}
 		return {
 			spo2,
 			pressure: pressureString,
@@ -124,29 +92,21 @@ export class VitalSignsProcessor {
 
 	processHeartBeat() {
 		const currentTime = Date.now();
-		
 		if (this.lastPeakTime === null) {
 			this.lastPeakTime = currentTime;
 			return;
 		}
-
 		const rrInterval = currentTime - this.lastPeakTime;
 		this.rrIntervals.push(rrInterval);
-		
-		console.log("VitalSignsProcessor: Nuevo latido", {
-			timestamp: currentTime,
-			rrInterval,
-			totalIntervals: this.rrIntervals.length
-		});
-
+		if(this.debugCallback) {
+			this.debugCallback(`Latido registrado: Intervalo = ${rrInterval}ms`);
+		}
 		if (this.rrIntervals.length > 20) {
 			this.rrIntervals.shift();
 		}
-
 		if (!this.isLearningPhase && this.rrIntervals.length >= this.RR_WINDOW_SIZE) {
 			this.detectArrhythmia();
 		}
-
 		this.lastPeakTime = currentTime;
 	}
 

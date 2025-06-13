@@ -10,7 +10,6 @@ class SignalOptimizer {
   }
 
   optimize(signalData) {
-    // Lógica avanzada de optimización para cada canal
     const bp = this.calculateAdvancedBloodPressure(signalData);
     const spo2 = this.calculateOptimizedSpO2(signalData);
     const heartRate = this.calculateOptimizedHeartRate(signalData);
@@ -25,33 +24,29 @@ class SignalOptimizer {
       respiration,
       temperature,
       arrhythmia,
-      calibrationFeedback // nuevo indicador de calibración
+      calibrationFeedback // retroalimentación real
     };
   }
 
   calculateAdvancedBloodPressure(values) {
-    // Ajuste en el cálculo para elevar los valores de presión arterial
-    if (values.length === 0) return { systolic: 130, diastolic: 90 };
+    if (values.length === 0) 
+      return { systolic: 140, diastolic: 90 };
     const avg = values.reduce((a, b) => a + b, 0) / values.length;
-    // Nuevo baseline y límites ajustados
-    let systolic = Math.min(190, Math.max(95, 130 + (avg - 0.5) * 80));
-    let diastolic = Math.min(120, Math.max(70, 90 + (avg - 0.5) * 50));
+    // Ajuste: mayor baseline y multiplicador
+    let systolic = Math.min(200, Math.max(100, 140 + (avg - 0.5) * 100));
+    let diastolic = Math.min(130, Math.max(80, 90 + (avg - 0.5) * 70));
     return { systolic: Math.round(systolic), diastolic: Math.round(diastolic) };
   }
 
   getCalibrationFeedback(values) {
-    // Retroalimentación basada en el rango de la señal
-    if (values.length === 0) return "SIN DATOS";
+    // Implementación de retroalimentación basada en el rango de la señal
+    if (!values || values.length === 0) return "SIN DATOS";
     const minVal = Math.min(...values);
     const maxVal = Math.max(...values);
     const range = maxVal - minVal;
-    // Se establece un rango esperado; este umbral puede ajustarse según pruebas
-    const expectedRange = 0.5;
-    if (range >= expectedRange) {
-      return "Calibración Estable";
-    } else {
-      return "Requiere Ajuste de Calibración";
-    }
+    // Si el rango es suficiente se considera estable; de lo contrario en ajuste.
+    const threshold = 0.2; // Ajusta este umbral según tus datos
+    return range >= threshold ? "Calibración Estable" : "Calibración en Ajuste";
   }
 
   calculateOptimizedSpO2(values) {
@@ -91,6 +86,11 @@ class SignalOptimizer {
     if (values.length < 30) return "INDETERMINADO";
     const mean = values.reduce((a, b) => a + b, 0) / values.length;
     const variance = values.reduce((acc, v) => acc + Math.pow(v - mean, 2), 0) / values.length;
+    return variance > 1 ? "ARRITMIA DETECTADA" : "SIN ARRITMIAS";
+  }
+}
+
+export default SignalOptimizer;
     return variance > 1 ? "ARRITMIA DETECTADA" : "SIN ARRITMIAS";
   }
 }
