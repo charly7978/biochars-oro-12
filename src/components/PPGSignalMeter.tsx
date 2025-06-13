@@ -42,10 +42,10 @@ const PPGSignalMeter = ({
   const WINDOW_WIDTH_MS = 2800;
   const CANVAS_WIDTH = 1000;
   const CANVAS_HEIGHT = 900;
-  const GRID_SIZE_X = 10;
+  const GRID_SIZE_X = 5;
   const GRID_SIZE_Y = 10;
-  const verticalScale = 25.0;
-  const SMOOTHING_FACTOR = 1.7;
+  const verticalScale = 85.0;
+  const SMOOTHING_FACTOR = 1.8;
   const TARGET_FPS = 60;
   const FRAME_TIME = 1000 / TARGET_FPS;
   const BUFFER_SIZE = 600;
@@ -127,7 +127,26 @@ const PPGSignalMeter = ({
     ctx.moveTo(0, CANVAS_HEIGHT / 2);
     ctx.lineTo(CANVAS_WIDTH, CANVAS_HEIGHT / 2);
     ctx.stroke();
-  }, []);
+    
+    // Draw arrhythmia status if present - INCREASED FONT SIZE
+    if (arrhythmiaStatus) {
+      const [status, count] = arrhythmiaStatus.split('|');
+      
+      if (status.includes("ARRITMIA") && count === "1" && !showArrhythmiaAlert) {
+        ctx.fillStyle = '#ef4444';
+        ctx.font = 'bold 24px Inter'; // Increased from 20px to 24px
+        ctx.textAlign = 'left';
+        ctx.fillText('¡PRIMERA ARRITMIA DETECTADA!', 45, 95);
+        setShowArrhythmiaAlert(true);
+      } else if (status.includes("ARRITMIA") && Number(count) > 1) {
+        ctx.fillStyle = '#ef4444';
+        ctx.font = 'bold 24px Inter'; // Increased from 20px to 24px
+        ctx.textAlign = 'left';
+        const redPeaksCount = peaksRef.current.filter(peak => peak.isArrhythmia).length;
+        ctx.fillText(`Arritmias detectadas: ${count}`, 45, 95);
+      }
+    }
+  }, [arrhythmiaStatus, showArrhythmiaAlert]);
 
   const detectPeaks = useCallback((points: PPGDataPoint[], now: number) => {
     if (points.length < PEAK_DETECTION_WINDOW) return;

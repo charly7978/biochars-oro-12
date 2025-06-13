@@ -40,7 +40,6 @@ const Index = () => {
     rrVariation: number;
   } | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [rrIntervals, setRRIntervals] = useState<number[]>([]);
   
   // Nueva referencia para controlar el estado del procesamiento de imagen
   const isProcessingFramesRef = useRef(false);
@@ -575,10 +574,6 @@ const Index = () => {
       setHeartRate(heartBeatResult.bpm);
       setHeartbeatSignal(heartBeatResult.filteredValue);
       setBeatMarker(heartBeatResult.isPeak ? 1 : 0);
-      // Actualizar últimos intervalos RR para debug
-      if (heartBeatResult.rrData && heartBeatResult.rrData.intervals) {
-        setRRIntervals(heartBeatResult.rrData.intervals.slice(-5));
-      }
       
       const vitals = processVitalSigns(lastSignal.filteredValue, heartBeatResult.rrData);
       if (vitals) {
@@ -637,21 +632,6 @@ const Index = () => {
       paddingTop: 'env(safe-area-inset-top)',
       paddingBottom: 'env(safe-area-inset-bottom)'
     }}>
-      {/* Overlay button for re-entering fullscreen if user exits */}
-      {!isFullscreen && (
-        <button 
-          onClick={enterFullScreen}
-          className="fixed inset-0 z-50 w-full h-full flex items-center justify-center bg-black/90 text-white"
-        >
-          <div className="text-center p-4 bg-primary/20 rounded-lg backdrop-blur-sm">
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 mx-auto mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5m11 5v-4m0 4h-4m4 0l-5-5" />
-            </svg>
-            <p className="text-lg font-semibold">Toca para modo pantalla completa</p>
-          </div>
-        </button>
-      )}
-
       <div className="flex-1 relative">
         <div className="absolute inset-0">
           <CameraView 
@@ -681,7 +661,7 @@ const Index = () => {
               onStartMeasurement={startMonitoring}
               onReset={handleReset}
               arrhythmiaStatus={vitalSigns.arrhythmiaStatus}
-              rawArrhythmiaData={lastArrhythmiaData}
+              rawArrhythmiaData={null}
               preserveResults={showResults}
             />
           </div>
@@ -746,12 +726,6 @@ const Index = () => {
             </div>
           </div>
         </div>
-      </div>
-    </div>
-  );
-};
-
-export default Index;
       </div>
     </div>
   );
