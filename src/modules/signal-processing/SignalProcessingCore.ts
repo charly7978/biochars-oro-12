@@ -14,6 +14,7 @@ export interface ProcessedSignalData {
   filteredValue: number;
   amplifiedValue: number;
   timestamp: number;
+  isPeak?: boolean; // Nuevo: indica si es un latido detectado
 }
 
 // Sustituye el array por un buffer circular simple
@@ -55,6 +56,8 @@ export class SignalProcessingCore {
   private sgFilter: SavitzkyGolayFilter;
   private baseline: number = 0;
   private signalHistory: CircularBuffer;
+  private lastPeakTimestamp: number = 0;
+  private lastPeakValue: number = 0;
 
   constructor() {
     this.kalmanFilter = new OptimizedKalmanFilter();
@@ -88,13 +91,41 @@ export class SignalProcessingCore {
 
     // Actualizar historial de señal *amplificada*
     this.signalHistory.push(amplified);
+    if (this.signalHistory.length > 100) this.signalHistory.shift();
+
+    // Detección de pico simple sobre la señal amplificada
+    const isPeak = this.detectPeak(amplified);
 
     return {
       rawValue: redValue,
       filteredValue: sgFiltered,
       amplifiedValue: amplified,
-      timestamp: Date.now()
+      timestamp: Date.now(),
+      isPeak
     };
+  }
+
+  /**
+   * Detección sencilla de picos (latidos) en la señal amplificada.
+   * Retorna true si se detecta un pico en este frame.
+   */
+  private detectPeak(value: number): boolean {
+    const now = Date.now();
+    // Umbral bajo para señales débiles, y periodo refractario de 300ms
+    const PEAK_THRESHOLD = 8;
+    const MIN_PEAK_DISTANCE_MS = 300;
+
+    if (
+      value > PEAK_THRESHOLD &&
+      this.lastPeakValue <= PEAK_THRESHOLD &&
+      now - this.lastPeakTimestamp > MIN_PEAK_DISTANCE_MS
+    ) {
+      this.lastPeakTimestamp = now;
+      this.lastPeakValue = value;
+      return true;
+    }
+    this.lastPeakValue = value;
+    return false;
   }
 
   /**
