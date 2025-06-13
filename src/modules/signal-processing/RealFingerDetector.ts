@@ -150,7 +150,7 @@ export class RealFingerDetector {
       
       // Bonus para rangos típicos de dedo humano
       if (metrics.redIntensity >= 80 && metrics.redIntensity <= 200) {
-        score += 0.40;
+        score += 0.50;
         reasons.push(`✓ Rango óptimo para dedo humano`);
       }
     } else {
@@ -165,7 +165,7 @@ export class RealFingerDetector {
       
       // Bonus para ratios típicos de piel
       if (metrics.rgRatio >= 1.2 && metrics.rgRatio <= 2.0) {
-        score += 0.10;
+        score += 0.20;
         reasons.push(`✓ Ratio típico de piel humana`);
       }
     } else {
@@ -178,7 +178,7 @@ export class RealFingerDetector {
       reasons.push(`✓ Textura: ${(metrics.textureScore * 100).toFixed(1)}%`);
     } else {
       // No penalizar mucho la textura baja en dedos
-      score += 0.05;
+      score += 0.01;
       reasons.push(`~ Textura baja pero aceptable: ${(metrics.textureScore * 100).toFixed(1)}%`);
     }
     
