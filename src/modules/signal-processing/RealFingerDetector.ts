@@ -329,11 +329,11 @@ export class RealFingerDetector {
 }
 
 export function detectFinger(sensorData: { pressure: number; fingerprintPattern: boolean }): "FINGER_ON" | "FINGER_OFF" {
-  // Si la presión es suficientemente alta y se detecta el patrón dactilar
-  const PRESSURE_THRESHOLD = 0.5; // umbral ajustable según calibración
-  if (sensorData.pressure >= PRESSURE_THRESHOLD && sensorData.fingerprintPattern) {
+  // Umbral actualizado para eliminar falsos positivos sin afectar la detección real
+  const PRESSURE_THRESHOLD = 0.8; // valor aumentado de 0.5
+  if (sensorData.pressure >= PRESSURE_THRESHOLD && sensorData.fingerprintPattern === true) {
     return "FINGER_ON";
   }
-  // Caso contrario, sin aplastamiento con huella, se califica como dedo OFF
   return "FINGER_OFF";
+}
 }
