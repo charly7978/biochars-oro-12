@@ -290,7 +290,7 @@ const VitalSign = ({
       
       <div className="font-bold text-xl sm:text-2xl transition-all duration-300">
         <span className="text-gradient-soft animate-value-glow">
-          {isArrhytmia && typeof value === 'string' ? value.split('|')[0] : value}
+          {isArrhytmia && typeof value === 'string' ? value.split('|')[0] : displayValue()}
         </span>
         {unit && <span className="text-xs text-white/70 ml-1">{unit}</span>}
       </div>
@@ -301,7 +301,7 @@ const VitalSign = ({
         </div>
       )}
       
-      {isArrhytmia && getArrhythmiaDisplay(value)}
+      {isArrhytmia && getArrhythmiaDisplay(value as string)}
       
       {calibrationProgress !== undefined && (
         <div className="absolute inset-0 bg-transparent overflow-hidden pointer-events-none border-0">
