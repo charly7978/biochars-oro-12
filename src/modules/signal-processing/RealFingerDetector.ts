@@ -333,8 +333,8 @@ export function detectFinger(sensorData: {
   fingerprintPattern: boolean;
   brightness: number; // valor de 0 (oscuro) a 1 (muy brillante)
 }): "FINGER_ON" | "FINGER_OFF" {
-  const PRESSURE_THRESHOLD = 0.8;
-  const HIGH_BRIGHTNESS_THRESHOLD = 0.4; // Si el brillo supera este valor, se considera dedo fuera
+  const PRESSURE_THRESHOLD = 0.9;
+  const HIGH_BRIGHTNESS_THRESHOLD = 0.2; // Si el brillo supera este valor, se considera dedo fuera
 
   // Regla inapelable: si hay brillo alto, el dedo no está presente.
   if (sensorData.brightness > HIGH_BRIGHTNESS_THRESHOLD) {
