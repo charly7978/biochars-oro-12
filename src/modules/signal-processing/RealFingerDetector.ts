@@ -26,7 +26,7 @@ export class RealFingerDetector {
   // UMBRALES AJUSTADOS PARA DEDOS HUMANOS REALES
   private readonly REAL_THRESHOLDS = {
     MIN_RED: 10,          // Más bajo para dedos reales
-    MAX_RED: 90,         // Más alto para permitir variación natural
+    MAX_RED: 180,         // Más alto para permitir variación natural
     MIN_RG_RATIO: 1.05,   // Más permisivo para dedos reales
     MAX_RG_RATIO: 3.5,    // Mayor rango para condiciones variables
     MIN_TEXTURE: 0.01,    // Más bajo para detectar piel suave
