@@ -1,5 +1,6 @@
 import { FrameData } from './types';
 import { ProcessedSignal } from '../../types/signal';
+import { bandpassFilter } from './filters'; // Debes implementar un filtro de paso banda
 
 /**
  * Processes video frames to extract PPG signals and detect ROI
@@ -331,4 +332,10 @@ export class FrameProcessor {
     // Si no hay suficiente historia, usar el nuevo ROI directamente
     return newROI;
   }
+}
+
+export function processPPGSignal(rawSignal: number[]): number[] {
+  // Filtrar la señal para aislar la frecuencia cardíaca (0.5-4 Hz)
+  const filtered = bandpassFilter(rawSignal, 30, 0.5, 4); // 30 Hz = fps
+  return filtered;
 }

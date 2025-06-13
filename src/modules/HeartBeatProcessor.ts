@@ -3,12 +3,12 @@ export class HeartBeatProcessor {
   private readonly DEFAULT_SAMPLE_RATE = 60;
   private readonly DEFAULT_WINDOW_SIZE = 40;
   private readonly DEFAULT_MIN_BPM = 30;
-  private readonly DEFAULT_MAX_BPM = 220;
+  private readonly DEFAULT_MAX_BPM = 190;
   private readonly DEFAULT_SIGNAL_THRESHOLD = 0.02; // Reducido para captar señal más débil
-  private readonly DEFAULT_MIN_CONFIDENCE = 0.30; // Reducido para mejor detección
+  private readonly DEFAULT_MIN_CONFIDENCE = 0.20; // Reducido para mejor detección
   private readonly DEFAULT_DERIVATIVE_THRESHOLD = -0.005; // Ajustado para mejor sensibilidad
-  private readonly DEFAULT_MIN_PEAK_TIME_MS = 300; // Restaurado a valor médicamente apropiado
-  private readonly WARMUP_TIME_MS = 1000; // Reducido para obtener lecturas más rápido
+  private readonly DEFAULT_MIN_PEAK_TIME_MS = 350; // Restaurado a valor médicamente apropiado
+  private readonly WARMUP_TIME_MS = 10; // Reducido para obtener lecturas más rápido
 
   // Parámetros de filtrado ajustados para precisión médica
   private readonly MEDIAN_FILTER_WINDOW = 3;
@@ -17,7 +17,7 @@ export class HeartBeatProcessor {
   private readonly BASELINE_FACTOR = 0.8; // Restaurado para seguimiento adecuado
 
   // Parámetros de beep y vibración
-  private readonly BEEP_DURATION = 450; 
+  private readonly BEEP_DURATION = 350; 
   private readonly BEEP_VOLUME = 1.0;
   private readonly MIN_BEEP_INTERVAL_MS = 600; // Restaurado para prevenir beeps excesivos
   private readonly VIBRATION_PATTERN = [40, 20, 60];
@@ -41,12 +41,12 @@ export class HeartBeatProcessor {
   private readonly MAX_ADAPTIVE_DERIVATIVE_THRESHOLD = -0.005;
 
   // ────────── PARÁMETROS PARA PROCESAMIENTO ──────────
-  private readonly SIGNAL_BOOST_FACTOR = 1.8; // Aumentado para mejor amplificación
-  private readonly PEAK_DETECTION_SENSITIVITY = 0.6; // Aumentado para mejor detección
+  private readonly SIGNAL_BOOST_FACTOR = 2.2; // Aumentado para mejor amplificación
+  private readonly PEAK_DETECTION_SENSITIVITY = 1.4; // Aumentado para mejor detección
   
   // Control del auto-ajuste
-  private readonly ADAPTIVE_TUNING_PEAK_WINDOW = 10; // Reducido para adaptarse más rápido
-  private readonly ADAPTIVE_TUNING_LEARNING_RATE = 0.20; // Aumentado para adaptarse más rápido
+  private readonly ADAPTIVE_TUNING_PEAK_WINDOW = 6; // Reducido para adaptarse más rápido
+  private readonly ADAPTIVE_TUNING_LEARNING_RATE = 0.50; // Aumentado para adaptarse más rápido
   
   // Variables internas
   private recentPeakAmplitudes: number[] = [];

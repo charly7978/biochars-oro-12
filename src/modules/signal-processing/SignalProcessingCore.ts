@@ -5,6 +5,9 @@
 
 import { OptimizedKalmanFilter } from './OptimizedKalmanFilter';
 import { SavitzkyGolayFilter } from './SavitzkyGolayFilter';
+import { isFingerPresent } from './FingerDetectionCore';
+import { processPPGSignal } from './FrameProcessor';
+import { detectPeaks } from './SignalAnalyzer';
 
 export interface ProcessedSignalData {
   rawValue: number;
@@ -133,4 +136,16 @@ export class SignalProcessingCore {
     this.kalmanFilter.reset();
     this.sgFilter.reset();
   }
+}
+
+export function analyzeFrame(frame: Uint8ClampedArray, width: number, height: number, rawSignal: number[]): { valid: boolean, peaks: number[] } {
+  const finger = isFingerPresent(frame, width, height);
+  if (!finger) {
+    return { valid: false, peaks: [] };
+  }
+  const filtered = processPPGSignal(rawSignal);
+  const peaks = detectPeaks(filtered);
+  // Si hay muy pocos picos o la señal es muy ruidosa, marcar como inválida
+  if (peaks.length < 2) return { valid: false, peaks: [] };
+  return { valid: true, peaks };
 }

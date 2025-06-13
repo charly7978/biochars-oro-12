@@ -1,4 +1,3 @@
-
 import { RealFingerDetector, FingerDetectionResult } from './RealFingerDetector';
 
 /**
@@ -72,4 +71,22 @@ export class FingerDetectionCore {
     this.frameCount = 0;
     this.fingerDetector.reset();
   }
+}
+
+export function isFingerPresent(frame: Uint8ClampedArray, width: number, height: number): boolean {
+  // Calcular brillo promedio y varianza
+  let sum = 0, sumSq = 0;
+  for (let i = 0; i < frame.length; i += 4) {
+    const r = frame[i], g = frame[i+1], b = frame[i+2];
+    const brightness = 0.299*r + 0.587*g + 0.114*b;
+    sum += brightness;
+    sumSq += brightness * brightness;
+  }
+  const n = frame.length / 4;
+  const mean = sum / n;
+  const variance = sumSq / n - mean * mean;
+
+  // Umbrales adaptativos
+  // Si el brillo es bajo y la varianza es baja, probablemente hay un dedo
+  return mean < 80 && variance < 200;
 }
