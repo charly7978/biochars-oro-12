@@ -1,9 +1,21 @@
 import React, { useState } from 'react';
 import { cn } from '@/lib/utils';
 
+interface GlucoseDetails {
+  estimatedGlucose: number;
+  glucoseRange: [number, number];
+  confidence: number;
+  variability: number;
+  features: {
+    spectralGlucoseIndicator: number;
+    vascularResistanceIndex: number;
+    pulseMorphologyScore: number;
+  };
+}
+
 interface VitalSignProps {
   label: string;
-  value: string | number;
+  value: string | number | GlucoseDetails;
   unit?: string;
   highlighted?: boolean;
   calibrationProgress?: number;
@@ -18,7 +30,14 @@ const VitalSign = ({
 }: VitalSignProps) => {
   const [showDetails, setShowDetails] = useState(false);
 
-  const getRiskLabel = (label: string, value: string | number) => {
+  const getRiskLabel = (label: string, value: string | number | GlucoseDetails) => {
+    if (label === 'GLUCOSA' && typeof value === 'object' && value !== null && 'estimatedGlucose' in value) {
+      const glucoseValue = (value as GlucoseDetails).estimatedGlucose;
+      if (glucoseValue > 126) return 'Hiperglucemia';
+      if (glucoseValue < 70) return 'Hipoglucemia';
+      return '';
+    }
+
     if (typeof value === 'number') {
       switch(label) {
         case 'FRECUENCIA CARDÍACA':
@@ -31,10 +50,6 @@ const VitalSign = ({
         case 'HEMOGLOBINA':
           if (value < 12) return 'Anemia';
           if (value > 16) return 'Policitemia';
-          return '';
-        case 'GLUCOSA':
-          if (value > 126) return 'Hiperglucemia';
-          if (value < 70) return 'Hipoglucemia';
           return '';
         default:
           return '';
@@ -144,10 +159,21 @@ const VitalSign = ({
     return null;
   };
 
-  const getMedianAndAverageInfo = (label: string, value: string | number) => {
-    if (label === 'SPO2' || label === 'GLUCOSA') return null;
+  const getMedianAndAverageInfo = (label: string, value: string | number | GlucoseDetails) => {
+    if (label === 'SPO2') return null; // SPO2 still handled separately
 
     let median, average, interpretation;
+
+    if (label === 'GLUCOSA' && typeof value === 'object' && value !== null && 'estimatedGlucose' in value) {
+      const glucoseDetails = value as GlucoseDetails;
+      
+      // Formatear las estadísticas segmentadas de glucosa
+      return {
+        median: `Rango: ${glucoseDetails.glucoseRange[0].toFixed(0)}-${glucoseDetails.glucoseRange[1].toFixed(0)} mg/dL`,
+        average: `Confianza: ${(glucoseDetails.confidence * 100).toFixed(0)}%`,
+        interpretation: `Variabilidad: ${(glucoseDetails.variability * 100).toFixed(0)}%. Spectral: ${glucoseDetails.features.spectralGlucoseIndicator.toFixed(2)}, Vascular: ${glucoseDetails.features.vascularResistanceIndex.toFixed(2)}, Morfología: ${glucoseDetails.features.pulseMorphologyScore.toFixed(2)}`,
+      };
+    }
 
     if (typeof value === 'number') {
       switch(label) {
@@ -243,6 +269,13 @@ const VitalSign = ({
     setShowDetails(!showDetails);
   };
 
+  const displayValue = () => {
+    if (label === 'GLUCOSA' && typeof value === 'object' && value !== null && 'estimatedGlucose' in value) {
+      return `${(value as GlucoseDetails).estimatedGlucose.toFixed(0)}`;
+    }
+    return value;
+  };
+
   return (
     <div 
       className={cn(
@@ -257,7 +290,7 @@ const VitalSign = ({
       
       <div className="font-bold text-xl sm:text-2xl transition-all duration-300">
         <span className="text-gradient-soft animate-value-glow">
-          {isArrhytmia && typeof value === 'string' ? value.split('|')[0] : value}
+          {isArrhytmia && typeof value === 'string' ? value.split('|')[0] : displayValue()}
         </span>
         {unit && <span className="text-xs text-white/70 ml-1">{unit}</span>}
       </div>
@@ -268,7 +301,7 @@ const VitalSign = ({
         </div>
       )}
       
-      {isArrhytmia && getArrhythmiaDisplay(value)}
+      {isArrhytmia && getArrhythmiaDisplay(value as string)}
       
       {calibrationProgress !== undefined && (
         <div className="absolute inset-0 bg-transparent overflow-hidden pointer-events-none border-0">
