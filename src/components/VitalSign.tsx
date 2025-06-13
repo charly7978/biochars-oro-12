@@ -291,10 +291,10 @@ const VitalSign = ({
 
       return (
           <div className="flex flex-col items-center">
-              <span className={cn("text-display-large font-bold", textColorClass)}>
+              <span className={cn("text-display-small font-bold", textColorClass)}>
                   {statusText}
               </span>
-              <span className="text-value-medium text-gray-400">
+              <span className="text-value-small text-gray-400">
                   ({minRange.toFixed(0)} - {maxRange.toFixed(0)} {unit})
               </span>
           </div>
