@@ -167,8 +167,6 @@ export class VitalSignsProcessor {
     return 0;
   }
 
-  // ADVERTENCIA: Esta función es duplicada. Existe una función centralizada y robusta detectPeaks en src/modules/signal-processing/SignalAnalyzer.ts
-  // TODO: Migrar todo el pipeline a usar detectPeaks para evitar inconsistencias.
   private detectRealPeaks(signal: number[]): number[] {
     const peaks: number[] = [];
     const threshold = this.calibrationBaseline * 1.02; // 2% sobre baseline

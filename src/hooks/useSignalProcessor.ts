@@ -1,7 +1,7 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { PPGSignalProcessor } from '../modules/SignalProcessor';
-import { ProcessedSignal, ProcessingError } from '../types/signal';
-import { analyzeFrame } from '@/modules/signal-processing/SignalProcessingCore';
+import { useState, useCallback, useRef, useEffect } from "react";
+import { PPGSignalProcessor } from "@/modules/SignalProcessor";
+import { analyzeFrame } from "@/modules/signal-processing/SignalProcessingCore";
+import type { ProcessedSignal, ProcessingError } from "@/types/signal";
 
 /**
  * Custom hook for managing PPG signal processing
@@ -128,6 +128,11 @@ export const useSignalProcessor = () => {
       hasOnSignalReadyCallback: !!processorRef.current.onSignalReady,
       hasOnErrorCallback: !!processorRef.current.onError
     });
+    
+    // Activar procesamiento automáticamente al montar el hook
+    if (processorRef.current) {
+      processorRef.current.isProcessing = true;
+    }
     
     return () => {
       if (processorRef.current) {
@@ -258,36 +263,16 @@ export const useSignalProcessor = () => {
 
   // frame: Uint8ClampedArray, width: number, height: number, rawSignal: number[]
   const process = useCallback((frame, width, height, rawSignal) => {
-    if (!frame || !rawSignal || rawSignal.length < 30) {
-      setWarning("Esperando señal suficiente...");
-      setValid(false);
-      setFiltered([]);
-      setPeaks([]);
-      return;
-    }
     const result = analyzeFrame(frame, width, height, rawSignal);
     setFiltered(result.filtered);
     setPeaks(result.peaks);
     setValid(result.valid);
-    setSignal(rawSignal);
+    setLastSignal(rawSignal as any); // Ajuste temporal, idealmente debe ser ProcessedSignal
 
     if (!result.valid) {
       setWarning("Señal insuficiente o dedo no detectado. Ajuste el dedo y asegúrese de cubrir la cámara y linterna.");
     } else {
       setWarning(null);
-    }
-
-    // Logging para depuración
-    if (process.env.NODE_ENV === "development") {
-      console.log("useSignalProcessor: process", {
-        frameSample: frame.slice(0, 12),
-        width,
-        height,
-        rawSignalSample: rawSignal.slice(-10),
-        filteredSample: result.filtered?.slice(-10),
-        peaks: result.peaks,
-        valid: result.valid,
-      });
     }
   }, []);
 

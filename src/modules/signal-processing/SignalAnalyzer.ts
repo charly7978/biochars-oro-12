@@ -124,45 +124,26 @@ export class SignalAnalyzer {
 }
 
 /**
- * Detección robusta y centralizada de picos (latidos):
- * - Umbral de prominencia adaptativo (basado en la desviación estándar de la señal)
- * - Normalización previa de la señal
- * - Distancia mínima fisiológica entre picos
- * - Esta función debe ser la ÚNICA utilizada para detección de picos en todo el pipeline
- * - Si existen otras funciones similares, deben ser eliminadas o redirigidas a esta
- * @param signal Array de valores de señal (filtrada y preferentemente amplificada)
- * @param minProminence Si no se especifica, se calcula como 0.5 * std(signal)
- * @param minDistance Distancia mínima entre picos (frames)
- * @returns Índices de los picos detectados
+ * Detección robusta de picos: prominencia y distancia mínima (para evitar falsos positivos).
+ * minProminence: 0.2 (normalizado), minDistance: 12 (frames, ~400ms a 30fps)
  */
 export function detectPeaks(
   signal: number[],
-  minProminence?: number,
-  minDistance = 10
+  minProminence = 0.2,
+  minDistance = 12
 ): number[] {
-  if (signal.length < 3) return [];
-  // Normalización: centrar y escalar por desviación estándar
-  const mean = signal.reduce((a, b) => a + b, 0) / signal.length;
-  const std = Math.sqrt(signal.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / signal.length) || 1;
-  const normSignal = signal.map(v => (v - mean) / std);
-  // Umbral adaptativo si no se especifica
-  const adaptiveProminence = minProminence !== undefined ? minProminence : 0.5;
   const peaks: number[] = [];
   let lastPeak = -minDistance;
-  for (let i = 1; i < normSignal.length - 1; i++) {
-    if (normSignal[i] > normSignal[i-1] && normSignal[i] > normSignal[i+1]) {
-      const leftMin = Math.min(...normSignal.slice(Math.max(0, i-10), i));
-      const rightMin = Math.min(...normSignal.slice(i+1, Math.min(normSignal.length, i+11)));
-      const prominence = normSignal[i] - Math.max(leftMin, rightMin);
-      if (prominence > adaptiveProminence && (i - lastPeak) >= minDistance) {
+  for (let i = 1; i < signal.length - 1; i++) {
+    if (signal[i] > signal[i-1] && signal[i] > signal[i+1]) {
+      const leftMin = Math.min(...signal.slice(Math.max(0, i-10), i));
+      const rightMin = Math.min(...signal.slice(i+1, Math.min(signal.length, i+11)));
+      const prominence = signal[i] - Math.max(leftMin, rightMin);
+      if (prominence > minProminence && (i - lastPeak) >= minDistance) {
         peaks.push(i);
         lastPeak = i;
       }
     }
-  }
-  // Logging para depuración
-  if (process.env.NODE_ENV === "development") {
-    console.log("detectPeaks (centralizado)", { peaks, adaptiveProminence, minDistance });
   }
   return peaks;
 }

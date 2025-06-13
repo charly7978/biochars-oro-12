@@ -1,4 +1,3 @@
-
 // Este archivo exporta el PPGSignalProcessor UNIFICADO
 import { PPGSignalProcessor as UnifiedPPGSignalProcessor } from './signal-processing/PPGSignalProcessor';
 import { ProcessedSignal, ProcessingError } from '../types/signal';
