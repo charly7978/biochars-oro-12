@@ -666,25 +666,6 @@ const Index = () => {
             />
           </div>
 
-          {/* DEBUG: Gráficos temporales de señal cruda y filtrada */}
-          {/*
-          <div className="absolute top-2 right-2 z-50 bg-black/70 p-2 rounded shadow-lg border border-yellow-400">
-            <div style={{ color: '#FFD600', fontWeight: 'bold', fontSize: 12, marginBottom: 2 }}>DEBUG: Señal temporal</div>
-            <DebugSignalChart 
-              signal={lastSignal?.rawHistory || Array(100).fill(0)}
-              peaks={[]}
-              label="Señal cruda"
-              color="#0EA5E9"
-            />
-            <DebugSignalChart 
-              signal={lastSignal?.filteredHistory || Array(100).fill(0)}
-              peaks={[]}
-              label="Señal filtrada"
-              color="#ef4444"
-            />
-          </div>
-          */}
-
           {/* Contenedor de los displays ampliado y con mayor espaciamiento */}
           <div className="absolute inset-x-0 top-[55%] bottom-[60px] bg-black/10 px-4 py-6">
             <div className="grid grid-cols-3 gap-4 place-items-center">
@@ -732,6 +713,25 @@ const Index = () => {
             <div className="w-1/2">
               <MonitorButton 
                 isMonitoring={isMonitoring} 
+                onToggle={handleToggleMonitoring} 
+                variant="monitor"
+              />
+            </div>
+            <div className="w-1/2">
+              <MonitorButton 
+                isMonitoring={isMonitoring} 
+                onToggle={handleReset} 
+                variant="reset"
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default Index;
                 onToggle={handleToggleMonitoring} 
                 variant="monitor"
               />
