@@ -223,7 +223,7 @@ export class RealFingerDetector {
     // Nueva lógica: si la intensidad roja es extremadamente baja o alta, el dedo no está presente.
     // Esto actúa como una anulación clara para cuando se retira el dedo o hay condiciones de luz extremas.
     const isTooDark = metrics.redIntensity < 10; // Muy baja intensidad roja (cerca de negro)
-    const isTooBright = metrics.redIntensity > 240; // Muy alta intensidad roja (sobreexposición o blanco)
+    const isTooBright = metrics.redIntensity > 220; // Muy alta intensidad roja (sobreexposición o blanco)
 
     if (isTooDark || isTooBright) {
         console.log("RealFingerDetector: Dedo no detectado (intensidad roja fuera de rango óptimo)", {
