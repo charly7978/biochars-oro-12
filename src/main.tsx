@@ -1,39 +1,55 @@
 import React, { useEffect, useState } from "react";
 import ReactDOM from "react-dom";
 import App from "./App";
-import { processVitalSigns } from "@/modules/VitalSignsProcessor"; // Integración completa
+import { processVitalSigns } from "@/modules/VitalSignsProcessor";
+
+// Función que debe retornar los datos reales del sensor.
+// Reemplazá este placeholder con la implementación real (por ej. suscripción a eventos, API, etc.).
+async function getRealSensorData(): Promise<number[]> {
+  // ...existing code... (implementación real)
+  // Ejemplo: return await sensorAPI.getLatestSamples();
+  return []; // Devuelve un array de números reales adquiridos del sensor.
+}
 
 function Main() {
   const [rawSignal, setRawSignal] = useState<number[]>([]);
 
-  // Simula la llegada de datos del sensor (más tarde se usará la señal real)
+  // Reemplazamos la simulación: se subscriben a datos reales del sensor.
   useEffect(() => {
-    const interval = setInterval(() => {
-      // Genera un valor aleatorio para simular la señal cruda (0 a 100, por ejemplo)
-      const newValue = Math.random() * 100;
-      setRawSignal((prev) => [...prev, newValue]);
-    }, 1000); // cada 1 segundo
-    return () => clearInterval(interval);
+    let isMounted = true;
+    async function subscribeToSensor() {
+      try {
+        const data = await getRealSensorData();
+        if (isMounted && data.length) {
+          setRawSignal((prev) => [...prev, ...data]);
+        }
+      } catch (error) {
+        console.error("Error acquiring sensor data:", error);
+      }
+    }
+    // Se invoca la función según la frecuencia necesaria (por ejemplo, cada 1s).
+    const interval = setInterval(subscribeToSensor, 1000);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
   }, []);
 
-  // Cada vez que se actualiza la señal, se procesa mediante el optimizador y el algoritmo de presión arterial
+  // Procesa la señal real adquirida
   useEffect(() => {
     if (rawSignal.length > 0) {
       const bpResult = processVitalSigns(rawSignal);
       console.log("Presión arterial estimada:", bpResult);
-      // Aquí podrías también actualizar el estado global o la UI directamente
+      // ...existing code to update UI or state...
     }
   }, [rawSignal]);
 
   return (
     <div>
       <App />
-      {/* Se pueden incluir componentes que muestren bpResult en la interfaz */}
+      {/* Agregar componente(s) de UI para mostrar resultados si es necesario */}
     </div>
   );
-}
-
-ReactDOM.render(<Main />, document.getElementById("root"));
 }
 
 ReactDOM.render(<Main />, document.getElementById("root"));
