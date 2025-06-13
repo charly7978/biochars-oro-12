@@ -29,7 +29,7 @@ export class RealFingerDetector {
     MAX_RED: 250,         // Más alto para permitir variación natural
     MIN_RG_RATIO: 1.05,   // Más permisivo para dedos reales
     MAX_RG_RATIO: 3.5,    // Mayor rango para condiciones variables
-    MIN_TEXTURE: 0.02,    // Más bajo para detectar piel suave
+    MIN_TEXTURE: 0.01,    // Más bajo para detectar piel suave
     MIN_STABILITY: 0.08,  // Más permisivo para movimiento natural
     CALIBRATION_SAMPLES: 10,
     MIN_CONFIDENCE: 0.4   // Umbral más bajo para dedos reales
@@ -76,7 +76,7 @@ export class RealFingerDetector {
     // Área central más grande para capturar mejor el dedo
     const centerX = width / 2;
     const centerY = height / 2;
-    const radius = Math.min(width, height) * 0.25; // Área más grande
+    const radius = Math.min(width, height) * 0.20; // Área más grande
     
     let redSum = 0, greenSum = 0, blueSum = 0;
     let pixelCount = 0;
@@ -150,7 +150,7 @@ export class RealFingerDetector {
       
       // Bonus para rangos típicos de dedo humano
       if (metrics.redIntensity >= 80 && metrics.redIntensity <= 200) {
-        score += 0.15;
+        score += 0.20;
         reasons.push(`✓ Rango óptimo para dedo humano`);
       }
     } else {
