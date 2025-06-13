@@ -4,6 +4,7 @@
  */
 
 import { GlucoseProcessor } from "./glucose-processor";
+import { TensorFlowProcessor } from "./tensorflow-processor";
 
 export interface VitalSignsResult {
   heartRate: number;
@@ -54,10 +55,12 @@ export class VitalSignsProcessor {
   private frameCount = 0;
   private lastValidResults: VitalSignsResult | null = null;
   private glucoseProcessor: GlucoseProcessor;
+  private tensorflowProcessor: TensorFlowProcessor;
 
   constructor() {
     console.log("VitalSignsProcessor: Inicializado (SIN SIMULACIONES)");
     this.glucoseProcessor = new GlucoseProcessor();
+    this.tensorflowProcessor = new TensorFlowProcessor();
   }
 
   startCalibration(): void {
@@ -86,7 +89,7 @@ export class VitalSignsProcessor {
     return Math.min(100, (this.frameCount / 60) * 100);
   }
 
-  processSignal(ppgValue: number, rrData?: { intervals: number[]; lastPeakTime: number | null }): VitalSignsResult {
+  async processSignal(ppgValue: number, rrData?: { intervals: number[]; lastPeakTime: number | null }): Promise<VitalSignsResult> {
     this.frameCount++;
     
     // Almacenar señal real
@@ -94,6 +97,12 @@ export class VitalSignsProcessor {
     if (this.signalBuffer.length > 300) {
       this.signalBuffer.shift();
     }
+
+    // Procesar la señal con TensorFlow.js para mejora o predicción
+    const processedSignal = await this.tensorflowProcessor.processData(this.signalBuffer);
+
+    // Actualizar el buffer de señal con los datos procesados por TensorFlow
+    this.signalBuffer = processedSignal;
 
     // Establecer baseline durante calibración
     if (!this.isCalibrated) {
@@ -328,8 +337,15 @@ export class VitalSignsProcessor {
   }
 
   fullReset(): void {
-    console.log("VitalSignsProcessor: Reset completo");
-    this.reset();
-    this.glucoseProcessor.reset(); // Asegurar el reset completo
+    this.signalBuffer = [];
+    this.peakTimes = [];
+    this.rrIntervals = [];
+    this.calibrationBaseline = 0;
+    this.isCalibrated = false;
+    this.frameCount = 0;
+    this.lastValidResults = null;
+    this.glucoseProcessor.reset();
+    this.tensorflowProcessor.dispose(); // Liberar recursos de TensorFlow
+    console.log("VitalSignsProcessor: Reinicio completo de la aplicación.");
   }
 }
