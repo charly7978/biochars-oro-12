@@ -74,20 +74,27 @@ export class RealFingerDetector {
   
   private extractBasicMetrics(imageData: ImageData) {
     const { data, width, height } = imageData;
-    
-    // Calcular una ROI dinámica basada en la detección de piel
+
+    // Mejor heurística de color de piel: R > G > B, R > 50, G > 30, B < 150, y proporciones fisiológicas
     let minX = width, minY = height, maxX = 0, maxY = 0;
     let skinPixels = 0;
-    
-    // Paso 1: Detección inicial de píxeles de piel (simplificado para este ejemplo)
+    let redSum = 0, greenSum = 0, blueSum = 0, pixelCount = 0;
+    const intensities: number[] = [];
+
     for (let i = 0; i < data.length; i += 4) {
       const r = data[i];
       const g = data[i + 1];
       const b = data[i + 2];
-      
-      // Una heurística simple para detectar color de piel:
-      // R > G > B y diferencias no demasiado grandes, y R > 50
-      if (r > g && g > b && (r - g) < 70 && (g - b) < 70 && r > 50) {
+
+      // Nueva heurística: color de piel más robusto
+      const isSkin =
+        r > 60 && g > 30 && b < 170 &&
+        r > g && g > b &&
+        (r - g) < 80 && (g - b) < 80 &&
+        r / (g + 1) > 1.05 && r / (g + 1) < 3.5 &&
+        r / (b + 1) > 1.1 && r / (b + 1) < 4.0;
+
+      if (isSkin) {
         skinPixels++;
         const x = (i / 4) % width;
         const y = Math.floor((i / 4) / width);
@@ -98,24 +105,21 @@ export class RealFingerDetector {
       }
     }
 
-    let redSum = 0, greenSum = 0, blueSum = 0;
-    let pixelCount = 0;
-    const intensities: number[] = [];
+    // ROI dinámica basada en la mayor concentración de piel detectada
+    const effectiveMinX = skinPixels > 80 ? minX : width / 2 - width * 0.15;
+    const effectiveMinY = skinPixels > 80 ? minY : height / 2 - height * 0.15;
+    const effectiveMaxX = skinPixels > 80 ? maxX : width / 2 + width * 0.15;
+    const effectiveMaxY = skinPixels > 80 ? maxY : height / 2 + height * 0.15;
 
-    // Si se detectaron píxeles de piel, usar esa ROI. De lo contrario, usar una ROI central por defecto.
-    const effectiveMinX = skinPixels > 100 ? minX : width / 2;
-    const effectiveMinY = skinPixels > 100 ? minY : height / 2;
-    const effectiveMaxX = skinPixels > 100 ? maxX : width / 2;
-    const effectiveMaxY = skinPixels > 100 ? maxY : height / 2;
-    
-    const roiWidth = effectiveMaxX - effectiveMinX;
-    const roiHeight = effectiveMaxY - effectiveMinY;
+    const roiWidth = Math.max(10, effectiveMaxX - effectiveMinX);
+    const roiHeight = Math.max(10, effectiveMaxY - effectiveMinY);
     const finalRadius = Math.min(roiWidth, roiHeight) / 2;
     const finalCenterX = effectiveMinX + roiWidth / 2;
     const finalCenterY = effectiveMinY + roiHeight / 2;
 
-    for (let y = finalCenterY - finalRadius; y < finalCenterY + finalRadius; y += 3) {
-      for (let x = finalCenterX - finalRadius; x < finalCenterX + finalRadius; x += 3) {
+    // Muestreo más denso para textura y robustez
+    for (let y = finalCenterY - finalRadius; y < finalCenterY + finalRadius; y += 2) {
+      for (let x = finalCenterX - finalRadius; x < finalCenterX + finalRadius; x += 2) {
         if (x >= 0 && x < width && y >= 0 && y < height) {
           const distance = Math.sqrt((x - finalCenterX) ** 2 + (y - finalCenterY) ** 2);
           if (distance <= finalRadius) {
@@ -123,7 +127,7 @@ export class RealFingerDetector {
             const r = data[index];
             const g = data[index + 1];
             const b = data[index + 2];
-            
+
             redSum += r;
             greenSum += g;
             blueSum += b;
@@ -133,26 +137,27 @@ export class RealFingerDetector {
         }
       }
     }
-    
+
     if (pixelCount === 0) {
       return { redIntensity: 0, rgRatio: 1, textureScore: 0 };
     }
-    
+
     const avgRed = redSum / pixelCount;
     const avgGreen = greenSum / pixelCount;
-    
-    // Textura más permisiva para piel humana
+
+    // Textura: mayor sensibilidad a variaciones sutiles
     let textureScore = 0;
     if (intensities.length > 10) {
       const mean = intensities.reduce((a, b) => a + b, 0) / intensities.length;
       const variance = intensities.reduce((acc, val) => acc + Math.pow(val - mean, 2), 0) / intensities.length;
-      textureScore = Math.sqrt(variance) / 255;
+      // Normalizar textura para rango 0-1, más sensible a pequeñas variaciones
+      textureScore = Math.min(1.0, Math.sqrt(variance) / 180);
     }
-    
+
     return {
       redIntensity: avgRed,
       rgRatio: avgGreen > 5 ? avgRed / avgGreen : 1.0,
-      textureScore: Math.min(1.0, textureScore),
+      textureScore: Math.max(0, textureScore),
       roi: {
         x: effectiveMinX,
         y: effectiveMinY,
@@ -247,11 +252,6 @@ export class RealFingerDetector {
     // Bonus por calibración y consistencia (opcional, menor peso, sumativo)
     if (this.isCalibrated && this.baselineRed > 0) {
       const deviation = Math.abs(metrics.redIntensity - this.baselineRed) / this.baselineRed;
-      if (deviation < 0.3) { // Menor desviación, mayor consistencia
-        confidenceScore += 0.05; // Pequeño bonus
-        reasons.push(`✓ Consistencia con Calibración`);
-      }
-    }
 
     // Asegurar que la puntuación no exceda el máximo
     const finalConfidence = Math.min(maxPossibleScore, confidenceScore);
