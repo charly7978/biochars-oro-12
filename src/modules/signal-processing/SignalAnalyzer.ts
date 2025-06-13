@@ -122,32 +122,3 @@ export class SignalAnalyzer {
     console.log("SignalAnalyzer: Reset simplificado completo");
   }
 }
-
-/**
- * Detección robusta de picos: prominencia y distancia mínima (para evitar falsos positivos).
- * minProminence: 0.15 (más sensible), minDistance: 10 (frames, ~333ms a 30fps)
- */
-export function detectPeaks(
-  signal: number[],
-  minProminence = 0.15,
-  minDistance = 10
-): number[] {
-  const peaks: number[] = [];
-  let lastPeak = -minDistance;
-  for (let i = 1; i < signal.length - 1; i++) {
-    if (signal[i] > signal[i-1] && signal[i] > signal[i+1]) {
-      const leftMin = Math.min(...signal.slice(Math.max(0, i-10), i));
-      const rightMin = Math.min(...signal.slice(i+1, Math.min(signal.length, i+11)));
-      const prominence = signal[i] - Math.max(leftMin, rightMin);
-      if (prominence > minProminence && (i - lastPeak) >= minDistance) {
-        peaks.push(i);
-        lastPeak = i;
-      }
-    }
-  }
-  // Logging para depuración
-  if (process.env.NODE_ENV === "development") {
-    console.log("detectPeaks", { peaks, minProminence, minDistance });
-  }
-  return peaks;
-}

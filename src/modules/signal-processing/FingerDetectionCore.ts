@@ -1,3 +1,4 @@
+
 import { RealFingerDetector, FingerDetectionResult } from './RealFingerDetector';
 
 /**
@@ -71,44 +72,4 @@ export class FingerDetectionCore {
     this.frameCount = 0;
     this.fingerDetector.reset();
   }
-}
-
-/**
- * Detección avanzada de dedo usando brillo, varianza y predominancia de rojo.
- * Se ajustan umbrales para mayor sensibilidad.
- */
-export function isFingerPresent(
-  frame: Uint8ClampedArray,
-  width: number,
-  height: number
-): boolean {
-  let sum = 0, sumSq = 0, redSum = 0, greenSum = 0, blueSum = 0;
-  let n = 0;
-  for (let i = 0; i < frame.length; i += 4) {
-    const r = frame[i], g = frame[i+1], b = frame[i+2];
-    const brightness = 0.299*r + 0.587*g + 0.114*b;
-    sum += brightness;
-    sumSq += brightness * brightness;
-    redSum += r;
-    greenSum += g;
-    blueSum += b;
-    n++;
-  }
-  const mean = sum / n;
-  const variance = sumSq / n - mean * mean;
-  const avgRed = redSum / n;
-  const avgGreen = greenSum / n;
-  const avgBlue = blueSum / n;
-
-  // El dedo debe oscurecer el frame, reducir varianza y aumentar el rojo relativo
-  const redDominance = avgRed > avgGreen + 5 && avgRed > avgBlue + 5;
-  const isDark = mean < 120; // umbral más permisivo
-  const isStable = variance < 400; // umbral más permisivo
-
-  // Logging para depuración
-  if (process.env.NODE_ENV === "development") {
-    console.log("isFingerPresent", { mean, variance, avgRed, avgGreen, avgBlue, redDominance, isDark, isStable });
-  }
-
-  return isDark && isStable && redDominance;
 }
