@@ -176,13 +176,45 @@ const HeartRateMonitor = ({
     });
   };
 
+  const getBpmStatus = (bpm: number) => {
+    if (bpm < 40) return { label: "Muy bajo", color: "text-amber-500" };
+    if (bpm < 60) return { label: "Bajo", color: "text-yellow-500" };
+    if (bpm <= 100) return { label: "Normal", color: "text-green-500" };
+    if (bpm <= 120) return { label: "Elevado", color: "text-orange-500" };
+    if (bpm > 120) return { label: "Taquicardia", color: "text-red-500" };
+    return { label: "--", color: "text-gray-400" };
+  };
+
   return (
-    <canvas
-      ref={canvasRef}
-      width={400}
-      height={120}
-      className={cn("w-full h-full bg-black/30 rounded-md", className)}
-    />
+    <div className="relative">
+      <canvas
+        ref={canvasRef}
+        width={400}
+        height={120}
+        className={cn("w-full h-full bg-black/30 rounded-md", className)}
+      />
+      {/* Información adicional debajo del monitor */}
+      <div className="w-full flex flex-col items-center mt-1">
+        <div className="flex items-baseline gap-2">
+          <span className="text-base font-bold text-gray-900">
+            {value > 0 ? Math.round(value) : '--'}
+          </span>
+          <span className="text-xs text-gray-500 font-medium">BPM</span>
+          <span className={`ml-2 text-xs font-semibold ${getBpmStatus(value).color}`}>
+            {value > 0 ? getBpmStatus(value).label : ''}
+          </span>
+        </div>
+        {typeof quality === 'number' && (
+          <div className="text-[11px] text-gray-500 mt-0.5">
+            Calidad de señal: <span className={
+              quality >= 80 ? "text-green-600 font-semibold"
+              : quality >= 50 ? "text-yellow-600 font-semibold"
+              : "text-red-600 font-semibold"
+            }>{quality}%</span>
+          </div>
+        )}
+      </div>
+    </div>
   );
 };
 
