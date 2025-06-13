@@ -44,7 +44,14 @@ export class GlucoseProcessor {
     variability: number;
     features: GlucoseFeatures;
   } {
-    if (ppgValues.length < this.fftAnalyzer.BUFFER_SIZE || rrIntervals.length < 5) {
+    console.log("GlucoseProcessor: Iniciando cálculo de glucosa.");
+    if (ppgValues.length < this.fftAnalyzer.getBufferSize() || rrIntervals.length < 5) {
+      console.log("GlucoseProcessor: Datos insuficientes para cálculo de glucosa.", {
+        ppgLength: ppgValues.length,
+        rrLength: rrIntervals.length,
+        neededPpg: this.fftAnalyzer.getBufferSize(),
+        neededRr: 5
+      });
       // Need sufficient data for robust analysis
       return {
         estimatedGlucose: this.glucoseHistory.length > 0 ? this.glucoseHistory[this.glucoseHistory.length - 1] : 0,
@@ -65,9 +72,11 @@ export class GlucoseProcessor {
 
     // 1. Preprocesamiento avanzado de la señal PPG
     const preprocessedSignal = this.preprocessPPGSignal(ppgValues);
+    console.log("GlucoseProcessor: Señal PPG preprocesada. Longitud:", preprocessedSignal.length);
 
     // 2. Extracción de características avanzadas
     const features = this.extractAdvancedFeatures(preprocessedSignal, rrIntervals);
+    console.log("GlucoseProcessor: Características extraídas:", features);
 
     // 3. Algoritmo de estimación de glucosa basado en un modelo fisiológicamente informado
     // Este modelo combina las características extraídas con pesos que reflejan su influencia fisiológica.
@@ -84,16 +93,20 @@ export class GlucoseProcessor {
     if (features.hrvSdnn !== undefined) {
       estimatedGlucose += (features.hrvSdnn * this.WEIGHT_HRV_SDNN);
     }
+    console.log("GlucoseProcessor: Glucosa estimada (pre-suavizado):", estimatedGlucose);
 
     // 4. Aplicar filtro temporal (EMA) para estabilidad
     const smoothedGlucose = this.applyTemporalFilter(estimatedGlucose);
+    console.log("GlucoseProcessor: Glucosa suavizada:", smoothedGlucose);
     
     // 5. Calcular confianza y variabilidad (mejorado)
     const confidence = this.calculateConfidence(preprocessedSignal, features);
     const variability = this.calculateVariability(this.glucoseHistory);
+    console.log("GlucoseProcessor: Confianza:", confidence, "Variabilidad:", variability);
 
     // 6. Límites fisiológicos estrictos
     const finalGlucose = Math.max(70, Math.min(180, Math.round(smoothedGlucose))); // Hard physiological clamps
+    console.log("GlucoseProcessor: Glucosa final (clamp fisiológico):", finalGlucose);
 
     // 7. Definir rango basado en confianza y variabilidad
     const rangeOffset = (1 - confidence) * 20 + variability * 0.5; // Adjusted factors based on perceived impact
@@ -101,6 +114,7 @@ export class GlucoseProcessor {
       Math.max(70, finalGlucose - rangeOffset),
       Math.min(180, finalGlucose + rangeOffset),
     ];
+    console.log("GlucoseProcessor: Rango de glucosa:", glucoseRange);
 
     // Actualizar historial
     this.glucoseHistory.push(finalGlucose);
@@ -119,6 +133,7 @@ export class GlucoseProcessor {
 
   // New method for advanced feature extraction
   private extractAdvancedFeatures(ppgValues: number[], rrIntervals: number[]): GlucoseFeatures {
+    console.log("GlucoseProcessor: Extrayendo características avanzadas.");
     // Spectral features using MedicalFFTAnalyzer
     this.fftAnalyzer.reset(); // Reset for fresh analysis
     for (const val of ppgValues) {
@@ -126,13 +141,18 @@ export class GlucoseProcessor {
     }
     const fftResult = this.fftAnalyzer.analyzeBPM();
     const spectralGlucoseIndicator = fftResult ? this.calculateSpectralGlucoseIndicator(fftResult.spectrum) : 0;
+    console.log("GlucoseProcessor: Indicador espectral de glucosa:", spectralGlucoseIndicator);
 
     // Pulse Wave Morphology Analysis
     const { upstrokeTime, dicroticNotchPresence, augmentationIndex, areaUnderCurve, vascularResistanceIndex, pulseMorphologyScore } = this.analyzePulseWaveMorphology(ppgValues);
+    console.log("GlucoseProcessor: Morfología de la onda de pulso: ", {
+      upstrokeTime, dicroticNotchPresence, augmentationIndex, areaUnderCurve, vascularResistanceIndex, pulseMorphologyScore
+    });
 
     // HRV Features
     const hrvRmssd = this.calculateRMSSD(rrIntervals);
     const hrvSdnn = this.calculateSDNN(rrIntervals);
+    console.log("GlucoseProcessor: HRV - RMSSD:", hrvRmssd, ", SDNN:", hrvSdnn);
 
     return {
       spectralGlucoseIndicator,

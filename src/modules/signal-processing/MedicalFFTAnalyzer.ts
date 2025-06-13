@@ -1,4 +1,3 @@
-
 /**
  * Analizador FFT médico con algoritmos específicos para PPG
  * Implementa estándares médicos para análisis de frecuencia cardíaca
@@ -15,6 +14,10 @@ export class MedicalFFTAnalyzer {
   private confidenceHistory: number[] = [];
   private bpmHistory: number[] = [];
   private lastValidBpm: number | null = null;
+  
+  public getBufferSize(): number {
+    return this.BUFFER_SIZE;
+  }
   
   /**
    * Añadir muestra con pre-procesamiento médico
