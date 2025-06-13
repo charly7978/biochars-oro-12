@@ -639,6 +639,7 @@ const Index = () => {
             isMonitoring={isCameraOn}
             isFingerDetected={lastSignal?.fingerDetected}
             signalQuality={signalQuality}
+            onFrame={processFrame}
           />
         </div>
 
