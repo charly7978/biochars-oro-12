@@ -1,4 +1,3 @@
-
 export interface LipidProfile {
   totalCholesterol: number;
   triglycerides: number;
@@ -285,6 +284,8 @@ export class LipidProcessor {
     return Math.max(-1, Math.min(1, (compliance - 0.3) * 3));
   }
   
+  // ADVERTENCIA: Esta función es duplicada. Existe una función centralizada y robusta detectPeaks en src/modules/signal-processing/SignalAnalyzer.ts
+  // TODO: Migrar todo el pipeline a usar detectPeaks para evitar inconsistencias.
   private findPeaks(values: number[]): number[] {
     const peaks: number[] = [];
     for (let i = 2; i < values.length - 2; i++) {

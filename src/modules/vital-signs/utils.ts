@@ -26,6 +26,8 @@ export function calculateStandardDeviation(values: number[]): number {
   return Math.sqrt(avgSqDiff);
 }
 
+// ADVERTENCIA: Esta función es duplicada. Existe una función centralizada y robusta detectPeaks en src/modules/signal-processing/SignalAnalyzer.ts
+// TODO: Migrar todo el pipeline a usar detectPeaks para evitar inconsistencias.
 /**
  * Finds peaks and valleys in a signal
  */
