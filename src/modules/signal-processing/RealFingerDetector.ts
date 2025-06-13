@@ -25,14 +25,14 @@ export class RealFingerDetector {
   
   // UMBRALES AJUSTADOS PARA DEDOS HUMANOS REALES
   private readonly REAL_THRESHOLDS = {
-    MIN_RED: 5,          // Más bajo para dedos reales
+    MIN_RED: 10,          // Más bajo para dedos reales
     MAX_RED: 210,         // Más alto para permitir variación natural
     MIN_RG_RATIO: 1.05,   // Más permisivo para dedos reales
     MAX_RG_RATIO: 3.5,    // Mayor rango para condiciones variables
     MIN_TEXTURE: 0.01,    // Más bajo para detectar piel suave
     MIN_STABILITY: 0.08,  // Más permisivo para movimiento natural
-    CALIBRATION_SAMPLES: 4,
-    MIN_CONFIDENCE: 1.1   // Umbral más bajo para dedos reales
+    CALIBRATION_SAMPLES: 10,
+    MIN_CONFIDENCE: 0.9   // Umbral más bajo para dedos reales
   };
   
   detectFinger(imageData: ImageData): FingerDetectionResult {
