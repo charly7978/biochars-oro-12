@@ -290,11 +290,11 @@ const VitalSign = ({
       }
 
       return (
-          <div className="flex flex-col items-center text-center">
-              <span className={cn("text-display-small font-bold", textColorClass)}>
+          <div className="flex flex-col items-center">
+              <span className={cn("text-display-large font-bold", textColorClass)}>
                   {statusText}
               </span>
-              <span className="text-value-small text-gray-400">
+              <span className="text-value-medium text-gray-400">
                   ({minRange.toFixed(0)} - {maxRange.toFixed(0)} {unit})
               </span>
           </div>
@@ -311,47 +311,58 @@ const VitalSign = ({
   return (
     <div 
       className={cn(
-        "relative flex flex-col items-center justify-center p-4 rounded-lg shadow-lg text-white",
-        "bg-gradient-to-br from-gray-800 to-gray-900",
-        "border border-gray-700",
-        highlighted ? "ring-2 ring-blue-500 ring-offset-2 ring-offset-gray-900" : "",
-        "transition-all duration-300 ease-in-out",
-        "min-w-[150px] min-h-[150px]", // Asegura un tamaño mínimo consistente
-        "overflow-hidden", // Oculta el contenido que se sale de los bordes
-        "cursor-pointer"
+        "relative flex flex-col justify-center items-center p-2 bg-transparent transition-all duration-500 text-center cursor-pointer",
+        showDetails && "bg-gray-800/20 backdrop-blur-sm rounded-lg"
       )}
       onClick={handleClick}
     >
-      {/* Título */}
-      <div className="text-sm font-semibold mb-2 text-gray-300 text-center uppercase">
+      <div className="text-[11px] font-medium uppercase tracking-wider text-black/70 mb-1">
         {label}
       </div>
-
-      {/* Valor principal */}
-      <div className="flex-1 flex flex-col items-center justify-center">
-        {displayValue()}
+      
+      <div className="font-bold text-xl sm:text-2xl transition-all duration-300">
+        <span className="text-gradient-soft animate-value-glow">
+          {isArrhytmia && typeof value === 'string' ? value.split('|')[0] : displayValue()}
+        </span>
+        {unit && <span className="text-xs text-white/70 ml-1">{unit}</span>}
       </div>
 
-      {/* Etiqueta de Riesgo (si aplica) */}
-      {riskLabel && riskLabel !== 'Normal' && riskLabel !== 'Calibrando' && riskLabel !== 'SIN ARRITMIAS' && (
-        <div className={cn("text-sm font-medium mt-2", riskColor)}>
+      {!isArrhytmia && riskLabel && (
+        <div className={`text-sm font-medium mt-1 ${riskColor}`}>
           {riskLabel}
         </div>
       )}
-
+      
       {isArrhytmia && getArrhythmiaDisplay(value as string)}
       
-      {label === 'GLUCOSA' && showDetails && typeof value === 'object' && value !== null && 'estimatedGlucose' in value && (
-        <div className="text-xs text-gray-400 mt-2 text-center">
-          <p>{medianAndAverage.median}</p>
-          <p>{medianAndAverage.average}</p>
-          <p>{medianAndAverage.interpretation}</p>
+      {calibrationProgress !== undefined && (
+        <div className="absolute inset-0 bg-transparent overflow-hidden pointer-events-none border-0">
+          <div 
+            className="h-full bg-blue-500/5 transition-all duration-300 ease-out"
+            style={{ width: `${calibrationProgress}%` }}
+          />
+          <div className="absolute inset-0 flex items-center justify-center">
+            <span className="text-xs text-white/80">
+              {calibrationProgress < 100 ? `${Math.round(calibrationProgress)}%` : '✓'}
+            </span>
+          </div>
         </div>
       )}
 
-      {calibrationProgress !== undefined && calibrationProgress < 100 && (
-        <div className="absolute bottom-2 left-0 right-0 text-center text-xs text-blue-400">
-          Calibrando: {calibrationProgress.toFixed(0)}%
+      {showDetails && medianAndAverage && (
+        <div className="absolute inset-x-0 top-full z-50 mt-2 p-4 bg-white/90 backdrop-blur-sm rounded-lg shadow-lg text-left">
+          <div className="text-sm font-medium text-gray-900 mb-2">Información adicional:</div>
+          <div className="grid grid-cols-2 gap-2 mb-2">
+            <div className="text-xs">
+              <span className="font-medium">Mediana:</span> {medianAndAverage.median} {unit}
+            </div>
+            <div className="text-xs">
+              <span className="font-medium">Promedio ponderado:</span> {medianAndAverage.average} {unit}
+            </div>
+          </div>
+          <div className="text-xs mt-1 text-gray-800">
+            {medianAndAverage.interpretation}
+          </div>
         </div>
       )}
     </div>
