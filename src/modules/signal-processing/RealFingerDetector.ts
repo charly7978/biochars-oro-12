@@ -145,12 +145,12 @@ export class RealFingerDetector {
     // 1. Validación de intensidad roja más permisiva (30%)
     if (metrics.redIntensity >= this.REAL_THRESHOLDS.MIN_RED && 
         metrics.redIntensity <= this.REAL_THRESHOLDS.MAX_RED) {
-      score += 0.20;
+      score += 0.40;
       reasons.push(`✓ Rojo válido: ${metrics.redIntensity.toFixed(1)}`);
       
       // Bonus para rangos típicos de dedo humano
       if (metrics.redIntensity >= 80 && metrics.redIntensity <= 200) {
-        score += 0.50;
+        score += 0.60;
         reasons.push(`✓ Rango óptimo para dedo humano`);
       }
     } else {
