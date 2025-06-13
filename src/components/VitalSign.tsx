@@ -297,10 +297,21 @@ const VitalSign = ({
     }
 
     // Para otros signos vitales (HR, SpO2, etc.)
+    if (typeof value === 'string' || typeof value === 'number') {
+      return (
+        <div className="flex flex-col items-center text-center">
+          <span className="text-display-small font-bold text-gradient-soft animate-value-glow">
+            {typeof value === 'number' ? value.toFixed(0) : String(value)}
+          </span>
+          {unit && <span className="text-value-small text-gray-400">{unit}</span>}
+        </div>
+      );
+    }
+    // Fallback si el valor no es un string o un number (e.g., GlucoseDetails para una etiqueta incorrecta)
     return (
       <div className="flex flex-col items-center text-center">
         <span className="text-display-small font-bold text-gradient-soft animate-value-glow">
-          {typeof value === 'number' ? value.toFixed(0) : value}
+          --
         </span>
         {unit && <span className="text-value-small text-gray-400">{unit}</span>}
       </div>
@@ -309,7 +320,10 @@ const VitalSign = ({
 
   const riskLabel = getRiskLabel(label, value);
   const riskColor = getRiskColor(riskLabel);
-  const arrhythmiaDisplay = getArrhythmiaDisplay(value);
+  const arrhythmiaDisplay =
+    label === 'ARRITMIAS' && typeof value === 'string'
+      ? getArrhythmiaDisplay(value)
+      : null;
   const medianAndAverage = getMedianAndAverageInfo(label, value);
 
   return (
