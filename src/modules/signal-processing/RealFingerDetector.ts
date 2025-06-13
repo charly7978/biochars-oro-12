@@ -263,7 +263,7 @@ export class RealFingerDetector {
       return Math.max(8, Math.min(25, confidence * 25));
     }
     
-    let quality = 30 + (confidence * 40); // Base más alta para dedos detectados
+    let quality = 30 + (confidence * 50); // Base más alta para dedos detectados
     
     // Bonus por métricas típicas de dedo humano
     if (metrics.redIntensity >= 80 && metrics.redIntensity <= 200) {
