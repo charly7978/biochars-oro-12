@@ -14,10 +14,8 @@ export interface ProcessedSignalData {
   filteredValue: number;
   amplifiedValue: number;
   timestamp: number;
-  isPeak?: boolean; // Nuevo: indica si es un latido detectado
 }
 
-// Sustituye el array por un buffer circular simple
 class CircularBuffer {
   private buffer: number[];
   private maxSize: number;
@@ -58,6 +56,10 @@ export class SignalProcessingCore {
   private signalHistory: CircularBuffer;
   private lastPeakTimestamp: number = 0;
   private lastPeakValue: number = 0;
+  private peakIndices: number[] = [];
+  private lastPeakIndex: number = -10;
+  private PEAK_MIN_DISTANCE = 8; // frames (ajusta según tu FPS)
+  private PEAK_THRESHOLD = 8;    // ajusta según la amplitud de tu señal
 
   constructor() {
     this.kalmanFilter = new OptimizedKalmanFilter();
@@ -66,7 +68,7 @@ export class SignalProcessingCore {
   }
   
   /**
-   * Procesar señal PPG simple y efectivo
+   * Procesar señal PPG y detectar latidos
    */
   processSignal(redValue: number, quality: number): ProcessedSignalData {
     // Baseline adaptativo rápido pero estable
@@ -93,39 +95,48 @@ export class SignalProcessingCore {
     this.signalHistory.push(amplified);
     if (this.signalHistory.length > 100) this.signalHistory.shift();
 
-    // Detección de pico simple sobre la señal amplificada
-    const isPeak = this.detectPeak(amplified);
+    // Detección de picos (latidos) sobre la señal amplificada
+    this.detectPeaks();
 
     return {
       rawValue: redValue,
       filteredValue: sgFiltered,
       amplifiedValue: amplified,
-      timestamp: Date.now(),
-      isPeak
+      timestamp: Date.now()
     };
   }
 
   /**
-   * Detección sencilla de picos (latidos) en la señal amplificada.
-   * Retorna true si se detecta un pico en este frame.
+   * Detección de picos en la señal amplificada.
+   * Guarda los índices de los picos recientes en this.peakIndices.
    */
-  private detectPeak(value: number): boolean {
-    const now = Date.now();
-    // Umbral bajo para señales débiles, y periodo refractario de 300ms
-    const PEAK_THRESHOLD = 8;
-    const MIN_PEAK_DISTANCE_MS = 300;
+  private detectPeaks() {
+    const sig = this.signalHistory;
+    const len = sig.length;
+    if (len < 3) return;
 
+    // Solo busca pico en el último punto agregado
+    const i = len - 2;
     if (
-      value > PEAK_THRESHOLD &&
-      this.lastPeakValue <= PEAK_THRESHOLD &&
-      now - this.lastPeakTimestamp > MIN_PEAK_DISTANCE_MS
+      i - this.lastPeakIndex > this.PEAK_MIN_DISTANCE &&
+      sig[i] > this.PEAK_THRESHOLD &&
+      sig[i] > sig[i - 1] &&
+      sig[i] > sig[i + 1]
     ) {
-      this.lastPeakTimestamp = now;
-      this.lastPeakValue = value;
-      return true;
+      this.peakIndices.push(i);
+      this.lastPeakIndex = i;
+      // Mantén solo los últimos 20 picos
+      if (this.peakIndices.length > 20) this.peakIndices.shift();
     }
-    this.lastPeakValue = value;
-    return false;
+  }
+
+  /**
+   * Devuelve los índices de los picos detectados (latidos) respecto al buffer actual.
+   */
+  public getPeakIndices(): number[] {
+    // Ajusta los índices para que sean relativos al array actual
+    const offset = this.signalHistory.length - 100;
+    return this.peakIndices.map(idx => idx - offset).filter(idx => idx >= 0);
   }
 
   /**
