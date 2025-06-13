@@ -30,12 +30,12 @@ class SignalOptimizer {
   }
 
   calculateAdvancedBloodPressure(values) {
-    // Ajuste en el cálculo para elevar los valores
-    if (values.length === 0) return { systolic: 120, diastolic: 80 };
+    // Ajuste en el cálculo para elevar los valores de presión arterial
+    if (values.length === 0) return { systolic: 130, diastolic: 90 };
     const avg = values.reduce((a, b) => a + b, 0) / values.length;
-    // Multiplicadores actualizados para elevar los resultados
-    let systolic = Math.min(180, Math.max(90, 120 + (avg - 0.5) * 80));
-    let diastolic = Math.min(110, Math.max(60, 80 + (avg - 0.5) * 50));
+    // Nuevo baseline y límites ajustados
+    let systolic = Math.min(190, Math.max(95, 130 + (avg - 0.5) * 80));
+    let diastolic = Math.min(120, Math.max(70, 90 + (avg - 0.5) * 50));
     return { systolic: Math.round(systolic), diastolic: Math.round(diastolic) };
   }
 

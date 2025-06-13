@@ -1,26 +1,26 @@
-import { useState, useCallback, useRef, useEffect } from 'react';
-import { VitalSignsProcessor, VitalSignsResult } from '../modules/vital-signs/VitalSignsProcessor';
+import { useEffect, useState } from "react";
+import { VitalSignsProcessor } from "../modules/vital-signs/VitalSignsProcessor";
 
-/**
- * Custom hook for processing vital signs with advanced algorithms
- * Uses improved signal processing and arrhythmia detection based on medical research
- */
-export const useVitalSignsProcessor = () => {
-  // State and refs
-  const [processor] = useState(() => {
-    console.log("useVitalSignsProcessor: Creando nueva instancia", {
-      timestamp: new Date().toISOString()
-    });
-    return new VitalSignsProcessor();
-  });
-  const [arrhythmiaCounter, setArrhythmiaCounter] = useState(0);
-  const [lastValidResults, setLastValidResults] = useState<VitalSignsResult | null>(null);
-  const lastArrhythmiaTime = useRef<number>(0);
-  const hasDetectedArrhythmia = useRef<boolean>(false);
-  const sessionId = useRef<string>(Math.random().toString(36).substring(2, 9));
-  const processedSignals = useRef<number>(0);
-  const signalLog = useRef<{timestamp: number, value: number, result: any}[]>([]);
-  
+export function useVitalSignsProcessor() {
+  const [calibrationFeedback, setCalibrationFeedback] = useState("SIN DATOS");
+  const processor = new VitalSignsProcessor();
+
+  useEffect(() => {
+    // Se asume que el sistema real emite eventos "sensorData" con datos del sensor
+    const sensorListener = (event: Event & { detail: { ppgValue: number; rrData: any } }) => {
+      const sensorData = event.detail;
+      const result = processor.processSignal(sensorData.ppgValue, sensorData.rrData);
+      setCalibrationFeedback(result.calibrationFeedback);
+    };
+
+    window.addEventListener("sensorData", sensorListener);
+    return () => {
+      window.removeEventListener("sensorData", sensorListener);
+    };
+  }, [processor]);
+
+  return { calibrationFeedback };
+}
   // Advanced configuration based on clinical guidelines
   const MIN_TIME_BETWEEN_ARRHYTHMIAS = 1000; // Minimum 1 second between arrhythmias
   const MAX_ARRHYTHMIAS_PER_SESSION = 20; // Reasonable maximum for 30 seconds

@@ -1,4 +1,3 @@
-
 import * as React from "react";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -11,13 +10,15 @@ interface CalibrationDialogProps {
   onClose: () => void;
   onCalibrationStart: () => void;
   onCalibrationEnd: () => void;
+  feedback: string;
 }
 
 const CalibrationDialog: React.FC<CalibrationDialogProps> = ({ 
   isOpen, 
   onClose,
   onCalibrationStart,
-  onCalibrationEnd
+  onCalibrationEnd,
+  feedback
 }) => {
   const [systolic, setSystolic] = React.useState<string>("");
   const [diastolic, setDiastolic] = React.useState<string>("");
@@ -113,6 +114,21 @@ const CalibrationDialog: React.FC<CalibrationDialogProps> = ({
           </div>
         </motion.div>
       </DialogContent>
+
+      <div style={{
+        position: "absolute",
+        top: 0,
+        left: 0,
+        width: "100%",
+        zIndex: 1000, // se renderiza por encima
+        pointerEvents: "none",
+        textAlign: "center",
+        padding: "1rem",
+        background: "rgba(0, 0, 0, 0.3)",
+        color: "white"
+      }}>
+        {feedback}
+      </div>
     </Dialog>
   );
 };
