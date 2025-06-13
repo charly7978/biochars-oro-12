@@ -189,7 +189,7 @@ export class RealFingerDetector {
       reasons.push(`✓ Estabilidad: ${(stability * 100).toFixed(1)}%`);
     } else {
       // Algo de puntaje incluso con baja estabilidad
-      score += 0.01;
+      score += 0.05;
       reasons.push(`~ Estabilidad baja: ${(stability * 100).toFixed(1)}%`);
     }
     
@@ -222,8 +222,8 @@ export class RealFingerDetector {
 
     // Nueva lógica: si la intensidad roja es extremadamente baja o alta, el dedo no está presente.
     // Esto actúa como una anulación clara para cuando se retira el dedo o hay condiciones de luz extremas.
-    const isTooDark = metrics.redIntensity < 10; // Muy baja intensidad roja (cerca de negro)
-    const isTooBright = metrics.redIntensity > 220; // Muy alta intensidad roja (sobreexposición o blanco)
+    const isTooDark = metrics.redIntensity < 5; // Muy baja intensidad roja (cerca de negro)
+    const isTooBright = metrics.redIntensity > 280; // Muy alta intensidad roja (sobreexposición o blanco)
 
     if (isTooDark || isTooBright) {
         console.log("RealFingerDetector: Dedo no detectado (intensidad roja fuera de rango óptimo)", {
@@ -263,7 +263,7 @@ export class RealFingerDetector {
       return Math.max(8, Math.min(25, confidence * 25));
     }
     
-    let quality = 30 + (confidence * 50); // Base más alta para dedos detectados
+    let quality = 30 + (confidence * 40); // Base más alta para dedos detectados
     
     // Bonus por métricas típicas de dedo humano
     if (metrics.redIntensity >= 80 && metrics.redIntensity <= 200) {
