@@ -260,6 +260,11 @@ const VitalSign = ({
     return { median, average, interpretation };
   };
 
+  const riskLabel = getRiskLabel(label, value);
+  const riskColor = getRiskColor(riskLabel);
+  const isArrhytmia = label === 'ARRITMIAS';
+  const medianAndAverage = getMedianAndAverageInfo(label, value);
+
   const handleClick = () => {
     setShowDetails(!showDetails);
   };
@@ -295,33 +300,30 @@ const VitalSign = ({
           </div>
       );
     }
-
-    // Para otros signos vitales (HR, SpO2, etc.)
-    return (
-      <div className="flex flex-col items-center text-center">
-        <span className="text-display-small font-bold text-gradient-soft animate-value-glow">
-          {typeof value === 'number' ? value.toFixed(0) : value}
-        </span>
-        {unit && <span className="text-value-small text-gray-400">{unit}</span>}
-      </div>
-    );
+    if (typeof value === 'object' && value !== null) {
+      // Si llega aquí, es un objeto que no es GlucoseDetails (ej. lipids)
+      // o un caso no manejado, se mostrará el valor estimado si existe
+      return String((value as any).estimatedGlucose || (value as any).totalCholesterol || '--');
+    }
+    return `${value}${unit ? ` ${unit}` : ''}`;
   };
 
-  const riskLabel = getRiskLabel(label, value);
-  const riskColor = getRiskColor(riskLabel);
-  const arrhythmiaDisplay = getArrhythmiaDisplay(value);
-  const medianAndAverage = getMedianAndAverageInfo(label, value);
-
   return (
-    <div
+    <div 
       className={cn(
-        "relative flex flex-col justify-center items-center p-2 bg-transparent transition-all duration-500 text-center cursor-pointer",
-        showDetails && "bg-gray-800/20 backdrop-blur-sm rounded-lg"
+        "relative flex flex-col items-center justify-center p-4 rounded-lg shadow-lg text-white",
+        "bg-gradient-to-br from-gray-800 to-gray-900",
+        "border border-gray-700",
+        highlighted ? "ring-2 ring-blue-500 ring-offset-2 ring-offset-gray-900" : "",
+        "transition-all duration-300 ease-in-out",
+        "min-w-[150px] min-h-[150px]", // Asegura un tamaño mínimo consistente
+        "overflow-hidden", // Oculta el contenido que se sale de los bordes
+        "cursor-pointer"
       )}
       onClick={handleClick}
     >
       {/* Título */}
-      <div className="text-sm font-semibold uppercase tracking-wider text-gray-300 mb-1 text-center">
+      <div className="text-sm font-semibold mb-2 text-gray-300 text-center uppercase">
         {label}
       </div>
 
@@ -332,22 +334,14 @@ const VitalSign = ({
 
       {/* Etiqueta de Riesgo (si aplica) */}
       {riskLabel && riskLabel !== 'Normal' && riskLabel !== 'Calibrando' && riskLabel !== 'SIN ARRITMIAS' && (
-        <div className={cn("text-sm font-medium mt-1", riskColor)}>
+        <div className={cn("text-sm font-medium mt-2", riskColor)}>
           {riskLabel}
         </div>
       )}
 
-      {arrhythmiaDisplay}
-
-      {/* Detalles para ARITMIAS */}
-      {label === 'ARRITMIAS' && showDetails && medianAndAverage && (
-        <div className="text-xs text-gray-400 mt-2 text-center">
-          <p>{medianAndAverage.interpretation}</p>
-        </div>
-      )}
-
-      {/* Detalles adicionales para la glucosa */}
-      {label === 'GLUCOSA' && showDetails && typeof value === 'object' && value !== null && 'estimatedGlucose' in value && medianAndAverage && (
+      {isArrhytmia && getArrhythmiaDisplay(value as string)}
+      
+      {label === 'GLUCOSA' && showDetails && typeof value === 'object' && value !== null && 'estimatedGlucose' in value && (
         <div className="text-xs text-gray-400 mt-2 text-center">
           <p>{medianAndAverage.median}</p>
           <p>{medianAndAverage.average}</p>
