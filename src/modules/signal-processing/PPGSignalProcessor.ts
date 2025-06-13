@@ -1,3 +1,4 @@
+
 import { ProcessedSignal, ProcessingError, SignalProcessor as SignalProcessorInterface } from '../../types/signal';
 import { RealFingerDetector, FingerDetectionResult } from './RealFingerDetector';
 import { QualityCalculator } from './QualityCalculator';
@@ -16,11 +17,6 @@ export class PPGSignalProcessor implements SignalProcessorInterface {
   private frameCount = 0;
   private detectionHistory: boolean[] = [];
   private signalBuffer: number[] = [];
-  
-  private z1_b1: number = 0;
-  private z2_b1: number = 0;
-  private z1_b2: number = 0;
-  private z2_b2: number = 0;
   
   constructor(
     public onSignalReady?: (signal: ProcessedSignal) => void,
@@ -44,12 +40,6 @@ export class PPGSignalProcessor implements SignalProcessorInterface {
       // Reset componentes
       this.fingerDetector.reset();
       this.qualityCalculator.reset();
-      
-      // Resetear estados del filtro
-      this.z1_b1 = 0;
-      this.z2_b1 = 0;
-      this.z1_b2 = 0;
-      this.z2_b2 = 0;
       
       console.log("PPGSignalProcessor: Sistema real inicializado");
     } catch (error) {
@@ -120,8 +110,8 @@ export class PPGSignalProcessor implements SignalProcessorInterface {
         this.signalBuffer.shift();
       }
       
-      // 3. FILTRADO AVANZADO (Butterworth)
-      const filteredValue = this.applyButterworthFilter(rawSignalValue);
+      // 3. FILTRADO SIMPLE
+      const filteredValue = this.applySimpleFilter(rawSignalValue);
 
       // 4. CÁLCULO DE CALIDAD REAL
       const pulsationStrength = this.calculateSimplePulsation();
@@ -213,36 +203,6 @@ export class PPGSignalProcessor implements SignalProcessorInterface {
     // Filtro promedio móvil simple
     const recent = this.signalBuffer.slice(-3);
     return recent.reduce((a, b) => a + b, 0) / recent.length;
-  }
-
-  /**
-   * Filtro Butterworth pasa-banda de segundo orden para PPG.
-   * Frecuencias de corte típicas: 0.5 Hz (HP) y 8 Hz (LP) para una frecuencia de muestreo de 30 Hz.
-   * Los coeficientes deben calcularse o aproximarse. Para una implementación simple,
-   * se utilizarán coeficientes pre-calculados para una tasa de muestreo de 30 FPS.
-   * Considerar que esto es una aproximación sin una librería DSP completa.
-   */
-  private applyButterworthFilter(currentValue: number): number {
-    // Coeficientes para un filtro Butterworth pasa-banda de 2do orden
-    // Diseñado para Fs = 30 Hz, Fc_low = 0.5 Hz, Fc_high = 8 Hz
-    // Estos coeficientes son ejemplos y deben ser calculados precisamente
-    // con una herramienta de diseño de filtros para mayor precisión.
-    const a1 = -0.925485250495393;
-    const a2 = 0.852932900746979;
-    const b0 = 0.006861912953835695;
-    const b1 = 0.01372382590767139;
-    const b2 = 0.006861912953835695;
-
-    // Aplicar la diferencia de ecuaciones
-    const filteredValue = b0 * currentValue + b1 * this.z1_b1 + b2 * this.z2_b1 - a1 * this.z1_b2 - a2 * this.z2_b2;
-
-    this.z2_b1 = this.z1_b1;
-    this.z1_b1 = currentValue;
-
-    this.z2_b2 = this.z1_b2;
-    this.z1_b2 = filteredValue;
-
-    return filteredValue;
   }
 
   /**
