@@ -1,4 +1,3 @@
-// Eliminar este archivo si SignalProcessingCore y hooks ya cubren el procesamiento de signos vitales.
 
 import { VitalSignsProcessor as NewVitalSignsProcessor } from './vital-signs/VitalSignsProcessor';
 

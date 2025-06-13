@@ -24,16 +24,16 @@ export class RealFingerDetector {
   private isCalibrated = false;
   private baselineRed = 0;
   
-  // UMBRALES AJUSTADOS PARA MAYOR SENSIBILIDAD
+  // UMBRALES AJUSTADOS PARA DEDOS HUMANOS REALES
   private readonly REAL_THRESHOLDS = {
-    MIN_RED: 40,          // Mucho más bajo para permitir detección con menos luz
-    MAX_RED: 350,         // Más alto para permitir más variación
-    MIN_RG_RATIO: 0.95,   // Más permisivo aún
-    MAX_RG_RATIO: 3.0,    // Permitir más variación de color
-    MIN_TEXTURE: 0.02,    // Permitir menos textura
-    MIN_STABILITY: 0.04,  // Permitir más movimiento
-    CALIBRATION_SAMPLES: 5, // Calibración más rápida
-    MIN_CONFIDENCE: 0.15   // Permitir menor confianza
+    MIN_RED: 80,          // Más bajo para dedos reales
+    MAX_RED: 300,         // Más alto para permitir variación natural
+    MIN_RG_RATIO: 1.05,   // Más permisivo para dedos reales
+    MAX_RG_RATIO: 2.5,    // Mayor rango para condiciones variables
+    MIN_TEXTURE: 0.035,    // Ligeramente más alto para reducir falsos positivos en textura
+    MIN_STABILITY: 0.08,  // Más permisivo para movimiento natural
+    CALIBRATION_SAMPLES: 7,
+    MIN_CONFIDENCE: 0.32   // Ligeramente más alto para reducir falsos positivos
   };
   
   detectFinger(imageData: ImageData): FingerDetectionResult {
@@ -57,21 +57,19 @@ export class RealFingerDetector {
     // Calcular calidad optimizada para humanos
     const quality = this.calculateHumanFingerQuality(metrics, isDetected, validation.confidence);
     
-    // FORZAR DETECCIÓN DE DEDO PARA PRUEBA DE UI
     return {
-      isFingerDetected: true, // <-- Forzado para test
-      confidence: 1,
-      quality: 100,
-      reasons: ['FORZADO PARA PRUEBA DE UI'],
+      isFingerDetected: isDetected,
+      confidence: validation.confidence,
+      quality,
+      reasons: validation.reasons,
       metrics: {
-        redIntensity: 200,
-        rgRatio: 1.2,
-        textureScore: 0.1,
-        stability: 0.1
+        redIntensity: metrics.redIntensity,
+        rgRatio: metrics.rgRatio,
+        textureScore: metrics.textureScore,
+        stability: this.calculateStability()
       },
       roi: metrics.roi
     };
-    // Para revertir: restaurar el return original con la lógica real
   }
   
   private extractBasicMetrics(imageData: ImageData) {
@@ -82,12 +80,14 @@ export class RealFingerDetector {
     let skinPixels = 0;
     
     // Paso 1: Detección inicial de píxeles de piel (simplificado para este ejemplo)
-    // FILTRO EXTREMADAMENTE SENSIBLE: acepta cualquier píxel con algo de rojo
     for (let i = 0; i < data.length; i += 4) {
       const r = data[i];
-      // Antes: if (r > g && g > b && (r - g) < 70 && (g - b) < 70 && r > 50)
-      // Ahora: solo requiere r > 10
-      if (r > 10) {
+      const g = data[i + 1];
+      const b = data[i + 2];
+      
+      // Una heurística simple para detectar color de piel:
+      // R > G > B y diferencias no demasiado grandes, y R > 50
+      if (r > g && g > b && (r - g) < 70 && (g - b) < 70 && r > 50) {
         skinPixels++;
         const x = (i / 4) % width;
         const y = Math.floor((i / 4) / width);
@@ -97,7 +97,6 @@ export class RealFingerDetector {
         maxY = Math.max(maxY, y);
       }
     }
-    // NOTA: Este filtro es ultra permisivo y puede dar falsos positivos. Si detecta, luego ajustamos aquí.
 
     let redSum = 0, greenSum = 0, blueSum = 0;
     let pixelCount = 0;
@@ -149,9 +148,6 @@ export class RealFingerDetector {
       const variance = intensities.reduce((acc, val) => acc + Math.pow(val - mean, 2), 0) / intensities.length;
       textureScore = Math.sqrt(variance) / 255;
     }
-    
-    // LOG DE DIAGNÓSTICO: mostrar valores de rojo y cantidad de píxeles
-    console.log('[DIAG] RealFingerDetector - avgRed:', avgRed, 'pixelCount:', pixelCount, 'avgGreen:', avgGreen, 'textureScore:', textureScore);
     
     return {
       redIntensity: avgRed,
@@ -355,5 +351,3 @@ export class RealFingerDetector {
     };
   }
 }
-
-// Eliminar este archivo si FingerDetectionCore.ts ya cubre la detección de dedo.
