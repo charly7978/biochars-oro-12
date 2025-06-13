@@ -421,29 +421,29 @@ const PPGSignalMeter = ({
         </div>
       </div>
 
-      {/* Información adicional de mediciones cardiacas */}
-      <div className="absolute bottom-80 left-0 right-0 flex flex-col items-center z-20">
-        <div className="bg-white/80 rounded-lg px-3 py-2 shadow-md backdrop-blur-md text-xs text-gray-800">
-          <p>
-            Ritmo Cardiaco: {value > 0 ? Math.round(value) + " BPM" : "--"}
-          </p>
-          <p>Calidad de Señal: {quality}%</p>
-          {arrhythmiaStatus ? (
-            <p className="text-red-600 font-semibold">
-              Arritmia: {arrhythmiaStatus}
-            </p>
-          ) : (
-            <p>Estabilidad: Normal</p>
-          )}
-          {rawArrhythmiaData && (
-            <p>
-              RMSSD: {rawArrhythmiaData.rmssd.toFixed(2)} | RR Variación:{" "}
-              {rawArrhythmiaData.rrVariation.toFixed(2)}
-            </p>
-          )}
-        </div>
+      <div className="fixed bottom-0 left-0 right-0 h-[60px] grid grid-cols-2 bg-transparent z-10">
+        <button 
+          onClick={onStartMeasurement}
+          className="bg-transparent text-black/80 hover:bg-white/5 active:bg-white/10 transition-colors duration-200 text-sm font-semibold"
+        >
+          INICIAR
+        </button>
+        <button 
+          onClick={handleReset}
+          className="bg-transparent text-black/80 hover:bg-white/5 active:bg-white/10 transition-colors duration-200 text-sm font-semibold"
+        >
+          RESET
+        </button>
       </div>
 
+      <div className="text-lg font-bold text-gray-800 text-center">
+        {value}
+      </div>
+    </div>
+  );
+};
+
+export default PPGSignalMeter;
       <div className="fixed bottom-0 left-0 right-0 h-[60px] grid grid-cols-2 bg-transparent z-10">
         <button 
           onClick={onStartMeasurement}
