@@ -76,7 +76,7 @@ export class RealFingerDetector {
     // Área central más grande para capturar mejor el dedo
     const centerX = width / 2;
     const centerY = height / 2;
-    const radius = Math.min(width, height) * 0.19; // Área más grande
+    const radius = Math.min(width, height) * 0.14; // Área más grande
     
     let redSum = 0, greenSum = 0, blueSum = 0;
     let pixelCount = 0;
@@ -178,7 +178,7 @@ export class RealFingerDetector {
       reasons.push(`✓ Textura: ${(metrics.textureScore * 100).toFixed(1)}%`);
     } else {
       // No penalizar mucho la textura baja en dedos
-      score += 0.01;
+      score += 0.21;
       reasons.push(`~ Textura baja pero aceptable: ${(metrics.textureScore * 100).toFixed(1)}%`);
     }
     
