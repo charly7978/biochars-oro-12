@@ -3,21 +3,20 @@ import ReactDOM from "react-dom";
 import App from "./App";
 import { processVitalSigns } from "@/modules/VitalSignsProcessor";
 
-// Función que debe retornar los datos reales del sensor.
-// Reemplazá este placeholder con la implementación real (por ej. suscripción a eventos, API, etc.).
+// Función que obtiene la señal real del hardware (reemplaza por tu integración real)
 async function getRealSensorData(): Promise<number[]> {
-  // ...existing code... (implementación real)
-  // Ejemplo: return await sensorAPI.getLatestSamples();
-  return []; // Devuelve un array de números reales adquiridos del sensor.
+  // Implementa aquí la adquisición real de datos del sensor
+  // Por ejemplo: return await sensorAPI.getLatestSamples();
+  return []; // ← Reemplaza esto por la integración real
 }
 
 function Main() {
   const [rawSignal, setRawSignal] = useState<number[]>([]);
+  const [bloodPressure, setBloodPressure] = useState<any>(null);
 
-  // Reemplazamos la simulación: se subscriben a datos reales del sensor.
   useEffect(() => {
     let isMounted = true;
-    async function subscribeToSensor() {
+    async function fetchSensorData() {
       try {
         const data = await getRealSensorData();
         if (isMounted && data.length) {
@@ -27,29 +26,30 @@ function Main() {
         console.error("Error acquiring sensor data:", error);
       }
     }
-    // Se invoca la función según la frecuencia necesaria (por ejemplo, cada 1s).
-    const interval = setInterval(subscribeToSensor, 1000);
+    const interval = setInterval(fetchSensorData, 1000);
     return () => {
       isMounted = false;
       clearInterval(interval);
     };
   }, []);
 
-  // Procesa la señal real adquirida
   useEffect(() => {
     if (rawSignal.length > 0) {
-      const bpResult = processVitalSigns(rawSignal);
-      console.log("Presión arterial estimada:", bpResult);
-      // ...existing code to update UI or state...
+      const { bloodPressure } = processVitalSigns(rawSignal);
+      setBloodPressure(bloodPressure);
+      // Aquí puedes actualizar la UI o el estado global con bloodPressure
+      // Ejemplo: mostrar en consola
+      console.log("Presión arterial estimada:", bloodPressure);
     }
   }, [rawSignal]);
 
   return (
     <div>
       <App />
-      {/* Agregar componente(s) de UI para mostrar resultados si es necesario */}
+      {/* Puedes mostrar bloodPressure en la UI aquí si lo deseas */}
     </div>
   );
 }
 
+ReactDOM.render(<Main />, document.getElementById("root"));
 ReactDOM.render(<Main />, document.getElementById("root"));

@@ -37,27 +37,27 @@ export class VitalSignsProcessor {
   }
 }
 
-// Esta función es la responsable de procesar la señal de todos los signos vitales
-export function processVitalSigns(rawSignal: number[]): void {
-    // rawSignal: la señal obtenida del sensor/hardware.
-  
-    // Inicializa el optimizador con parámetros configurables.
+// Procesamiento real de signos vitales con integración del optimizador y canal exclusivo de presión arterial
+export function processVitalSigns(rawSignal: number[]): { bloodPressure: any } {
+    // Inicializa el optimizador con parámetros reales (ajustar según hardware)
     const optimizer = new SignalOptimizer({
         defaultGain: 1,
         ppgGain: 0.95,
         spo2Factor: 1.05,
         arrhythmiaThreshold: 50,
     });
-  
-    // Optimiza la señal en todos los canales.
+
+    // Optimiza la señal en todos los canales
     const optimizedChannels = optimizer.optimize(rawSignal);
-  
-    // Procesa la señal de presión arterial utilizando el canal optimizado (por ejemplo, PPG).
-    const bpResult = processBloodPressureSignal(optimizedChannels.ppg);
-  
-    // Se puede actualizar el estado global o la UI con los resultados.
-    console.log("Presión arterial estimada:", bpResult);
-  
+
+    // Canal exclusivo para presión arterial (puedes cambiar a otro canal si tu hardware lo requiere)
+    const bpResult = processBloodPressureSignal(optimizedChannels.bloodPressure);
+
+    // Retorna el resultado para ser consumido por la UI o el estado global
+    return {
+        bloodPressure: bpResult
+    };
+}
     // Ejemplo de feedback: actualizar parámetros en tiempo real (si corresponde)
     // optimizer.updateFeedback("ppg", { calibrationFactor: nuevoValor });
   
