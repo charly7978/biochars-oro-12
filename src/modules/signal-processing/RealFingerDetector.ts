@@ -80,14 +80,12 @@ export class RealFingerDetector {
     let skinPixels = 0;
     
     // Paso 1: Detección inicial de píxeles de piel (simplificado para este ejemplo)
+    // FILTRO EXTREMADAMENTE SENSIBLE: acepta cualquier píxel con algo de rojo
     for (let i = 0; i < data.length; i += 4) {
       const r = data[i];
-      const g = data[i + 1];
-      const b = data[i + 2];
-      
-      // Una heurística simple para detectar color de piel:
-      // R > G > B y diferencias no demasiado grandes, y R > 50
-      if (r > g && g > b && (r - g) < 70 && (g - b) < 70 && r > 50) {
+      // Antes: if (r > g && g > b && (r - g) < 70 && (g - b) < 70 && r > 50)
+      // Ahora: solo requiere r > 10
+      if (r > 10) {
         skinPixels++;
         const x = (i / 4) % width;
         const y = Math.floor((i / 4) / width);
@@ -97,6 +95,7 @@ export class RealFingerDetector {
         maxY = Math.max(maxY, y);
       }
     }
+    // NOTA: Este filtro es ultra permisivo y puede dar falsos positivos. Si detecta, luego ajustamos aquí.
 
     let redSum = 0, greenSum = 0, blueSum = 0;
     let pixelCount = 0;
@@ -148,6 +147,9 @@ export class RealFingerDetector {
       const variance = intensities.reduce((acc, val) => acc + Math.pow(val - mean, 2), 0) / intensities.length;
       textureScore = Math.sqrt(variance) / 255;
     }
+    
+    // LOG DE DIAGNÓSTICO: mostrar valores de rojo y cantidad de píxeles
+    console.log('[DIAG] RealFingerDetector - avgRed:', avgRed, 'pixelCount:', pixelCount, 'avgGreen:', avgGreen, 'textureScore:', textureScore);
     
     return {
       redIntensity: avgRed,
