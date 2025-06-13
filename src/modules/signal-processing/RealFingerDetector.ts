@@ -328,20 +328,20 @@ export class RealFingerDetector {
   }
 }
 
-export function detectFinger(sensorData: { 
-  pressure: number; 
-  fingerprintPattern: boolean; 
-  // Removed brightness parameter for a more unique finger check
+export function detectFinger(sensorData: {
+  pressure: number;
+  fingerprintPattern: boolean;
+  fingerprintCorrelation: number; // Score (0 a 1) calculado con un algoritmo de coincidencia único
 }): "FINGER_ON" | "FINGER_OFF" {
-  const PRESSURE_THRESHOLD = 0.5; // Reverted to a moderate pressure requirement
-  if (sensorData.fingerprintPattern && sensorData.pressure >= PRESSURE_THRESHOLD) {
-    return "FINGER_ON";
-  }
-  return "FINGER_OFF";
-}
+  const PRESSURE_THRESHOLD = 0.5;
+  const CORRELATION_THRESHOLD = 0.7; // Si la correlación es menor, se asume que no hay dedo
+
+  // Lógica determinante: si el score de huella no cumple, se rechaza sin más
+  if (sensorData.fingerprintCorrelation < CORRELATION_THRESHOLD) {
+    return "FINGER_OFF";
   }
 
-  // De lo contrario, si se cumplen las condiciones del dedo, se retorna FINGER_ON
+  // Solo si además se cumple la presión y el patrón, se confirma la presencia del dedo
   if (sensorData.pressure >= PRESSURE_THRESHOLD && sensorData.fingerprintPattern) {
     return "FINGER_ON";
   }
