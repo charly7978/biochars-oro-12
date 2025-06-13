@@ -1,3 +1,4 @@
+
 import React, { useRef, useEffect } from 'react';
 
 interface GraphGridProps {
@@ -43,5 +44,4 @@ const GraphGrid: React.FC<GraphGridProps> = ({ width = 1000, height = 900, cellS
 	);
 };
 
-export default GraphGrid;
 export default GraphGrid;
