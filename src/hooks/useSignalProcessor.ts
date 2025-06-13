@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { PPGSignalProcessor } from '../modules/SignalProcessor';
 import { ProcessedSignal, ProcessingError } from '../types/signal';
-import { analyzeFrame } from '@/modules/signal-processing/SignalProcessingCore';
 
 /**
  * Custom hook for managing PPG signal processing
@@ -25,10 +24,6 @@ export const useSignalProcessor = () => {
   const calibrationInProgressRef = useRef(false);
   const errorCountRef = useRef(0);
   const lastErrorTimeRef = useRef(0);
-  const [filtered, setFiltered] = useState<number[]>([]);
-  const [peaks, setPeaks] = useState<number[]>([]);
-  const [valid, setValid] = useState<boolean>(false);
-  const [warning, setWarning] = useState<string | null>(null);
 
   // Create processor with well-defined callbacks
   useEffect(() => {
@@ -256,41 +251,6 @@ export const useSignalProcessor = () => {
     }
   }, [isProcessing, framesProcessed]);
 
-  // frame: Uint8ClampedArray, width: number, height: number, rawSignal: number[]
-  const process = useCallback((frame, width, height, rawSignal) => {
-    if (!frame || !rawSignal || rawSignal.length < 30) {
-      setWarning("Esperando señal suficiente...");
-      setValid(false);
-      setFiltered([]);
-      setPeaks([]);
-      return;
-    }
-    const result = analyzeFrame(frame, width, height, rawSignal);
-    setFiltered(result.filtered);
-    setPeaks(result.peaks);
-    setValid(result.valid);
-    setSignal(rawSignal);
-
-    if (!result.valid) {
-      setWarning("Señal insuficiente o dedo no detectado. Ajuste el dedo y asegúrese de cubrir la cámara y linterna.");
-    } else {
-      setWarning(null);
-    }
-
-    // Logging para depuración
-    if (process.env.NODE_ENV === "development") {
-      console.log("useSignalProcessor: process", {
-        frameSample: frame.slice(0, 12),
-        width,
-        height,
-        rawSignalSample: rawSignal.slice(-10),
-        filteredSample: result.filtered?.slice(-10),
-        peaks: result.peaks,
-        valid: result.valid,
-      });
-    }
-  }, []);
-
   return {
     isProcessing,
     lastSignal,
@@ -303,11 +263,6 @@ export const useSignalProcessor = () => {
     calibrate,
     processFrame,
     signalHistory: signalHistoryRef.current,
-    qualityTransitions: qualityTransitionsRef.current,
-    filtered,
-    peaks,
-    valid,
-    warning,
-    process,
+    qualityTransitions: qualityTransitionsRef.current
   };
 };

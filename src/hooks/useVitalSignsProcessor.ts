@@ -1,14 +1,11 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { VitalSignsProcessor, VitalSignsResult } from '../modules/vital-signs/VitalSignsProcessor';
-import { useVitalMeasurement } from "./useVitalMeasurement";
 
 /**
  * Custom hook for processing vital signs with advanced algorithms
  * Uses improved signal processing and arrhythmia detection based on medical research
  */
 export const useVitalSignsProcessor = () => {
-  const vital = useVitalMeasurement();
-  
   // State and refs
   const [processor] = useState(() => {
     console.log("useVitalSignsProcessor: Creando nueva instancia", {
@@ -309,7 +306,6 @@ export const useVitalSignsProcessor = () => {
     debugInfo: {
       processedSignals: processedSignals.current,
       signalLog: signalLog.current.slice(-10)
-    },
-    ...vital
+    }
   };
 };

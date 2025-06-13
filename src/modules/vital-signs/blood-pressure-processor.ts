@@ -1,3 +1,4 @@
+
 export interface BloodPressureResult {
   systolic: number;
   diastolic: number;
@@ -84,8 +85,6 @@ export class BloodPressureProcessor {
     return result;
   }
   
-  // ADVERTENCIA: Esta función es duplicada. Existe una función centralizada y robusta detectPeaks en src/modules/signal-processing/SignalAnalyzer.ts
-  // TODO: Migrar todo el pipeline a usar detectPeaks para evitar inconsistencias.
   private detectPeaks(values: number[]): number[] {
     const peaks: number[] = [];
     const threshold = this.calculateAdaptiveThreshold(values);

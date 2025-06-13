@@ -5,9 +5,6 @@
 
 import { OptimizedKalmanFilter } from './OptimizedKalmanFilter';
 import { SavitzkyGolayFilter } from './SavitzkyGolayFilter';
-import { isFingerPresent } from './FingerDetectionCore';
-import { bandpassFilter, normalizeSignal } from './FrameProcessor';
-import { detectPeaks } from './SignalAnalyzer';
 
 export interface ProcessedSignalData {
   rawValue: number;
@@ -136,31 +133,4 @@ export class SignalProcessingCore {
     this.kalmanFilter.reset();
     this.sgFilter.reset();
   }
-}
-
-export function analyzeFrame(
-  frame: Uint8ClampedArray,
-  width: number,
-  height: number,
-  rawSignal: number[]
-): { valid: boolean, peaks: number[], filtered: number[] } {
-  const finger = isFingerPresent(frame, width, height);
-  if (!finger) {
-    if (process.env.NODE_ENV === "development") {
-      console.log("analyzeFrame: dedo no detectado");
-    }
-    return { valid: false, peaks: [], filtered: [] };
-  }
-  // Filtrado y normalización
-  const filtered = bandpassFilter(rawSignal, 30, 0.5, 4);
-  const norm = normalizeSignal(filtered);
-  const peaks = detectPeaks(norm, 0.15, 10);
-
-  // Validación: al menos 2 picos en 8 segundos (~240 frames a 30fps)
-  const valid = peaks.length >= 2;
-  if (process.env.NODE_ENV === "development") {
-    console.log("analyzeFrame", { finger, peaks, normSample: norm.slice(-10), valid });
-  }
-  if (!valid) return { valid: false, peaks: [], filtered: norm };
-  return { valid: true, peaks, filtered: norm };
 }

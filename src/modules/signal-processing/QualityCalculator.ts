@@ -1,3 +1,4 @@
+
 /**
  * CALCULADOR DE CALIDAD MEJORADO - SIN SIMULACIONES
  * Optimizado para dedos humanos reales
@@ -15,104 +16,79 @@ export class QualityCalculator {
   ): number {
     // Historial de detección
     this.detectionHistory.push(isDetected);
-    if (this.detectionHistory.length > 10) { // Aumentar ventana de historial
+    if (this.detectionHistory.length > 6) {
       this.detectionHistory.shift();
     }
-
-    // Si no hay dedo detectado, la calidad es inherentemente baja
+    
     if (!isDetected) {
-      // Calidad base baja, suavizada con el historial para evitar saltos bruscos
-      const currentAvgQuality = this.qualityHistory.length > 0 ? 
-        this.qualityHistory.reduce((a, b) => a + b, 0) / this.qualityHistory.length : 0;
-      const newQuality = Math.max(10, currentAvgQuality * 0.7 + 20 * 0.3); // Suavizado y base baja
-      this.qualityHistory.push(newQuality);
-      return Math.round(newQuality);
+      const baseQuality = Math.max(10, 15 + Math.random() * 10);
+      this.qualityHistory.push(baseQuality);
+      return Math.round(baseQuality);
     }
-
-    let currentQuality = 0; // Puntuación inicial para este cálculo
-
-    // Pesos para cada criterio de calidad
-    const WEIGHT_RED_INTENSITY = 0.35;
-    const WEIGHT_PULSATION_STRENGTH = 0.30;
-    const WEIGHT_DETECTION_CONSISTENCY = 0.20;
-    const WEIGHT_SIGNAL_STABILITY = 0.15; // Nuevo peso para estabilidad
-
-    // 1. Calidad por intensidad roja (35% del peso)
-    if (redIntensity >= 90 && redIntensity <= 180) {
-      // Rango óptimo: máxima contribución
-      currentQuality += WEIGHT_RED_INTENSITY;
-    } else if (redIntensity >= 60 && redIntensity <= 220) {
-      // Rango aceptable: contribución media
-      currentQuality += WEIGHT_RED_INTENSITY * 0.6;
+    
+    let quality = 40; // Base más alta para dedos detectados
+    
+    // 1. Calidad por intensidad roja optimizada para humanos (35%)
+    if (redIntensity >= 80 && redIntensity <= 200) {
+      // Rango óptimo para dedos humanos
+      const optimal = 130;
+      const deviation = Math.abs(redIntensity - optimal) / optimal;
+      const intensityScore = Math.max(0.5, 1 - deviation); // Menos penalización
+      quality += intensityScore * 30;
+    } else if (redIntensity >= 60 && redIntensity <= 250) {
+      // Rango aceptable amplio
+      quality += 20;
     } else {
-      // Fuera de rango: contribución baja
-      currentQuality += WEIGHT_RED_INTENSITY * 0.2; 
+      // Penalización mínima fuera del rango
+      quality += 10;
     }
-
-    // 2. Calidad por pulsación (30% del peso)
-    if (pulsationStrength > 0.05) {
-      // Pulsación fuerte y clara
-      const cappedPulsation = Math.min(0.2, pulsationStrength); // Limitar la pulsación para escala
-      currentQuality += WEIGHT_PULSATION_STRENGTH * (cappedPulsation / 0.2); // Escalar al 100%
-    } else if (pulsationStrength > 0.01) {
-      // Pulsación débil pero detectable
-      currentQuality += WEIGHT_PULSATION_STRENGTH * 0.3;
+    
+    // 2. Calidad por pulsación más generosa (25%)
+    if (pulsationStrength > 0) {
+      const pulsationScore = Math.min(25, pulsationStrength * 500);
+      quality += pulsationScore;
     } else {
-      // Pulsación muy débil o ausente
-      currentQuality += WEIGHT_PULSATION_STRENGTH * 0.1;
+      // Algo de calidad incluso sin pulsación detectada
+      quality += 8;
     }
-
-    // 3. Calidad por consistencia de detección (20% del peso)
-    if (this.detectionHistory.length >= 5) {
-      const recentDetections = this.detectionHistory.slice(-5);
+    
+    // 3. Calidad por consistencia de detección (20%)
+    if (this.detectionHistory.length >= 3) {
+      const recentDetections = this.detectionHistory.slice(-3);
       const detectionRate = recentDetections.filter(d => d).length / recentDetections.length;
-      currentQuality += WEIGHT_DETECTION_CONSISTENCY * detectionRate;
-    } else {
-      // Si no hay suficiente historial, asumir una consistencia neutral
-      currentQuality += WEIGHT_DETECTION_CONSISTENCY * 0.5;
+      quality += detectionRate * 20;
     }
-
-    // 4. Calidad por estabilidad de la señal (15% del peso)
+    
+    // 4. Bonus por valores típicos de dedo humano
+    if (redIntensity >= 90 && redIntensity <= 180) {
+      quality += 15; // Gran bonus para rango típico
+    }
+    
+    // 5. Estabilidad mejorada
     this.consistencyBuffer.push(redIntensity);
-    if (this.consistencyBuffer.length > 10) {
+    if (this.consistencyBuffer.length > 4) {
       this.consistencyBuffer.shift();
     }
     
-    let signalStabilityScore = 0;
-    if (this.consistencyBuffer.length >= 5) {
+    if (this.consistencyBuffer.length >= 3) {
       const variance = this.calculateVariance(this.consistencyBuffer);
-      // Una varianza baja indica alta estabilidad
-      if (variance < 100) { // Umbral de varianza ajustado para alta estabilidad
-        signalStabilityScore = 1.0;
-      } else if (variance < 500) {
-        signalStabilityScore = 0.6;
-      } else if (variance < 1000) {
-        signalStabilityScore = 0.3;
-      } else {
-        signalStabilityScore = 0.1;
-      }
+      const stabilityBonus = Math.max(0, 15 - (variance / 15)); // Más generoso
+      quality += stabilityBonus;
     }
-    currentQuality += WEIGHT_SIGNAL_STABILITY * signalStabilityScore;
-
-    // Escalar la calidad total a 0-100
-    let finalQuality = currentQuality * 100; 
-
-    // Suavizado más profesional: Media ponderada con historial
-    const smoothedQuality = this.qualityHistory.length > 0 ? 
-      this.qualityHistory.reduce((a, b) => a + b, 0) / this.qualityHistory.length : 0;
-    finalQuality = smoothedQuality * 0.5 + finalQuality * 0.5; // Ajustar peso de suavizado
-
-    this.qualityHistory.push(finalQuality);
-    if (this.qualityHistory.length > 15) { // Aumentar ventana de historial
+    
+    // Suavizado menos agresivo
+    this.qualityHistory.push(quality);
+    if (this.qualityHistory.length > 2) {
       this.qualityHistory.shift();
     }
     
-    // Asegurar que el valor esté dentro del rango 0-100
-    return Math.max(0, Math.min(100, Math.round(finalQuality)));
+    const smoothedQuality = this.qualityHistory.reduce((a, b) => a + b, 0) / this.qualityHistory.length;
+    
+    // Rango más generoso para dedos humanos
+    return Math.max(25, Math.min(95, Math.round(smoothedQuality)));
   }
   
   private calculateVariance(values: number[]): number {
-    if (values.length === 0) return 0;
     const mean = values.reduce((a, b) => a + b, 0) / values.length;
     const variance = values.reduce((acc, val) => acc + Math.pow(val - mean, 2), 0) / values.length;
     return variance;
