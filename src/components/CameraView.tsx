@@ -83,7 +83,20 @@ export const CameraView: React.FC = () => {
   return (
     <div>
       <video ref={videoRef} style={{ display: "none" }} playsInline />
-      <canvas ref={canvasRef} style={{ display: "none" }} />
+      <canvas ref={canvasRef} 
+        style={{ 
+          position: 'fixed', 
+          bottom: 10, 
+          right: 10, 
+          width: 120, 
+          height: 90, 
+          zIndex: 9999, 
+          border: '1px solid #888', 
+          background: '#222', 
+          opacity: 0.7 // Para que sea poco visible
+        }} 
+      />
+      {/* Para revertir: cambiar style a display: 'none' */}
       <div>
         {signalProc.warning && (
           <div style={{ color: "red" }}>{signalProc.warning}</div>
