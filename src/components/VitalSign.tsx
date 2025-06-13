@@ -292,7 +292,7 @@ const VitalSign = ({
       <div className="font-bold text-xl sm:text-2xl transition-all duration-300">
         <span className={cn(
           "text-value-large lg:text-display-large font-bold relative z-10",
-          highlighted ? "text-gradient-soft" : "text-white",
+          "text-white",
           getRiskColor(riskLabel)
         )}>
           {isArrhytmia && typeof value === 'string' ? value.split('|')[0] : displayValue()}
