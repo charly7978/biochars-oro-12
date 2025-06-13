@@ -1,23 +1,14 @@
 import React, { useRef, useEffect, useState } from "react";
+import { useSignalProcessor } from "@/hooks/useSignalProcessor";
+import { useHeartBeatProcessor } from "@/hooks/useHeartBeatProcessor";
 
-interface CameraViewProps {
-  onFrame: (
-    frame: Uint8ClampedArray,
-    width: number,
-    height: number,
-    rawSignal: number[]
-  ) => void;
-  isMonitoring: boolean;
-}
-
-export const CameraView: React.FC<CameraViewProps> = ({
-  onFrame,
-  isMonitoring,
-}) => {
+export const CameraView: React.FC = () => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [streaming, setStreaming] = useState(false);
   const [rawSignal, setRawSignal] = useState<number[]>([]);
+  const signalProc = useSignalProcessor();
+  const heartProc = useHeartBeatProcessor();
 
   useEffect(() => {
     async function startCamera() {
@@ -65,13 +56,18 @@ export const CameraView: React.FC<CameraViewProps> = ({
         n++;
       }
       const avgRed = sumRed / n;
+      // Actualiza buffer de señal cruda
       setRawSignal((prev) => {
         const next = [...prev, avgRed];
         if (next.length > 300) next.shift();
         return next;
       });
-      if (rawSignal.length > 60 && isMonitoring) {
-        onFrame(frame, canvas.width, canvas.height, rawSignal);
+      // Procesa señal si hay suficiente buffer
+      if (rawSignal.length > 60) {
+        signalProc.process(frame, canvas.width, canvas.height, rawSignal);
+        if (signalProc.peaks && signalProc.peaks.length > 1) {
+          heartProc.processPeaks(signalProc.peaks);
+        }
       }
       animationId = requestAnimationFrame(processFrame);
     }
@@ -81,12 +77,23 @@ export const CameraView: React.FC<CameraViewProps> = ({
     return () => {
       cancelAnimationFrame(animationId);
     };
-  }, [streaming, rawSignal, isMonitoring, onFrame]);
+    // eslint-disable-next-line
+  }, [streaming, rawSignal, signalProc, heartProc]);
 
   return (
     <div>
       <video ref={videoRef} style={{ display: "none" }} playsInline />
       <canvas ref={canvasRef} style={{ display: "none" }} />
+      <div>
+        {signalProc.warning && (
+          <div style={{ color: "red" }}>{signalProc.warning}</div>
+        )}
+        {heartProc.bpm && (
+          <div>
+            <strong>BPM:</strong> {heartProc.bpm}
+          </div>
+        )}
+      </div>
     </div>
   );
 };
