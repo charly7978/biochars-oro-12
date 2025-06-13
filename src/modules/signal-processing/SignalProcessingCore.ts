@@ -53,18 +53,16 @@ export class SignalProcessingCore {
   private kalmanFilter: OptimizedKalmanFilter;
   private sgFilter: SavitzkyGolayFilter;
   private baseline: number = 0;
-  private signalHistory: CircularBuffer;
-  private lastPeakTimestamp: number = 0;
-  private lastPeakValue: number = 0;
+  private signalHistory: number[] = [];
   private peakIndices: number[] = [];
-  private lastPeakIndex: number = -10;
-  private PEAK_MIN_DISTANCE = 8; // frames (ajusta según tu FPS)
-  private PEAK_THRESHOLD = 8;    // ajusta según la amplitud de tu señal
+  private lastPeakIndex: number = -20;
+  private readonly MAX_HISTORY = 120;
+  private readonly PEAK_MIN_DISTANCE = 8; // frames
+  private readonly PEAK_DYNAMIC_FACTOR = 0.5; // factor para umbral dinámico
 
   constructor() {
     this.kalmanFilter = new OptimizedKalmanFilter();
     this.sgFilter = new SavitzkyGolayFilter();
-    this.signalHistory = new CircularBuffer(100);
   }
   
   /**
@@ -91,11 +89,11 @@ export class SignalProcessingCore {
     const amplificationFactor = this.calculateDynamicAmplification();
     const amplified = normalized * amplificationFactor;
 
-    // Actualizar historial de señal *amplificada*
+    // Actualizar historial de señal amplificada
     this.signalHistory.push(amplified);
-    if (this.signalHistory.length > 100) this.signalHistory.shift();
+    if (this.signalHistory.length > this.MAX_HISTORY) this.signalHistory.shift();
 
-    // Detección de picos (latidos) sobre la señal amplificada
+    // Detección de picos (latidos)
     this.detectPeaks();
 
     return {
@@ -115,17 +113,22 @@ export class SignalProcessingCore {
     const len = sig.length;
     if (len < 3) return;
 
-    // Solo busca pico en el último punto agregado
+    // Umbral dinámico: mitad del rango reciente
+    const window = sig.slice(-30);
+    const min = Math.min(...window);
+    const max = Math.max(...window);
+    const threshold = min + (max - min) * this.PEAK_DYNAMIC_FACTOR;
+
+    // Solo busca pico en el penúltimo punto (para evitar borde)
     const i = len - 2;
     if (
       i - this.lastPeakIndex > this.PEAK_MIN_DISTANCE &&
-      sig[i] > this.PEAK_THRESHOLD &&
+      sig[i] > threshold &&
       sig[i] > sig[i - 1] &&
       sig[i] > sig[i + 1]
     ) {
       this.peakIndices.push(i);
       this.lastPeakIndex = i;
-      // Mantén solo los últimos 20 picos
       if (this.peakIndices.length > 20) this.peakIndices.shift();
     }
   }
@@ -134,16 +137,22 @@ export class SignalProcessingCore {
    * Devuelve los índices de los picos detectados (latidos) respecto al buffer actual.
    */
   public getPeakIndices(): number[] {
-    // Ajusta los índices para que sean relativos al array actual
-    const offset = this.signalHistory.length - 100;
+    const offset = this.signalHistory.length - this.MAX_HISTORY;
     return this.peakIndices.map(idx => idx - offset).filter(idx => idx >= 0);
+  }
+
+  /**
+   * Devuelve la señal amplificada actual (para graficar).
+   */
+  public getAmplifiedSignal(): number[] {
+    return this.signalHistory.slice();
   }
 
   /**
    * Calcular factor de amplificación dinámico
    */
   private calculateDynamicAmplification(): number {
-    const history = this.signalHistory.getValues();
+    const history = this.signalHistory;
     if (history.length < 20) return 10;
     const minVal = Math.min(...history);
     const maxVal = Math.max(...history);
@@ -182,7 +191,7 @@ export class SignalProcessingCore {
    * Obtener estadísticas de la señal
    */
   getSignalStats() {
-    const history = this.signalHistory.getValues();
+    const history = this.signalHistory;
     if (history.length < 10) return { mean: 0, variance: 0, snr: 0 };
     const mean = history.reduce((a, b) => a + b, 0) / history.length;
     const variance = history.reduce((acc, val) => acc + Math.pow(val - mean, 2), 0) / history.length;
@@ -192,7 +201,9 @@ export class SignalProcessingCore {
   
   reset(): void {
     this.baseline = 0;
-    this.signalHistory.clear();
+    this.signalHistory = [];
+    this.peakIndices = [];
+    this.lastPeakIndex = -20;
     this.kalmanFilter.reset();
     this.sgFilter.reset();
   }
