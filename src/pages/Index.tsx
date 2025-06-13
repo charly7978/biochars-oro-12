@@ -661,7 +661,7 @@ const Index = () => {
               onStartMeasurement={startMonitoring}
               onReset={handleReset}
               arrhythmiaStatus={vitalSigns.arrhythmiaStatus}
-              rawArrhythmiaData={lastArrhythmiaData}
+              rawArrhythmiaData={null}
               preserveResults={showResults}
             />
           </div>
