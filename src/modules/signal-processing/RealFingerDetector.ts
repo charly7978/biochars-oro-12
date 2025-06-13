@@ -197,7 +197,7 @@ export class RealFingerDetector {
     if (this.isCalibrated && this.baselineRed > 0) {
       const deviation = Math.abs(metrics.redIntensity - this.baselineRed) / this.baselineRed;
       if (deviation < 0.5) { // Más permisivo
-        score += 0.10;
+        score += 0.50;
         reasons.push(`✓ Consistente con calibración`);
       }
     }
