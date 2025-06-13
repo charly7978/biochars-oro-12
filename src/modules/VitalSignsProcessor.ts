@@ -1,9 +1,8 @@
 import { SignalOptimizer } from "@/modules/signal-processing/SignalOptimizer";
 import { processBloodPressureSignal, updateBloodPressureFeedback } from "@/modules/vital-signs/blood-pressure-processor";
 
-// Procesa la señal real y retorna los resultados de presión arterial optimizados
+// Recibe la señal cruda, la optimiza y retorna SOLO el resultado avanzado de presión arterial
 export function processVitalSigns(rawSignal: number[]) {
-    // Inicializa el optimizador con parámetros reales (ajusta según hardware si es necesario)
     const optimizer = new SignalOptimizer({
         defaultGain: 1,
         ppgGain: 0.95,
@@ -17,14 +16,15 @@ export function processVitalSigns(rawSignal: number[]) {
     // Usa el canal optimizado de presión arterial
     const bpResult = processBloodPressureSignal(optimizedChannels.bloodPressure);
 
-    // Ejemplo de feedback bidireccional: puedes actualizar parámetros en tiempo real
+    // Feedback bidireccional (puedes ajustar desde la UI si lo deseas)
     // optimizer.updateFeedback("bloodPressure", { calibrationFactor: nuevoValor, smoothingWindow: nuevoValor });
     // updateBloodPressureFeedback({ calibrationFactor: nuevoValor, smoothingWindow: nuevoValor });
 
-    // Retorna el resultado para la UI
+    // Retorna SOLO el resultado nuevo
     return {
         bloodPressure: bpResult
     };
+}
 }
     ppgValue: number,
     rrData?: { intervals: number[]; lastPeakTime: number | null }

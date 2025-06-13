@@ -5,6 +5,7 @@ import { ProcessedSignal, ProcessingError } from '../types/signal';
 /**
  * Custom hook for managing PPG signal processing
  * PROHIBIDA LA SIMULACIÓN Y TODO TIPO DE MANIPULACIÓN FORZADA DE DATOS
+ * Solo lógica de señal PPG, nunca presión arterial ni vitales completos
  */
 export const useSignalProcessor = () => {
   const processorRef = useRef<PPGSignalProcessor | null>(null);

@@ -3,11 +3,10 @@ import ReactDOM from "react-dom";
 import App from "./App";
 import { processVitalSigns } from "@/modules/VitalSignsProcessor";
 
-// Función que obtiene la señal real del hardware (reemplaza por tu integración real)
+// Función real para obtener la señal del hardware
 async function getRealSensorData(): Promise<number[]> {
-  // Implementa aquí la adquisición real de datos del sensor
-  // Por ejemplo: return await sensorAPI.getLatestSamples();
-  return []; // ← Reemplaza esto por la integración real
+  // ...implementación real...
+  return [];
 }
 
 function Main() {
@@ -42,15 +41,16 @@ function Main() {
 
   return (
     <div>
-      <App />
-      {/* Ejemplo de display directo, reemplaza por tu integración real */}
-      {bloodPressure && (
-        <div className="fixed bottom-4 right-4 bg-white/80 rounded-lg shadow-lg p-4 text-black text-center z-50">
-          <div className="font-bold text-lg">Presión Arterial</div>
-          <div className="text-2xl font-mono">
-            {bloodPressure.systolic}/{bloodPressure.diastolic} mmHg
-          </div>
-        </div>
+      <App bloodPressure={bloodPressure} />
+      {/* Si quieres mostrarlo directamente aquí: */}
+      {/* {bloodPressure && (
+        <div>{bloodPressure.systolic}/{bloodPressure.diastolic} mmHg</div>
+      )} */}
+    </div>
+  );
+}
+
+ReactDOM.render(<Main />, document.getElementById("root"));
       )}
     </div>
   );
