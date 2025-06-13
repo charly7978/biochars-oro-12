@@ -1,3 +1,4 @@
+
 import { ProcessedSignal, ProcessingError, SignalProcessor as SignalProcessorInterface } from '../../types/signal';
 import { RealFingerDetector, FingerDetectionResult } from './RealFingerDetector';
 import { QualityCalculator } from './QualityCalculator';
@@ -101,7 +102,7 @@ export class PPGSignalProcessor implements SignalProcessorInterface {
       const detectionResult: FingerDetectionResult = this.fingerDetector.detectFinger(imageData);
       
       // 2. EXTRACCIÓN SIMPLE DE SEÑAL PPG
-      const rawSignalValue = this.extractSimplePPGSignal(imageData, detectionResult.roi);
+      const rawSignalValue = this.extractSimplePPGSignal(imageData);
       
       // Almacenar señal
       this.signalBuffer.push(rawSignalValue);
@@ -165,26 +166,27 @@ export class PPGSignalProcessor implements SignalProcessorInterface {
   /**
    * Extrae señal PPG simple del canal rojo
    */
-  private extractSimplePPGSignal(imageData: ImageData, roi: { x: number; y: number; width: number; height: number; }): number {
-    const { data, width } = imageData;
+  private extractSimplePPGSignal(imageData: ImageData): number {
+    const { data, width, height } = imageData;
     
-    // Usar la ROI detectada para la extracción de la señal
-    const roiX = Math.floor(roi.x);
-    const roiY = Math.floor(roi.y);
-    const roiWidth = Math.floor(roi.width);
-    const roiHeight = Math.floor(roi.height);
-
+    // Área central simple
+    const centerX = width / 2;
+    const centerY = height / 2;
+    const radius = Math.min(width, height) * 0.3;
+    
     let redSum = 0;
     let pixelCount = 0;
     
-    // Iterar solo sobre la ROI y muestrear píxeles (cada 4 píxeles para eficiencia)
-    for (let y = roiY; y < roiY + roiHeight; y += 4) {
-      for (let x = roiX; x < roiX + roiWidth; x += 4) {
-        // Asegurar que estamos dentro de los límites de la imagen
-        if (x >= 0 && x < width && y >= 0 && y < imageData.height) {
-          const index = (y * width + x) * 4;
-          redSum += data[index]; // Solo canal rojo
-          pixelCount++;
+    // Muestreo simple
+    for (let y = centerY - radius; y < centerY + radius; y += 4) {
+      for (let x = centerX - radius; x < centerX + radius; x += 4) {
+        if (x >= 0 && x < width && y >= 0 && y < height) {
+          const distance = Math.sqrt((x - centerX) ** 2 + (y - centerY) ** 2);
+          if (distance <= radius) {
+            const index = (Math.floor(y) * width + Math.floor(x)) * 4;
+            redSum += data[index]; // Solo canal rojo
+            pixelCount++;
+          }
         }
       }
     }
@@ -196,109 +198,44 @@ export class PPGSignalProcessor implements SignalProcessorInterface {
    * Filtro simple de señal
    */
   private applySimpleFilter(currentValue: number): number {
-    // Usar un filtro EMA (Exponential Moving Average) para un suavizado más dinámico y con menos retardo.
-    // La constante ALPHA (0.2 en este ejemplo) determina el peso del valor actual.
-    // Un ALPHA más alto hace el filtro más reactivo a los cambios; uno más bajo lo hace más suave.
-    const EMA_ALPHA = 0.2; // Este valor puede ajustarse según la necesidad de suavizado vs. reactividad
-
-    if (this.signalBuffer.length === 0) {
-      // Si el buffer está vacío, inicializar con el valor actual
-      return currentValue;
-    }
-
-    // El valor `filteredValue` se usa como el valor `smoothedValue` anterior en la fórmula EMA
-    const previousSmoothedValue = this.signalBuffer[this.signalBuffer.length - 1];
-
-    const smoothed = EMA_ALPHA * currentValue + (1 - EMA_ALPHA) * previousSmoothedValue;
-
-    return smoothed;
+    if (this.signalBuffer.length < 3) return currentValue;
+    
+    // Filtro promedio móvil simple
+    const recent = this.signalBuffer.slice(-3);
+    return recent.reduce((a, b) => a + b, 0) / recent.length;
   }
 
   /**
    * Calcula pulsación simple
    */
   private calculateSimplePulsation(): number {
-    // Se requiere un buffer de señal suficientemente grande para detectar pulsaciones.
-    if (this.signalBuffer.length < 20) return 0; // Aumentar el tamaño mínimo del buffer
-
-    const recentSignal = this.signalBuffer.slice(); // Trabajar con una copia para evitar mutaciones
-
-    // Implementación de una detección de picos y valles más robusta
-    let peaks: number[] = [];
-    let troughs: number[] = [];
-    let lastPeakIndex = -1;
-    let lastTroughIndex = -1;
-
-    // Un simple algoritmo de detección de picos/valles basado en cambios de dirección
-    for (let i = 1; i < recentSignal.length - 1; i++) {
-      if (recentSignal[i] > recentSignal[i - 1] && recentSignal[i] > recentSignal[i + 1]) {
-        // Pico
-        peaks.push(recentSignal[i]);
-        lastPeakIndex = i;
-      } else if (recentSignal[i] < recentSignal[i - 1] && recentSignal[i] < recentSignal[i + 1]) {
-        // Valle
-        troughs.push(recentSignal[i]);
-        lastTroughIndex = i;
-      }
-    }
-
-    if (peaks.length < 1 || troughs.length < 1) return 0;
-
-    // Calcular la amplitud promedio pico-a-valle
-    let totalAmplitude = 0;
-    let count = 0;
-
-    // Emparejar picos y valles de forma simple
-    for (const peakVal of peaks) {
-      // Encontrar el valle más cercano después del pico
-      let closestTrough = Infinity;
-      for (const troughVal of troughs) {
-        // Un método más avanzado consideraría la secuencia temporal
-        // Aquí, simplemente buscamos el valle más bajo para la amplitud
-        if (troughVal < closestTrough) {
-            closestTrough = troughVal;
-        }
-      }
-      if (closestTrough !== Infinity) {
-          totalAmplitude += (peakVal - closestTrough);
-          count++;
-      }
-    }
-
-    if (count === 0) return 0;
-
-    const averageAmplitude = totalAmplitude / count;
-    const meanSignal = recentSignal.reduce((a, b) => a + b, 0) / recentSignal.length;
-
-    // La fuerza de pulsación se puede definir como la amplitud AC dividida por la componente DC (promedio de la señal)
-    return meanSignal > 0 ? (averageAmplitude / meanSignal) : 0;
+    if (this.signalBuffer.length < 5) return 0;
+    
+    const recent = this.signalBuffer.slice(-5);
+    const max = Math.max(...recent);
+    const min = Math.min(...recent);
+    const mean = recent.reduce((a, b) => a + b, 0) / recent.length;
+    
+    return mean > 0 ? (max - min) / mean : 0;
   }
 
   /**
    * Calcula perfusión simple
    */
   private calculateSimplePerfusion(): number {
-    if (this.signalBuffer.length < 50) return 0.0; // Se necesita un buffer más grande para un PI robusto
-
-    const recent = this.signalBuffer.slice(-50); // Usar una ventana más grande para el cálculo
-
-    // Calcular la componente DC (valor promedio de la señal)
-    const dcComponent = recent.reduce((a, b) => a + b, 0) / recent.length;
-
-    // Calcular la componente AC (variación de pico a valle)
-    // Se podría integrar la lógica de detección de picos/valles de calculateSimplePulsation
-    // Para simplificar, usaremos la diferencia máxima y mínima en esta ventana.
-    const maxSignal = Math.max(...recent);
-    const minSignal = Math.min(...recent);
-    const acComponent = (maxSignal - minSignal) / 2; // Amplitud pico-a-valle dividida por 2 para AC
-
-    if (dcComponent <= 0) return 0.0; // Evitar división por cero o valores no válidos
-
-    // El índice de perfusión se calcula como (AC / DC) * 100%
-    const perfusionIndex = (acComponent / dcComponent) * 100;
-
-    // Limitar el índice de perfusión a un rango razonable (ej. 0.1% a 20%)
-    return Math.max(0.1, Math.min(20.0, perfusionIndex));
+    if (this.signalBuffer.length < 10) return 1.0;
+    
+    const recent = this.signalBuffer.slice(-10);
+    const max = Math.max(...recent);
+    const min = Math.min(...recent);
+    const dc = recent.reduce((a, b) => a + b, 0) / recent.length;
+    
+    if (dc === 0) return 1.0;
+    
+    const ac = (max - min) / 2;
+    const perfusion = (ac / dc) * 100;
+    
+    return Math.max(0.5, Math.min(10.0, perfusion));
   }
 
   private handleError(code: string, message: string): void {

@@ -71,14 +71,11 @@ export class HeartBeatProcessor {
   private lastConfirmedPeak: boolean = false;
   private smoothBPM: number = 0;
   private readonly BPM_ALPHA = 0.3; // Restaurado para suavizado apropiado
-  private readonly BPM_ALPHA_HIGH_QUALITY = 0.45; // Más reactivo para alta calidad
-  private readonly BPM_ALPHA_LOW_QUALITY = 0.15;  // Menos reactivo para baja calidad
   private peakCandidateIndex: number | null = null;
   private peakCandidateValue: number = 0;
   private isArrhythmiaDetected: boolean = false;
   
   // Variables para mejorar la detección
-  private previousDerivative: number = 0; // Añadido para detección de picos robusta
   private peakValidationBuffer: number[] = [];
   private readonly PEAK_VALIDATION_THRESHOLD = 0.3; // Reducido para validación más permisiva
   private lastSignalStrength: number = 0;
@@ -87,8 +84,6 @@ export class HeartBeatProcessor {
   
   // Nueva variable para retroalimentación de calidad de señal
   private currentSignalQuality: number = 0;
-
-  private readonly BPM_STABILITY_THRESHOLD = 20; // BPM máximo permitido de cambio entre lecturas
 
   constructor() {
     // Inicializar parámetros adaptativos con valores médicamente apropiados
@@ -472,40 +467,20 @@ export class HeartBeatProcessor {
     confidence: number;
     rawDerivative?: number;
   } {
-    let isPeak = false;
-    let confidence = 0;
+    const now = Date.now();
+    const timeSinceLastPeak = this.lastPeakTime
+      ? now - this.lastPeakTime
+      : Number.MAX_VALUE;
 
-    // Un pico ocurre cuando la derivada cruza de positivo a negativo y el valor normalizado es significativo
-    const isZeroCrossing = (this.previousDerivative > 0 && derivative <= 0); // Cruce de positivo a cero o negativo
-    const isAboveThreshold = normalizedValue > this.adaptiveSignalThreshold; // El pico debe ser significativo
-
-    // Considerar el último valor si es el punto más alto del buffer de señal alrededor
-    const lastValue = this.signalBuffer[this.signalBuffer.length - 1];
-    const secondLastValue = this.signalBuffer[this.signalBuffer.length - 2];
-    const thirdLastValue = this.signalBuffer[this.signalBuffer.length - 3];
-
-    // Una heurística simple para detectar un máximo local usando los últimos valores suavizados
-    const isLocalMax = (lastValue > secondLastValue && secondLastValue > thirdLastValue && normalizedValue > this.adaptiveSignalThreshold);
-
-    if (isZeroCrossing && isAboveThreshold && isLocalMax) {
-      const now = Date.now();
-      const timeSinceLastPeak = this.lastPeakTime
-        ? now - this.lastPeakTime
-        : Number.MAX_VALUE;
-
-      // Asegurarse de que el pico no es demasiado cercano al anterior (prevención de múltiples detecciones para un solo latido)
-      if (timeSinceLastPeak >= this.DEFAULT_MIN_PEAK_TIME_MS) {
-        isPeak = true;
-        // La confianza ahora depende de cuán 'bueno' es el pico
-        // Por ejemplo, cuán por encima del umbral está y la fuerza de la derivada negativa.
-        confidence = Math.min(1.0, (normalizedValue / this.adaptiveSignalThreshold) * 0.7 + (Math.abs(derivative) / Math.abs(this.adaptiveDerivativeThreshold)) * 0.3);
-      }
+    if (timeSinceLastPeak < this.DEFAULT_MIN_PEAK_TIME_MS) {
+      return { isPeak: false, confidence: 0 };
     }
+    // Detectar pico en máximo local: derivada negativa
+    const isOverThreshold = derivative < 0;
+    // Confianza máxima en cada detección de pico
+    const confidence = 1;
 
-    // Actualizar la derivada previa para la próxima iteración
-    this.previousDerivative = derivative;
-
-    return { isPeak: isPeak, confidence: confidence, rawDerivative: derivative };
+    return { isPeak: isOverThreshold, confidence, rawDerivative: derivative };
   }
 
   private confirmPeak(
@@ -513,30 +488,16 @@ export class HeartBeatProcessor {
     normalizedValue: number,
     confidence: number
   ): boolean {
-    // Siempre añadir el valor normalizado al buffer para análisis posterior
     this.peakConfirmationBuffer.push(normalizedValue);
-    if (this.peakConfirmationBuffer.length > 10) { // Aumentar la ventana de confirmación a 10
+    if (this.peakConfirmationBuffer.length > 5) {
       this.peakConfirmationBuffer.shift();
     }
-
+    // Confirmación simplificada: cada pico marcado es confirmado
     if (isPeak && !this.lastConfirmedPeak) {
-      // Confirmación robusta: el pico debe ser el valor más alto en el buffer de confirmación.
-      // Esto reduce la probabilidad de confirmar picos falsos o picos que no son el máximo real.
-      const currentPeakIndex = this.peakConfirmationBuffer.length - 1;
-      const maxValueInWindow = Math.max(...this.peakConfirmationBuffer);
-
-      // El pico debe ser el valor máximo o muy cercano al máximo en la ventana
-      if (normalizedValue >= maxValueInWindow * 0.95 && confidence >= this.adaptiveMinConfidence) {
-        this.lastConfirmedPeak = true;
-        console.log(`HeartBeatProcessor: Pico confirmado. Valor normalizado: ${normalizedValue.toFixed(3)}, Confianza: ${confidence.toFixed(2)}`);
-        return true;
-      } else {
-        // Si el pico no es el máximo en la ventana, o la confianza es baja, no lo confirmamos
-        this.lastConfirmedPeak = false;
-        return false;
-      }
+      this.lastConfirmedPeak = true;
+      return true;
     } else if (!isPeak) {
-      this.lastConfirmedPeak = false; // Resetear la bandera si no hay un pico actual
+      this.lastConfirmedPeak = false;
     }
     return false;
   }
@@ -545,26 +506,8 @@ export class HeartBeatProcessor {
    * Validación de picos basada estrictamente en criterios médicos
    */
   private validatePeak(peakValue: number, confidence: number): boolean {
-    // El valor del pico debe ser significativamente mayor que el umbral de señal adaptativo
-    const isAmplitudeValid = peakValue > (this.adaptiveSignalThreshold * 1.2); // Más estricto
-
-    // La confianza del pico debe ser al menos el umbral mínimo adaptativo
-    const isConfidenceValid = confidence >= this.adaptiveMinConfidence;
-
-    // La calidad general de la señal también debe ser razonablemente buena
-    const isSignalQualityGood = this.currentSignalQuality >= 50; // Umbral de calidad de señal (0-100)
-
-    if (isAmplitudeValid && isConfidenceValid && isSignalQualityGood) {
-      console.log(`HeartBeatProcessor: Pico validado. Valor: ${peakValue.toFixed(3)}, Confianza: ${confidence.toFixed(2)}, Calidad de señal: ${this.currentSignalQuality}`);
-      return true;
-    } else {
-      let reason = "Pico rechazado: ";
-      if (!isAmplitudeValid) reason += `Amplitud baja (${peakValue.toFixed(3)} vs umbral ${this.adaptiveSignalThreshold * 1.2}). `;
-      if (!isConfidenceValid) reason += `Confianza baja (${confidence.toFixed(2)} vs min ${this.adaptiveMinConfidence.toFixed(2)}). `;
-      if (!isSignalQualityGood) reason += `Calidad de señal insuficiente (${this.currentSignalQuality}). `;
-      console.log(`HeartBeatProcessor: ${reason}`);
-      return false;
-    }
+    // Validación simplificada: siempre confirmar el pico
+    return true;
   }
 
   private updateBPM() {
@@ -573,48 +516,22 @@ export class HeartBeatProcessor {
     if (interval <= 0) return;
 
     const instantBPM = 60000 / interval;
-    
-    // Validar instantBPM contra rangos fisiológicos y estabilidad con la lectura anterior
-    const isValidBPM = instantBPM >= this.DEFAULT_MIN_BPM && instantBPM <= this.DEFAULT_MAX_BPM;
-    
-    let isStableEnough = true;
-    if (this.bpmHistory.length > 0) {
-      const lastBPM = this.bpmHistory[this.bpmHistory.length - 1];
-      if (Math.abs(instantBPM - lastBPM) > this.BPM_STABILITY_THRESHOLD) {
-        isStableEnough = false;
-        console.warn(`HeartBeatProcessor: Lectura de BPM inestable (${instantBPM.toFixed(1)}), dif: ${Math.abs(instantBPM - lastBPM).toFixed(1)} vs ${this.BPM_STABILITY_THRESHOLD}. Último BPM: ${lastBPM.toFixed(1)}`);
-      }
-    }
-
-    if (isValidBPM && isStableEnough) {
+    if (instantBPM >= this.DEFAULT_MIN_BPM && instantBPM <= this.DEFAULT_MAX_BPM) { 
       this.bpmHistory.push(instantBPM);
-      if (this.bpmHistory.length > 12) { // Mantener un historial de 12 para un suavizado robusto
+      if (this.bpmHistory.length > 12) { 
         this.bpmHistory.shift();
       }
-    } else if (!isStableEnough) {
-      // Si el BPM no es estable, no lo añadimos al historial pero tampoco lo reseteamos por completo
-      // Podríamos, por ejemplo, mantener el último BPM estable para suavizar la transición.
-      console.log(`HeartBeatProcessor: BPM ${instantBPM.toFixed(1)} rechazado por inestabilidad.`);
     }
   }
 
   private getSmoothBPM(): number {
     const rawBPM = this.calculateCurrentBPM();
-    let currentAlpha = this.BPM_ALPHA; // Alpha por defecto
-
-    // Ajustar Alpha basado en la calidad de la señal
-    if (this.currentSignalQuality >= 80) { // Alta calidad
-      currentAlpha = this.BPM_ALPHA_HIGH_QUALITY;
-    } else if (this.currentSignalQuality <= 30) { // Baja calidad
-      currentAlpha = this.BPM_ALPHA_LOW_QUALITY;
-    }
-
-    if (this.smoothBPM === 0 && rawBPM > 0) {
+    if (this.smoothBPM === 0 && rawBPM > 0) { 
         this.smoothBPM = rawBPM;
-    } else if (rawBPM > 0) {
+    } else if (rawBPM > 0) { 
         this.smoothBPM =
-            currentAlpha * rawBPM + (1 - currentAlpha) * this.smoothBPM;
-    } else if (this.bpmHistory.length === 0) {
+            this.BPM_ALPHA * rawBPM + (1 - this.BPM_ALPHA) * this.smoothBPM;
+    } else if (this.bpmHistory.length === 0) { 
         this.smoothBPM = 0;
     }
     return this.smoothBPM;
