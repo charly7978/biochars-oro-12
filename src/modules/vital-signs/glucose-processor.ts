@@ -11,7 +11,7 @@ export class GlucoseProcessor {
   private lastFilteredSignal: number[] = [];
   
   constructor() {
-    this.savitzkyGolayFilter = new SavitzkyGolayFilter(15); // Tamaño de ventana ajustado para PPG, puede necesitar optimización
+    this.savitzkyGolayFilter = new SavitzkyGolayFilter(9); // Se ajusta a 9 para usar los coeficientes definidos en el filtro
   }
 
   /**
@@ -29,6 +29,7 @@ export class GlucoseProcessor {
     };
   } {
     if (ppgValues.length < 60) {
+      console.log("GlucoseProcessor: Datos PPG insuficientes (<60)", ppgValues.length); // Log para depuración
       return {
         estimatedGlucose: 0,
         glucoseRange: [0, 0],
@@ -48,6 +49,7 @@ export class GlucoseProcessor {
       filteredPPG.push(this.savitzkyGolayFilter.filter(value));
     }
     this.lastFilteredSignal = filteredPPG; // Almacenar para futuros cálculos si es necesario
+    console.log("GlucoseProcessor: filteredPPG (últimos 10)", filteredPPG.slice(-10)); // Log para depuración
 
     // 2. Extracción de características
     const ac = calculateAC(filteredPPG);
@@ -60,6 +62,12 @@ export class GlucoseProcessor {
 
     const normalizedAmplitude = this.normalizeSignalAmplitude(filteredPPG);
     
+    console.log("GlucoseProcessor: Características extraídas", {
+      perfusionIndex: perfusionIndex.toFixed(2),
+      pulseVariability: pulseVariability.toFixed(2),
+      normalizedAmplitude: normalizedAmplitude.toFixed(2),
+    }); // Log para depuración
+
     // Coeficientes ilustrativos (necesitarían ser determinados por entrenamiento con datos reales)
     // Estos valores son PLACEHOLDERS y deben ser calibrados en un entorno real.
     // La relación es compleja y no lineal en la realidad.
@@ -74,6 +82,8 @@ export class GlucoseProcessor {
       (pulseVariability * weightPulseVariability) + 
       (normalizedAmplitude * weightNormalizedAmplitude);
     
+    console.log("GlucoseProcessor: estimatedGlucose (antes de clamp/smoothing)", estimatedGlucose.toFixed(2)); // Log para depuración
+
     // Asegurar que la glucosa esté en un rango fisiológico razonable
     estimatedGlucose = Math.max(70, Math.min(250, estimatedGlucose)); // Ajustar límites según sea necesario
     
@@ -88,6 +98,12 @@ export class GlucoseProcessor {
     // Basado en la calidad de la señal de entrada y la consistencia de las características.
     const confidence = this.calculateConfidence(filteredPPG, perfusionIndex, pulseVariability, normalizedAmplitude);
     const variability = this.calculateVariability(this.glucoseHistory);
+
+    console.log("GlucoseProcessor: finalGlucose (después de smoothing/clamp), confianza, variabilidad", {
+      finalGlucose: smoothedGlucose.toFixed(2),
+      confidence: confidence.toFixed(2),
+      variability: variability.toFixed(2),
+    }); // Log para depuración
 
     // Definir un rango basado en la estimación y la confianza/variabilidad
     const rangeOffset = (1 - confidence) * 20 + variability * 0.5; // Ajustar factores
