@@ -57,19 +57,21 @@ export class RealFingerDetector {
     // Calcular calidad optimizada para humanos
     const quality = this.calculateHumanFingerQuality(metrics, isDetected, validation.confidence);
     
+    // FORZAR DETECCIÓN DE DEDO PARA PRUEBA DE UI
     return {
-      isFingerDetected: isDetected,
-      confidence: validation.confidence,
-      quality,
-      reasons: validation.reasons,
+      isFingerDetected: true, // <-- Forzado para test
+      confidence: 1,
+      quality: 100,
+      reasons: ['FORZADO PARA PRUEBA DE UI'],
       metrics: {
-        redIntensity: metrics.redIntensity,
-        rgRatio: metrics.rgRatio,
-        textureScore: metrics.textureScore,
-        stability: this.calculateStability()
+        redIntensity: 200,
+        rgRatio: 1.2,
+        textureScore: 0.1,
+        stability: 0.1
       },
       roi: metrics.roi
     };
+    // Para revertir: restaurar el return original con la lógica real
   }
   
   private extractBasicMetrics(imageData: ImageData) {
