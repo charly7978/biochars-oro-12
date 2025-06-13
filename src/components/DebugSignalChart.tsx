@@ -1,1 +1,1 @@
-// Archivo eliminado completamente. Ya no existe el gráfico temporal de depuración.
+// Archivo eliminado completamente. El gráfico temporal de depuración ya no existe.

@@ -8,7 +8,6 @@ import PPGSignalMeter from "@/components/PPGSignalMeter";
 import MonitorButton from "@/components/MonitorButton";
 import { VitalSignsResult } from "@/modules/vital-signs/VitalSignsProcessor";
 import { toast } from "@/components/ui/use-toast";
-import DebugSignalChart from "@/components/DebugSignalChart";
 
 const Index = () => {
   const [isMonitoring, setIsMonitoring] = useState(false);
@@ -668,6 +667,7 @@ const Index = () => {
           </div>
 
           {/* DEBUG: Gráficos temporales de señal cruda y filtrada */}
+          {/*
           <div className="absolute top-2 right-2 z-50 bg-black/70 p-2 rounded shadow-lg border border-yellow-400">
             <div style={{ color: '#FFD600', fontWeight: 'bold', fontSize: 12, marginBottom: 2 }}>DEBUG: Señal temporal</div>
             <DebugSignalChart 
@@ -683,6 +683,7 @@ const Index = () => {
               color="#ef4444"
             />
           </div>
+          */}
 
           {/* Contenedor de los displays ampliado y con mayor espaciamiento */}
           <div className="absolute inset-x-0 top-[55%] bottom-[60px] bg-black/10 px-4 py-6">
