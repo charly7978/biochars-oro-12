@@ -189,7 +189,7 @@ export class RealFingerDetector {
       reasons.push(`✓ Estabilidad: ${(stability * 100).toFixed(1)}%`);
     } else {
       // Algo de puntaje incluso con baja estabilidad
-      score += 0.01;
+      score += 0.05;
       reasons.push(`~ Estabilidad baja: ${(stability * 100).toFixed(1)}%`);
     }
     
@@ -251,11 +251,11 @@ export class RealFingerDetector {
       const positiveCount = recentDetections.filter(d => d).length;
       
       // Solo necesita 1 de 2 detecciones positivas
-      return positiveCount >= 3;
+      return positiveCount >= 1;
     }
     
     // Para las primeras muestras, ser menos estricto
-    return validation.confidence >= 0.8;
+    return validation.confidence >= 0.4;
   }
   
   private calculateHumanFingerQuality(metrics: any, isDetected: boolean, confidence: number): number {
@@ -279,7 +279,7 @@ export class RealFingerDetector {
     quality += this.calculateStability() * 8;
     
     // Penalización reducida para valores extremos
-    if (metrics.redIntensity > 200 || metrics.redIntensity < 70) {
+    if (metrics.redIntensity > 240 || metrics.redIntensity < 50) {
       quality -= 10; // Penalización menor
     }
     
