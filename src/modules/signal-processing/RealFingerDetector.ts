@@ -26,13 +26,13 @@ export class RealFingerDetector {
   // UMBRALES AJUSTADOS PARA DEDOS HUMANOS REALES
   private readonly REAL_THRESHOLDS = {
     MIN_RED: 60,          // Más bajo para dedos reales
-    MAX_RED: 220,         // Ajustado para excluir objetos muy brillantes (antes 250)
-    MIN_RG_RATIO: 1.10,   // Ajustado para mayor discriminación de piel (antes 1.05)
+    MAX_RED: 250,         // Más alto para permitir variación natural
+    MIN_RG_RATIO: 1.05,   // Más permisivo para dedos reales
     MAX_RG_RATIO: 3.5,    // Mayor rango para condiciones variables
-    MIN_TEXTURE: 0.03,    // Ajustado para una textura mínima más estricta (antes 0.02)
+    MIN_TEXTURE: 0.02,    // Más bajo para detectar piel suave
     MIN_STABILITY: 0.08,  // Más permisivo para movimiento natural
     CALIBRATION_SAMPLES: 10,
-    MIN_CONFIDENCE: 0.45   // Ajustado para requerir mayor certeza (antes 0.4)
+    MIN_CONFIDENCE: 0.4   // Umbral más bajo para dedos reales
   };
   
   detectFinger(imageData: ImageData): FingerDetectionResult {
@@ -210,6 +210,16 @@ export class RealFingerDetector {
   }
   
   private makeHumanFingerDecision(validation: any, metrics: any): boolean {
+    // Nueva lógica: si la textura no corresponde a un patrón de huella dactilar, anular detección.
+    // Esto es determinante para descartar superficies planas o ruidosas sin huella.
+    const optimalMinTexture = 0.015; // Umbral inferior para textura de huella (más bajo que MIN_TEXTURE general)
+    const optimalMaxTexture = 0.1;   // Umbral superior para textura de huella (para evitar ruido)
+
+    if (metrics.textureScore < optimalMinTexture || metrics.textureScore > optimalMaxTexture) {
+        console.log("RealFingerDetector: Dedo no detectado (patrón de huella no válido)", { textureScore: metrics.textureScore.toFixed(3) });
+        return false;
+    }
+
     // Nueva lógica: si la intensidad roja es extremadamente baja o alta, el dedo no está presente.
     // Esto actúa como una anulación clara para cuando se retira el dedo o hay condiciones de luz extremas.
     const isTooDark = metrics.redIntensity < 10; // Muy baja intensidad roja (cerca de negro)
