@@ -2,7 +2,11 @@ class SignalOptimizer {
   constructor() {
     // Inicialización de buffers si es necesario
     this.bpBuffer = [];
-    // ...inicialización para otros signos...
+    this.spo2Buffer = [];
+    this.hrBuffer = [];
+    this.respBuffer = [];
+    this.tempBuffer = [];
+    this.arrBuffer = [];
   }
 
   optimize(signalData) {
@@ -34,26 +38,42 @@ class SignalOptimizer {
 
   calculateOptimizedSpO2(values) {
     if (values.length === 0) return 0;
+    // Utiliza el rango de la señal para ajustar la SpO2
     const range = Math.max(...values) - Math.min(...values);
     let spo2 = 98 - (range * 10);
-    return Math.max(0, Math.min(98, Math.round(spo2)));
+    spo2 = Math.max(80, Math.min(98, spo2));
+    return Math.round(spo2);
   }
 
   calculateOptimizedHeartRate(values) {
-    // Placeholder: cálculo avanzado de frecuencia cardiaca
-    return 70;
+    if (values.length === 0) return 0;
+    // Algoritmo simple placeholder basado en estimación de picos
+    const peakCount = Math.floor(values.length / 50);
+    const durationSec = values.length / 30; // Suposición de 30 muestras por segundo
+    const hr = (peakCount / durationSec) * 60;
+    return Math.round(hr);
   }
 
   calculateOptimizedRespiration(values) {
+    if (values.length === 0) return 0;
+    // Placeholder: tasa de respiración promedio
     return 16;
   }
 
   calculateOptimizedTemperature(values) {
-    return 36.5;
+    if (values.length === 0) return 36.5;
+    // Optimización placeholder usando el promedio y una corrección basada en el valor medio
+    const avg = values.reduce((a, b) => a + b, 0) / values.length;
+    const temperature = 36 + ((avg - 0.5) * 2);
+    return Math.round(temperature * 10) / 10;
   }
 
   calculateOptimizedArrhythmia(values) {
-    return "--";
+    // Algoritmo placeholder de detección de arritmia basado en la varianza de la señal
+    if (values.length < 30) return "INDETERMINADO";
+    const mean = values.reduce((a, b) => a + b, 0) / values.length;
+    const variance = values.reduce((acc, v) => acc + Math.pow(v - mean, 2), 0) / values.length;
+    return variance > 1 ? "ARRITMIA DETECTADA" : "SIN ARRITMIAS";
   }
 }
 

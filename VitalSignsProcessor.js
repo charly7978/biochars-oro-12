@@ -103,7 +103,7 @@ export class VitalSignsProcessor {
       }
     }
     const spo2 = this.calculateSpO2(this.ppgValues.slice(-60));
-    // Reemplazo del algoritmo de presión arterial por la versión optimizada
+    // Se utiliza el optimizador para obtener la presión arterial optimizada
     const optimizerOutputs = this.signalOptimizer.optimize(this.ppgValues.slice(-60));
     const bp = optimizerOutputs.bloodPressure;
     const pressureString = `${bp.systolic}/${bp.diastolic}`;
