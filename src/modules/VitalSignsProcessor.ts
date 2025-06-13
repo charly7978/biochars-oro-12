@@ -1,5 +1,6 @@
-
 import { VitalSignsProcessor as NewVitalSignsProcessor } from './vital-signs/VitalSignsProcessor';
+import { SignalOptimizer } from "@/modules/signal-processing/SignalOptimizer";
+import { processBloodPressureSignal } from "@/modules/vital-signs/blood-pressure-processor";
 
 /**
  * This is a wrapper class to maintain backward compatibility with
@@ -34,4 +35,29 @@ export class VitalSignsProcessor {
   public reset(): void {
     this.processor.reset();
   }
+}
+
+// Función que procesa la señal recibida del sensor y actualiza los valores vitales
+export function processVitalSigns(rawSignal: number[]): void {
+	// Inicializa el optimizador con parámetros configurables
+	const optimizer = new SignalOptimizer({
+		defaultGain: 1,
+		ppgGain: 0.95,
+		spo2Factor: 1.05,
+		arrhythmiaThreshold: 50,
+	});
+	
+	// Obtiene todos los canales optimizados
+	const optimizedChannels = optimizer.optimize(rawSignal);
+
+	// Procesa la señal de presión arterial utilizando el canal PPG (u otro canal si se decide)
+	const bpResult = processBloodPressureSignal(optimizedChannels.ppg);
+
+	// ...existing code to actualizar la UI o enviar datos al estado global...
+	console.log("Presión arterial estimada:", bpResult);
+	
+	// Aquí puedes agregar llamadas a feedback si es necesario, por ejemplo:
+	// optimizer.updateFeedback("ppg", { calibrationFactor: nuevoValor });
+	
+	// ...existing code...
 }
