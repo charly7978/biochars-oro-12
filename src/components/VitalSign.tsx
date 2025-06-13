@@ -33,9 +33,9 @@ const VitalSign = ({
   const getRiskLabel = (label: string, value: string | number | GlucoseDetails) => {
     if (label === 'GLUCOSA' && typeof value === 'object' && value !== null && 'estimatedGlucose' in value) {
       const glucoseValue = (value as GlucoseDetails).estimatedGlucose;
-      if (glucoseValue > 126) return 'Hiperglucemia';
       if (glucoseValue < 70) return 'Hipoglucemia';
-      return '';
+      if (glucoseValue > 125) return 'Hiperglucemia';
+      return 'Normal';
     }
 
     if (typeof value === 'number') {
@@ -271,9 +271,41 @@ const VitalSign = ({
 
   const displayValue = () => {
     if (label === 'GLUCOSA' && typeof value === 'object' && value !== null && 'estimatedGlucose' in value) {
-      return `${(value as GlucoseDetails).estimatedGlucose.toFixed(0)}`;
+      const glucoseDetails = value as GlucoseDetails;
+      const glucose = glucoseDetails.estimatedGlucose;
+      const [minRange, maxRange] = glucoseDetails.glucoseRange;
+
+      let statusText = '';
+      let textColorClass = '';
+
+      if (glucose < 70) {
+          statusText = 'Bajo';
+          textColorClass = 'text-[#F97316]'; // Naranja para bajo
+      } else if (glucose >= 70 && glucose <= 125) { // Rango general considerado normal
+          statusText = 'Normal';
+          textColorClass = 'text-green-500'; // Verde para normal
+      } else { // glucose > 125
+          statusText = 'Elevado';
+          textColorClass = 'text-[#ea384c]'; // Rojo para elevado
+      }
+
+      return (
+          <div className="flex flex-col items-center">
+              <span className={cn("text-display-large font-bold", textColorClass)}>
+                  {statusText}
+              </span>
+              <span className="text-value-medium text-gray-400">
+                  ({minRange.toFixed(0)} - {maxRange.toFixed(0)} {unit})
+              </span>
+          </div>
+      );
     }
-    return value;
+    if (typeof value === 'object' && value !== null) {
+      // Si llega aquí, es un objeto que no es GlucoseDetails (ej. lipids)
+      // o un caso no manejado, se mostrará el valor estimado si existe
+      return String((value as any).estimatedGlucose || (value as any).totalCholesterol || '--');
+    }
+    return `${value}${unit ? ` ${unit}` : ''}`;
   };
 
   return (
