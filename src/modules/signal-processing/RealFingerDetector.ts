@@ -76,7 +76,7 @@ export class RealFingerDetector {
     // Área central más grande para capturar mejor el dedo
     const centerX = width / 2;
     const centerY = height / 2;
-    const radius = Math.min(width, height) * 0.14; // Área más grande
+    const radius = Math.min(width, height) * 0.24; // Área más grande
     
     let redSum = 0, greenSum = 0, blueSum = 0;
     let pixelCount = 0;
