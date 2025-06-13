@@ -264,28 +264,22 @@ export class RealFingerDetector {
   }
   
   private makeHumanFingerDecision(validation: any, metrics: any): boolean {
-    // Umbral más bajo para dedos humanos
-    if (validation.confidence < this.REAL_THRESHOLDS.MIN_CONFIDENCE) {
-      return false;
-    }
-    
-    // Filtro temporal más permisivo
+    // Filtro temporal para reducir falsos positivos: requerir 2 de 3 detecciones positivas
     this.detectionHistory.push(validation.confidence >= this.REAL_THRESHOLDS.MIN_CONFIDENCE);
-    if (this.detectionHistory.length > 4) {
+    if (this.detectionHistory.length > 3) { // Mantener un historial de 3 detecciones
       this.detectionHistory.shift();
     }
     
-    // Permitir detección más rápida
-    if (this.detectionHistory.length >= 2) {
-      const recentDetections = this.detectionHistory.slice(-2);
+    // Requiere al menos 2 de las últimas 3 detecciones para ser positivas
+    if (this.detectionHistory.length >= 2) { // Asegurar que tenemos al menos 2 datos
+      const recentDetections = this.detectionHistory.slice(-3); // Tomar las últimas 3 detecciones
       const positiveCount = recentDetections.filter(d => d).length;
       
-      // Solo necesita 1 de 2 detecciones positivas
-      return positiveCount >= 1;
+      return positiveCount >= 2;
     }
     
-    // Para las primeras muestras, ser menos estricto
-    return validation.confidence >= 0.5;
+    // Para las primeras muestras, ser más permisivo si la confianza es alta
+    return validation.confidence >= 0.7; // Aumentar el umbral inicial levemente
   }
   
   private calculateHumanFingerQuality(metrics: any, isDetected: boolean, confidence: number): number {
