@@ -260,11 +260,6 @@ const VitalSign = ({
     return { median, average, interpretation };
   };
 
-  const riskLabel = getRiskLabel(label, value);
-  const riskColor = getRiskColor(riskLabel);
-  const isArrhytmia = label === 'ARRITMIAS';
-  const medianAndAverage = getMedianAndAverageInfo(label, value);
-
   const handleClick = () => {
     setShowDetails(!showDetails);
   };
@@ -290,79 +285,79 @@ const VitalSign = ({
       }
 
       return (
-          <div className="flex flex-col items-center">
-              <span className={cn("text-display-large font-bold", textColorClass)}>
+          <div className="flex flex-col items-center text-center">
+              <span className={cn("text-display-small font-bold", textColorClass)}>
                   {statusText}
               </span>
-              <span className="text-value-medium text-gray-400">
+              <span className="text-value-small text-gray-400">
                   ({minRange.toFixed(0)} - {maxRange.toFixed(0)} {unit})
               </span>
           </div>
       );
     }
-    if (typeof value === 'object' && value !== null) {
-      // Si llega aquí, es un objeto que no es GlucoseDetails (ej. lipids)
-      // o un caso no manejado, se mostrará el valor estimado si existe
-      return String((value as any).estimatedGlucose || (value as any).totalCholesterol || '--');
-    }
-    return `${value}${unit ? ` ${unit}` : ''}`;
+
+    // Para otros signos vitales (HR, SpO2, etc.)
+    return (
+      <div className="flex flex-col items-center text-center">
+        <span className="text-display-small font-bold text-gradient-soft animate-value-glow">
+          {typeof value === 'number' ? value.toFixed(0) : value}
+        </span>
+        {unit && <span className="text-value-small text-gray-400">{unit}</span>}
+      </div>
+    );
   };
 
+  const riskLabel = getRiskLabel(label, value);
+  const riskColor = getRiskColor(riskLabel);
+  const arrhythmiaDisplay = getArrhythmiaDisplay(value);
+  const medianAndAverage = getMedianAndAverageInfo(label, value);
+
   return (
-    <div 
+    <div
       className={cn(
         "relative flex flex-col justify-center items-center p-2 bg-transparent transition-all duration-500 text-center cursor-pointer",
         showDetails && "bg-gray-800/20 backdrop-blur-sm rounded-lg"
       )}
       onClick={handleClick}
     >
-      <div className="text-[11px] font-medium uppercase tracking-wider text-black/70 mb-1">
+      {/* Título */}
+      <div className="text-sm font-semibold uppercase tracking-wider text-gray-300 mb-1 text-center">
         {label}
       </div>
-      
-      <div className="font-bold text-xl sm:text-2xl transition-all duration-300">
-        <span className="text-gradient-soft animate-value-glow">
-          {isArrhytmia && typeof value === 'string' ? value.split('|')[0] : displayValue()}
-        </span>
-        {unit && <span className="text-xs text-white/70 ml-1">{unit}</span>}
+
+      {/* Valor principal */}
+      <div className="flex-1 flex flex-col items-center justify-center">
+        {displayValue()}
       </div>
 
-      {!isArrhytmia && riskLabel && (
-        <div className={`text-sm font-medium mt-1 ${riskColor}`}>
+      {/* Etiqueta de Riesgo (si aplica) */}
+      {riskLabel && riskLabel !== 'Normal' && riskLabel !== 'Calibrando' && riskLabel !== 'SIN ARRITMIAS' && (
+        <div className={cn("text-sm font-medium mt-1", riskColor)}>
           {riskLabel}
         </div>
       )}
-      
-      {isArrhytmia && getArrhythmiaDisplay(value as string)}
-      
-      {calibrationProgress !== undefined && (
-        <div className="absolute inset-0 bg-transparent overflow-hidden pointer-events-none border-0">
-          <div 
-            className="h-full bg-blue-500/5 transition-all duration-300 ease-out"
-            style={{ width: `${calibrationProgress}%` }}
-          />
-          <div className="absolute inset-0 flex items-center justify-center">
-            <span className="text-xs text-white/80">
-              {calibrationProgress < 100 ? `${Math.round(calibrationProgress)}%` : '✓'}
-            </span>
-          </div>
+
+      {arrhythmiaDisplay}
+
+      {/* Detalles para ARITMIAS */}
+      {label === 'ARRITMIAS' && showDetails && medianAndAverage && (
+        <div className="text-xs text-gray-400 mt-2 text-center">
+          <p>{medianAndAverage.interpretation}</p>
         </div>
       )}
 
-      {showDetails && medianAndAverage && (
-        <div className="absolute inset-x-0 top-full z-50 mt-2 p-4 bg-white/90 backdrop-blur-sm rounded-lg shadow-lg text-left">
-          <div className="text-sm font-medium text-gray-900 mb-2">Información adicional:</div>
-          <div className="grid grid-cols-2 gap-2 mb-2">
-            <div className="text-xs">
-              <span className="font-medium">Mediana:</span> {medianAndAverage.median} {unit}
-            </div>
-            <div className="text-xs">
-              <span className="font-medium">Promedio ponderado:</span> {medianAndAverage.average} {unit}
-            </div>
-          </div>
-          <div className="text-xs mt-1 text-gray-800">
-            {medianAndAverage.interpretation}
-          </div>
+      {/* Detalles adicionales para la glucosa */}
+      {label === 'GLUCOSA' && showDetails && typeof value === 'object' && value !== null && 'estimatedGlucose' in value && medianAndAverage && (
+        <div className="text-xs text-gray-400 mt-2 text-center">
+          <p>{medianAndAverage.median}</p>
+          <p>{medianAndAverage.average}</p>
+          <p>{medianAndAverage.interpretation}</p>
+        </div>
+      )}
+
+      {calibrationProgress !== undefined && calibrationProgress < 100 && (
+        <div className="absolute bottom-2 left-0 right-0 text-center text-xs text-blue-400">
+          Calibrando: {calibrationProgress.toFixed(0)}%
         </div>
       )}
     </div>
