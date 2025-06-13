@@ -17,23 +17,41 @@ class SignalOptimizer {
     const respiration = this.calculateOptimizedRespiration(signalData);
     const temperature = this.calculateOptimizedTemperature(signalData);
     const arrhythmia = this.calculateOptimizedArrhythmia(signalData);
+    const calibrationFeedback = this.getCalibrationFeedback(signalData);
     return {
       spo2,
       bloodPressure: bp,
       heartRate,
       respiration,
       temperature,
-      arrhythmia
+      arrhythmia,
+      calibrationFeedback // nuevo indicador de calibración
     };
   }
 
   calculateAdvancedBloodPressure(values) {
-    // Ejemplo placeholder de algoritmo avanzado para presión arterial
+    // Ajuste en el cálculo para elevar los valores
     if (values.length === 0) return { systolic: 120, diastolic: 80 };
     const avg = values.reduce((a, b) => a + b, 0) / values.length;
-    let systolic = Math.min(180, Math.max(90, 120 + (avg - 0.5) * 60));
-    let diastolic = Math.min(110, Math.max(60, 80 + (avg - 0.5) * 40));
+    // Multiplicadores actualizados para elevar los resultados
+    let systolic = Math.min(180, Math.max(90, 120 + (avg - 0.5) * 80));
+    let diastolic = Math.min(110, Math.max(60, 80 + (avg - 0.5) * 50));
     return { systolic: Math.round(systolic), diastolic: Math.round(diastolic) };
+  }
+
+  getCalibrationFeedback(values) {
+    // Retroalimentación basada en el rango de la señal
+    if (values.length === 0) return "SIN DATOS";
+    const minVal = Math.min(...values);
+    const maxVal = Math.max(...values);
+    const range = maxVal - minVal;
+    // Se establece un rango esperado; este umbral puede ajustarse según pruebas
+    const expectedRange = 0.5;
+    if (range >= expectedRange) {
+      return "Calibración Estable";
+    } else {
+      return "Requiere Ajuste de Calibración";
+    }
   }
 
   calculateOptimizedSpO2(values) {
