@@ -637,12 +637,6 @@ const Index = () => {
       paddingTop: 'env(safe-area-inset-top)',
       paddingBottom: 'env(safe-area-inset-bottom)'
     }}>
-      {/* Debug overlay de intervalos RR */}
-      {rrIntervals.length > 0 && (
-        <div className="absolute top-4 left-4 text-white z-20 bg-black/50 p-2 rounded">
-          Últimos intervalos RR: {rrIntervals.map(i => i + ' ms').join(', ')}
-        </div>
-      )}
       {/* Overlay button for re-entering fullscreen if user exits */}
       {!isFullscreen && (
         <button 
@@ -752,6 +746,12 @@ const Index = () => {
             </div>
           </div>
         </div>
+      </div>
+    </div>
+  );
+};
+
+export default Index;
       </div>
     </div>
   );
