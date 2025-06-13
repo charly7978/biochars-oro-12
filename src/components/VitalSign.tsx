@@ -273,8 +273,7 @@ const VitalSign = ({
     if (label === 'GLUCOSA' && typeof value === 'object' && value !== null && 'estimatedGlucose' in value) {
       return `${(value as GlucoseDetails).estimatedGlucose.toFixed(0)}`;
     }
-    // Asegurarse de que cualquier otro valor sea convertido a string para visualización
-    return String(value);
+    return value;
   };
 
   return (
@@ -290,11 +289,7 @@ const VitalSign = ({
       </div>
       
       <div className="font-bold text-xl sm:text-2xl transition-all duration-300">
-        <span className={cn(
-          "text-value-large lg:text-display-large font-bold relative z-10",
-          "text-white",
-          getRiskColor(riskLabel)
-        )}>
+        <span className="text-gradient-soft animate-value-glow">
           {isArrhytmia && typeof value === 'string' ? value.split('|')[0] : displayValue()}
         </span>
         {unit && <span className="text-xs text-white/70 ml-1">{unit}</span>}
