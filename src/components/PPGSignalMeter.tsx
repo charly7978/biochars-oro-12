@@ -379,15 +379,6 @@ const PPGSignalMeter = ({
     onReset();
   }, [onReset]);
 
-  const getBpmStatus = (bpm: number) => {
-    if (bpm < 40) return { label: "Muy bajo", color: "text-amber-500" };
-    if (bpm < 60) return { label: "Bajo", color: "text-yellow-500" };
-    if (bpm <= 100) return { label: "Normal", color: "text-green-500" };
-    if (bpm <= 120) return { label: "Elevado", color: "text-orange-500" };
-    if (bpm > 120) return { label: "Taquicardia", color: "text-red-500" };
-    return { label: "--", color: "text-gray-400" };
-  };
-
   return (
     <div className="fixed inset-0 bg-black/5 backdrop-blur-[1px]">
       <canvas
@@ -396,26 +387,6 @@ const PPGSignalMeter = ({
         height={CANVAS_HEIGHT}
         className="w-full h-[100vh] absolute inset-0 z-0"
       />
-
-      {/* Barra informativa sofisticada debajo del monitor */}
-      <div className="absolute left-0 right-0 bottom-16 flex flex-col items-center z-20">
-        <div className="flex items-baseline gap-2 bg-white/80 rounded-lg px-4 py-1 shadow backdrop-blur-md">
-          <span className="text-base font-bold text-gray-900">
-            {value > 0 ? Math.round(value) : '--'}
-          </span>
-          <span className="text-xs text-gray-500 font-medium">BPM</span>
-          <span className={`ml-2 text-xs font-semibold ${getBpmStatus(value).color}`}>
-            {value > 0 ? getBpmStatus(value).label : ''}
-          </span>
-        </div>
-        <div className="text-[11px] text-gray-700 mt-1">
-          Calidad de señal: <span className={
-            quality >= 80 ? "text-green-600 font-semibold"
-            : quality >= 50 ? "text-yellow-600 font-semibold"
-            : "text-red-600 font-semibold"
-          }>{quality}%</span>
-        </div>
-      </div>
 
       <div className="absolute top-0 left-0 right-0 p-1 flex justify-between items-center bg-transparent z-10 pt-3">
         <div className="flex items-center gap-2">
