@@ -210,10 +210,17 @@ export class RealFingerDetector {
   }
   
   private makeHumanFingerDecision(validation: any, metrics: any): boolean {
-    // Nueva lógica: si la intensidad roja es extremadamente baja, el dedo no está presente.
-    // Esto actúa como una anulación clara cuando se retira el dedo de la cámara.
-    if (metrics.redIntensity < 20) { // Umbral muy bajo, indicativo de ausencia de dedo
-        console.log("RealFingerDetector: Dedo no detectado (intensidad roja muy baja)", { redIntensity: metrics.redIntensity.toFixed(1) });
+    // Nueva lógica: si la intensidad roja es extremadamente baja o alta, el dedo no está presente.
+    // Esto actúa como una anulación clara para cuando se retira el dedo o hay condiciones de luz extremas.
+    const isTooDark = metrics.redIntensity < 10; // Muy baja intensidad roja (cerca de negro)
+    const isTooBright = metrics.redIntensity > 240; // Muy alta intensidad roja (sobreexposición o blanco)
+
+    if (isTooDark || isTooBright) {
+        console.log("RealFingerDetector: Dedo no detectado (intensidad roja fuera de rango óptimo)", {
+            redIntensity: metrics.redIntensity.toFixed(1),
+            isTooDark,
+            isTooBright
+        });
         return false;
     }
 
