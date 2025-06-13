@@ -40,7 +40,6 @@ const Index = () => {
     rrVariation: number;
   } | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [rrIntervals, setRRIntervals] = useState<number[]>([]);
   
   // Nueva referencia para controlar el estado del procesamiento de imagen
   const isProcessingFramesRef = useRef(false);
@@ -575,10 +574,6 @@ const Index = () => {
       setHeartRate(heartBeatResult.bpm);
       setHeartbeatSignal(heartBeatResult.filteredValue);
       setBeatMarker(heartBeatResult.isPeak ? 1 : 0);
-      // Actualizar últimos intervalos RR para debug
-      if (heartBeatResult.rrData && heartBeatResult.rrData.intervals) {
-        setRRIntervals(heartBeatResult.rrData.intervals.slice(-5));
-      }
       
       const vitals = processVitalSigns(lastSignal.filteredValue, heartBeatResult.rrData);
       if (vitals) {
