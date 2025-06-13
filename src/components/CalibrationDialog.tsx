@@ -11,6 +11,7 @@ interface CalibrationDialogProps {
   onCalibrationStart: () => void;
   onCalibrationEnd: () => void;
   feedback: string;
+  debugInfo?: string;
 }
 
 const CalibrationDialog: React.FC<CalibrationDialogProps> = ({ 
@@ -18,7 +19,8 @@ const CalibrationDialog: React.FC<CalibrationDialogProps> = ({
   onClose,
   onCalibrationStart,
   onCalibrationEnd,
-  feedback
+  feedback,
+  debugInfo
 }) => {
   const [systolic, setSystolic] = React.useState<string>("");
   const [diastolic, setDiastolic] = React.useState<string>("");
@@ -128,6 +130,7 @@ const CalibrationDialog: React.FC<CalibrationDialogProps> = ({
         color: "white"
       }}>
         {feedback}
+        { debugInfo && <div style={{ fontSize: "0.8rem", marginTop: "0.5rem" }}>{debugInfo}</div> }
       </div>
     </Dialog>
   );
