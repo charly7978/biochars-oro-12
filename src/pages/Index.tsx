@@ -18,17 +18,7 @@ const Index = () => {
     spo2: 0,
     pressure: "--/--",
     arrhythmiaStatus: "--",
-    glucose: {
-      estimatedGlucose: 0,
-      glucoseRange: [0, 0],
-      confidence: 0,
-      variability: 0,
-      features: {
-        spectralGlucoseIndicator: 0,
-        vascularResistanceIndex: 0,
-        pulseMorphologyScore: 0,
-      },
-    },
+    glucose: 0,
     lipids: {
       totalCholesterol: 0,
       triglycerides: 0
@@ -400,17 +390,7 @@ const Index = () => {
       spo2: 0,
       pressure: "--/--",
       arrhythmiaStatus: "--",
-      glucose: {
-        estimatedGlucose: 0,
-        glucoseRange: [0, 0],
-        confidence: 0,
-        variability: 0,
-        features: {
-          spectralGlucoseIndicator: 0,
-          vascularResistanceIndex: 0,
-          pulseMorphologyScore: 0,
-        },
-      },
+      glucose: 0,
       lipids: {
         totalCholesterol: 0,
         triglycerides: 0
@@ -735,10 +715,9 @@ const Index = () => {
               />
               <VitalSign 
                 label="GLUCOSA"
-                value={vitalSigns.glucose}
+                value={vitalSigns.glucose || "--"}
                 unit="mg/dL"
                 highlighted={showResults}
-                calibrationProgress={calibrationProgress?.progress.glucose}
               />
               <VitalSign 
                 label="COLESTEROL/TRIGL."
