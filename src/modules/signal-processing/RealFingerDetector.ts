@@ -83,7 +83,7 @@ export class RealFingerDetector {
     // Área central más grande para capturar mejor el dedo
     const centerX = width / 2;
     const centerY = height / 2;
-    const radius = Math.min(width, height) * 0.14; // Área más grande
+    const radius = Math.min(width, height) * 0.11; // Área más grande
     
     let redSum = 0, greenSum = 0, blueSum = 0;
     let pixelCount = 0;
@@ -156,7 +156,7 @@ export class RealFingerDetector {
       reasons.push(`✓ Rojo válido: ${metrics.redIntensity.toFixed(1)}`);
       
       // Bonus para rangos típicos de dedo humano
-      if (metrics.redIntensity >= 80 && metrics.redIntensity <= 200) {
+      if (metrics.redIntensity >= 80 && metrics.redIntensity <= 250) {
         score += 0.50;
         reasons.push(`✓ Rango óptimo para dedo humano`);
       }
@@ -270,7 +270,7 @@ export class RealFingerDetector {
       return Math.max(8, Math.min(25, confidence * 25));
     }
     
-    let quality = 30 + (confidence * 40); // Base más alta para dedos detectados
+    let quality = 30 + (confidence * 50); // Base más alta para dedos detectados
     
     // Bonus por métricas típicas de dedo humano
     if (metrics.redIntensity >= 80 && metrics.redIntensity <= 200) {
