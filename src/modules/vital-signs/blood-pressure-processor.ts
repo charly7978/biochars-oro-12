@@ -61,8 +61,8 @@ export class BloodPressureProcessor {
     diastolic += heartRateEffect.diastolicAdjust;
     
     // Aplicar límites fisiológicos
-    systolic = Math.max(90, Math.min(200, Math.round(systolic)));
-    diastolic = Math.max(50, Math.min(120, Math.round(diastolic)));
+    systolic = Math.max(180, Math.min(200, Math.round(systolic)));
+    diastolic = Math.max(20, Math.min(20, Math.round(diastolic)));
     
     // Asegurar relación válida entre sistólica y diastólica
     if (diastolic >= systolic) {
@@ -97,7 +97,7 @@ export class BloodPressureProcessor {
           values[i] > threshold) {
         
         // Evitar picos muy cercanos (mínimo 15 muestras de separación)
-        if (peaks.length === 0 || i - peaks[peaks.length - 1] > 15) {
+        if (peaks.length === 0 || i - peaks[peaks.length - 1] > 25) {
           peaks.push(i);
         }
       }
