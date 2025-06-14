@@ -19,6 +19,7 @@ interface VitalSignProps {
   unit?: string;
   highlighted?: boolean;
   calibrationProgress?: number;
+  vascularStiffnessIndex?: number;
 }
 
 const VitalSign = ({ 
@@ -26,7 +27,8 @@ const VitalSign = ({
   value, 
   unit, 
   highlighted = false,
-  calibrationProgress 
+  calibrationProgress,
+  vascularStiffnessIndex
 }: VitalSignProps) => {
   const [showDetails, setShowDetails] = useState(false);
 
@@ -51,6 +53,10 @@ const VitalSign = ({
           if (value < 12) return 'Anemia';
           if (value > 16) return 'Policitemia';
           return '';
+        case 'RIGIDEZ VASCULAR':
+          if (value > 70) return 'Alta Rigidez';
+          if (value < 30 && value > 0) return 'Baja Rigidez';
+          return '';
         default:
           return '';
       }
@@ -63,6 +69,7 @@ const VitalSign = ({
           if (pressureParts.length === 2) {
             const systolic = parseInt(pressureParts[0], 10);
             const diastolic = parseInt(pressureParts[1], 10);
+            if (systolic === 0 && diastolic === 0) return '';
             if (!isNaN(systolic) && !isNaN(diastolic)) {
               if (systolic >= 140 || diastolic >= 90) return 'Hipertensión';
               if (systolic < 90 || diastolic < 60) return 'Hipotensión';
@@ -113,10 +120,12 @@ const VitalSign = ({
       case 'Hipertensión':
       case 'Hipercolesterolemia':
       case 'Hipertrigliceridemia':
+      case 'Alta Rigidez':
         return 'text-[#ea384c]';
       case 'Bradicardia':
       case 'Hipoglucemia':
       case 'Hipotensión':
+      case 'Baja Rigidez':
         return 'text-[#F97316]';
       case 'Anemia':
         return 'text-[#FEF7CD]';
@@ -160,14 +169,13 @@ const VitalSign = ({
   };
 
   const getMedianAndAverageInfo = (label: string, value: string | number | GlucoseDetails) => {
-    if (label === 'SPO2') return null; // SPO2 still handled separately
+    if (label === 'SPO2') return null;
 
     let median, average, interpretation;
 
     if (label === 'GLUCOSA' && typeof value === 'object' && value !== null && 'estimatedGlucose' in value) {
       const glucoseDetails = value as GlucoseDetails;
       
-      // Formatear las estadísticas segmentadas de glucosa
       return {
         median: `Rango: ${glucoseDetails.glucoseRange[0].toFixed(0)}-${glucoseDetails.glucoseRange[1].toFixed(0)} mg/dL`,
         average: `Confianza: ${(glucoseDetails.confidence * 100).toFixed(0)}%`,
@@ -269,68 +277,65 @@ const VitalSign = ({
     setShowDetails(!showDetails);
   };
 
-  const displayValue = () => {
+  const displayValue = (): React.ReactNode => {
     if (label === 'GLUCOSA' && typeof value === 'object' && value !== null && 'estimatedGlucose' in value) {
       return `${(value as GlucoseDetails).estimatedGlucose.toFixed(0)}`;
     }
-    return value;
+    if (label === 'RIGIDEZ VASCULAR') {
+      return vascularStiffnessIndex !== undefined && vascularStiffnessIndex !== 0
+        ? `${vascularStiffnessIndex.toFixed(0)}`
+        : 'N/D';
+    }
+    if (typeof value === 'number') {
+      return value.toFixed(0);
+    }
+    if (typeof value === 'string') {
+      const arrhythmiaDisplay = getArrhythmiaDisplay(value);
+      if (label === 'ARRITMIAS' && arrhythmiaDisplay) {
+        return arrhythmiaDisplay;
+      } else if (label === 'PRESIÓN ARTERIAL' && value === '0/0') {
+        return 'N/D';
+      }
+      return value;
+    }
+    if (typeof value === 'object' && value !== null) {
+      return '';
+    }
+    return '';
+  };
+
+  const displayUnit = () => {
+    if (label === 'RIGIDEZ VASCULAR') return '';
+    if (label === 'GLUCOSA') return 'mg/dL';
+    return unit;
   };
 
   return (
     <div 
       className={cn(
-        "relative flex flex-col justify-center items-center p-2 bg-transparent transition-all duration-500 text-center cursor-pointer",
-        showDetails && "bg-gray-800/20 backdrop-blur-sm rounded-lg"
+        "relative p-4 rounded-xl shadow-lg flex flex-col items-center justify-center min-h-[120px] transition-all duration-300 ease-in-out cursor-pointer",
+        highlighted ? "bg-gradient-to-br from-blue-600 to-purple-600 text-white shadow-xl scale-105" : "bg-zinc-800 text-white",
+        "hover:scale-[1.02] hover:shadow-2xl",
+        showDetails ? "ring-2 ring-blue-400" : ""
       )}
       onClick={handleClick}
     >
-      <div className="text-[11px] font-medium uppercase tracking-wider text-black/70 mb-1">
-        {label}
-      </div>
-      
-      <div className="font-bold text-xl sm:text-2xl transition-all duration-300">
-        <span className="text-gradient-soft animate-value-glow">
-          {isArrhytmia && typeof value === 'string' ? value.split('|')[0] : displayValue()}
-        </span>
-        {unit && <span className="text-xs text-white/70 ml-1">{unit}</span>}
-      </div>
-
-      {!isArrhytmia && riskLabel && (
-        <div className={`text-sm font-medium mt-1 ${riskColor}`}>
-          {riskLabel}
-        </div>
+      {calibrationProgress !== undefined && calibrationProgress < 100 && (
+        <div className="absolute top-0 left-0 w-full bg-blue-500" style={{ height: '4px', width: `${calibrationProgress}%` }}></div>
       )}
-      
-      {isArrhytmia && getArrhythmiaDisplay(value as string)}
-      
-      {calibrationProgress !== undefined && (
-        <div className="absolute inset-0 bg-transparent overflow-hidden pointer-events-none border-0">
-          <div 
-            className="h-full bg-blue-500/5 transition-all duration-300 ease-out"
-            style={{ width: `${calibrationProgress}%` }}
-          />
-          <div className="absolute inset-0 flex items-center justify-center">
-            <span className="text-xs text-white/80">
-              {calibrationProgress < 100 ? `${Math.round(calibrationProgress)}%` : '✓'}
-            </span>
-          </div>
-        </div>
+      <div className="text-sm font-semibold text-zinc-400 uppercase tracking-wider mb-1">{label}</div>
+      <div className="text-display-small font-bold text-gradient-soft">{displayValue()}<span className="text-base font-normal ml-1">{displayUnit()}</span></div>
+      {riskLabel && (riskLabel !== 'Normal' && riskLabel.indexOf('Arritmias') === -1) && (
+        <div className={cn("text-sm font-medium mt-1", riskColor)}>{riskLabel}</div>
       )}
+      {label === 'ARRITMIAS' && getArrhythmiaDisplay(value)}
 
       {showDetails && medianAndAverage && (
-        <div className="absolute inset-x-0 top-full z-50 mt-2 p-4 bg-white/90 backdrop-blur-sm rounded-lg shadow-lg text-left">
-          <div className="text-sm font-medium text-gray-900 mb-2">Información adicional:</div>
-          <div className="grid grid-cols-2 gap-2 mb-2">
-            <div className="text-xs">
-              <span className="font-medium">Mediana:</span> {medianAndAverage.median} {unit}
-            </div>
-            <div className="text-xs">
-              <span className="font-medium">Promedio ponderado:</span> {medianAndAverage.average} {unit}
-            </div>
-          </div>
-          <div className="text-xs mt-1 text-gray-800">
-            {medianAndAverage.interpretation}
-          </div>
+        <div className="absolute inset-0 bg-zinc-900 bg-opacity-95 p-4 rounded-xl flex flex-col justify-center items-center text-center transition-opacity duration-300 ease-in-out opacity-0" 
+             style={{ opacity: showDetails ? 1 : 0, pointerEvents: showDetails ? 'auto' : 'none' }}>
+          <p className="text-xs text-zinc-400 mb-1">Mediana esperada: {medianAndAverage.median}</p>
+          <p className="text-xs text-zinc-400 mb-1">Promedio esperado: {medianAndAverage.average}</p>
+          <p className="text-xs text-zinc-300">{medianAndAverage.interpretation}</p>
         </div>
       )}
     </div>
