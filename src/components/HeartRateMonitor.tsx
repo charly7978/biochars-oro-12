@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { cn } from "@/lib/utils";
+import { useToast } from "../hooks/use-toast";
 
 interface HeartRateMonitorProps {
   value: number;
@@ -7,6 +8,7 @@ interface HeartRateMonitorProps {
   className?: string;
   quality?: number;
   showWhipEffect?: boolean;
+  arrhythmiaStatus: string;
 }
 
 const HeartRateMonitor = ({ 
@@ -14,7 +16,8 @@ const HeartRateMonitor = ({
   isPeak, 
   className, 
   quality = 0,
-  showWhipEffect = true
+  showWhipEffect = true,
+  arrhythmiaStatus
 }: HeartRateMonitorProps) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const historyRef = useRef<number[]>([]);
@@ -176,13 +179,31 @@ const HeartRateMonitor = ({
     });
   };
 
+  const { showToast } = useToast();
+
+  useEffect(() => {
+    if (arrhythmiaStatus === "ARRITMIA DETECTADA") {
+      showToast("¡Alerta: Arritmia detectada!");
+    }
+  }, [arrhythmiaStatus, showToast]);
+
   return (
-    <canvas
-      ref={canvasRef}
-      width={400}
-      height={120}
-      className={cn("w-full h-full bg-black/30 rounded-md", className)}
-    />
+    <>
+      <canvas
+        ref={canvasRef}
+        width={400}
+        height={120}
+        className={cn("w-full h-full bg-black/30 rounded-md", className)}
+      />
+      <div className="heart-rate-display">
+        {value} BPM
+      </div>
+      {arrhythmiaStatus === "ARRITMIA DETECTADA" && (
+        <div className="alert text-red-500 font-bold animate-pulse">
+          Arritmia Detectada
+        </div>
+      )}
+    </>
   );
 };
 

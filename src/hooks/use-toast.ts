@@ -1,5 +1,5 @@
-
 import * as React from "react"
+import { useState } from "react";
 
 import type {
   ToastActionElement,
@@ -175,19 +175,19 @@ function toast({ ...props }: Toast) {
   }
 }
 
-function useToast() {
-  const [state, setState] = React.useState<State>(memoryState)
+export function useToast() {
+  const [toasts, setToasts] = useState<{id: number; message: string}[]>([]);
 
-  React.useEffect(() => {
-    listeners.push(setState)
-    return () => {
-      const index = listeners.indexOf(setState)
-      if (index > -1) {
-        listeners.splice(index, 1)
-      }
-    }
-  }, [state])
+  function showToast(message: string, duration = 3000) {
+    const id = Date.now();
+    setToasts((prev) => [...prev, { id, message }]);
+    setTimeout(() => {
+      setToasts((prev) => prev.filter((t) => t.id !== id));
+    }, duration);
+  }
 
+  return { toasts, showToast };
+}
   return {
     ...state,
     toast,

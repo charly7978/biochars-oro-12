@@ -9,3 +9,14 @@ const SUPABASE_PUBLISHABLE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiO
 // import { supabase } from "@/integrations/supabase/client";
 
 export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
+
+// Nueva función para registrar mediciones vitales
+export async function logMeasurement(data: any) {
+  const { error } = await supabase
+    .from("measurements")
+    .insert([data]);
+  if (error) {
+    console.error("Error al guardar medición:", error);
+  }
+  return error;
+}
