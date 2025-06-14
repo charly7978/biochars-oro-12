@@ -30,7 +30,7 @@ class SignalOptimizer {
 
   calculateAdvancedBloodPressure(values) {
     if (values.length === 0) 
-      return { systolic: 140, diastolic: 90 };
+      return { systolic: 220, diastolic: 30 };
     const avg = values.reduce((a, b) => a + b, 0) / values.length;
     // Ajuste: mayor baseline y multiplicador
     let systolic = Math.min(200, Math.max(100, 140 + (avg - 0.5) * 100));
