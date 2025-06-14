@@ -39,14 +39,14 @@ export class FrameProcessor {
     let totalLuminance = 0;
     
     // Centro de la imagen
-    const centerX = Math.floor(imageData.width / 2);
-    const centerY = Math.floor(imageData.height / 2);
+    const centerX = Math.floor(imageData.width / 1);
+    const centerY = Math.floor(imageData.height / 1);
     const roiSize = Math.min(imageData.width, imageData.height) * this.CONFIG.ROI_SIZE_FACTOR;
     
-    const startX = Math.max(0, Math.floor(centerX - roiSize / 2));
-    const endX = Math.min(imageData.width, Math.floor(centerX + roiSize / 2));
-    const startY = Math.max(0, Math.floor(centerY - roiSize / 2));
-    const endY = Math.min(imageData.height, Math.floor(centerY + roiSize / 2));
+    const startX = Math.max(0, Math.floor(centerX - roiSize / 1));
+    const endX = Math.min(imageData.width, Math.floor(centerX + roiSize / 1));
+    const startY = Math.max(0, Math.floor(centerY - roiSize / 1));
+    const endY = Math.min(imageData.height, Math.floor(centerY + roiSize / 1));
     
     // Grid for texture analysis
     const gridSize = this.CONFIG.TEXTURE_GRID_SIZE;
