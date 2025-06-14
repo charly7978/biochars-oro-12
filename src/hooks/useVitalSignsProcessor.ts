@@ -56,30 +56,6 @@ export function useVitalSignsProcessor() {
     };
   }, []);
   
-  /**
-   * Start calibration for all vital signs
-   */
-  const startCalibration = useCallback(() => {
-    console.log("useVitalSignsProcessor: Iniciando calibración de todos los parámetros", {
-      timestamp: new Date().toISOString(),
-      sessionId: sessionIdRef.current
-    });
-    
-    processor.startCalibration();
-  }, [processor]);
-  
-  /**
-   * Force calibration to complete immediately
-   */
-  const forceCalibrationCompletion = useCallback(() => {
-    console.log("useVitalSignsProcessor: Forzando finalización de calibración", {
-      timestamp: new Date().toISOString(),
-      sessionId: sessionIdRef.current
-    });
-    
-    processor.forceCalibrationCompletion();
-  }, [processor]);
-  
   // Process the signal with improved algorithms
   const processSignal = useCallback((value: number, rrData?: { intervals: number[], lastPeakTime: number | null }) => {
     processedSignalsRef.current++;
@@ -274,6 +250,30 @@ export function useVitalSignsProcessor() {
     setCalibrationFeedback("SIN DATOS"); // Resetear el feedback de calibración
   }, [processor, lastValidResults]);
 
+  // Full reset: limpia todo y reinicia los procesadores completamente
+  const fullReset = useCallback(() => {
+    console.log("useVitalSignsProcessor: Reseteo completo", {
+      sessionId: sessionIdRef.current,
+      timestamp: new Date().toISOString()
+    });
+    processor.fullReset();
+    setLastValidResults(null); // Limpiar completamente los resultados
+    setCalibrationFeedback("SIN DATOS"); // Limpiar feedback de calibración
+    arrhythmiaCounterRef.current = 0;
+    lastArrhythmiaTimeRef.current = 0;
+    processedSignalsRef.current = 0;
+    hasDetectedArrhythmiaRef.current = false;
+    signalLogRef.current = [];
+  }, [processor]);
+
+  return {
+    lastValidResults,
+    calibrationFeedback,
+    processSignal,
+    reset,
+    fullReset,
+  };
+}
   // Full reset: limpia todo y reinicia los procesadores completamente
   const fullReset = useCallback(() => {
     console.log("useVitalSignsProcessor: Reseteo completo", {

@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
 import Index from "./pages/Index";
 import NotFound from "./pages/NotFound";
-import { CalibrationDialog } from "./components/CalibrationDialog";
+import CalibrationDialog from "./components/CalibrationDialog";
 import { VitalSignsProcessor } from "./modules/vital-signs/VitalSignsProcessor.js"; // asegúrate de la ruta correcta
 
 const App = () => {

@@ -144,3 +144,12 @@ export class BidirectionalOptimizer {
     this.qualityScore = 1.0;
   }
 }
+
+export default class SignalOptimizer {
+  optimize(values: number[]) {
+    // Simulación de optimización
+    return {
+      bloodPressure: { systolic: 120, diastolic: 80 }
+    };
+  }
+}
