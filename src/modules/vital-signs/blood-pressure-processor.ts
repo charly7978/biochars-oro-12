@@ -17,7 +17,7 @@ export class BloodPressureProcessor {
    * Calcula presión arterial usando tiempo de tránsito de pulso (PTT) mejorado
    */
   public calculateBloodPressure(ppgValues: number[]): BloodPressureResult {
-    if (ppgValues.length < 60) {
+    if (ppgValues.length < 20) {
       return this.lastValidBP || { systolic: 0, diastolic: 0, confidence: 0 };
     }
     
@@ -49,11 +49,11 @@ export class BloodPressureProcessor {
     const pttRatio = baselinePTT / Math.max(avgPTT, 50);
     
     // Calcular presión sistólica
-    let systolic = this.calibrationSystolic * Math.pow(pttRatio, 0.7);
+    let systolic = this.calibrationSystolic * Math.pow(pttRatio, 0.9);
     systolic += this.ageAdjustment;
     
     // Calcular presión diastólica (típicamente 60-80% de sistólica)
-    let diastolic = systolic * 0.65;
+    let diastolic = systolic * 0.85;
     
     // Aplicar variabilidad natural y correcciones
     const heartRateEffect = this.calculateHeartRateEffect(peaks);
@@ -69,7 +69,7 @@ export class BloodPressureProcessor {
       diastolic = systolic - 20;
     }
     
-    const confidence = Math.min(1.0, pttStability * 0.8 + (peaks.length / 10) * 0.2);
+    const confidence = Math.min(1.0, pttStability * 0.8 + (peaks.length / 10) * 0.4);
     
     const result: BloodPressureResult = {
       systolic,
