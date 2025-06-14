@@ -36,7 +36,7 @@ export class BloodPressureProcessor {
       this.ptValues.shift();
     }
     
-    if (this.ptValues.length < 5) {
+    if (this.ptValues.length < 10) {
       return this.lastValidBP || { systolic: 0, diastolic: 0, confidence: 0 };
     }
     
@@ -173,11 +173,11 @@ export class BloodPressureProcessor {
     const avgDownstroke = totalDownstroke / validPeaks;
     
     // Factor de morfología: upstroke rápido sugiere presión más alta
-    return Math.max(0.7, Math.min(1.3, avgDownstroke / Math.max(avgUpstroke, 1)));
+    return Math.max(0.7, Math.min(1.9, avgDownstroke / Math.max(avgUpstroke, 1)));
   }
   
   private calculatePTTStability(): number {
-    if (this.ptValues.length < 3) return 0.5;
+    if (this.ptValues.length < 3) return 0.9;
     
     const mean = this.ptValues.reduce((a, b) => a + b, 0) / this.ptValues.length;
     const variance = this.ptValues.reduce((acc, val) => acc + Math.pow(val - mean, 2), 0) / this.ptValues.length;
