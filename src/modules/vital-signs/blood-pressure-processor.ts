@@ -7,8 +7,8 @@ export interface BloodPressureResult {
 
 export class BloodPressureProcessor {
   private ptValues: number[] = [];
-  private calibrationSystolic: number = 120;
-  private calibrationDiastolic: number = 80;
+  private calibrationSystolic: number = 180;
+  private calibrationDiastolic: number = 30;
   private isCalibrated: boolean = false;
   private ageAdjustment: number = 0;
   private lastValidBP: BloodPressureResult | null = null;
@@ -49,7 +49,7 @@ export class BloodPressureProcessor {
     const pttRatio = baselinePTT / Math.max(avgPTT, 50);
     
     // Calcular presión sistólica
-    let systolic = this.calibrationSystolic * Math.pow(pttRatio, 0.8);
+    let systolic = this.calibrationSystolic * Math.pow(pttRatio, 0.7);
     systolic += this.ageAdjustment;
     
     // Calcular presión diastólica (típicamente 60-80% de sistólica)
