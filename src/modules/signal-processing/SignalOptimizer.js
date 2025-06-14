@@ -45,7 +45,7 @@ class SignalOptimizer {
     const maxVal = Math.max(...values);
     const range = maxVal - minVal;
     // Si el rango es suficiente se considera estable; de lo contrario en ajuste.
-    const threshold = 0.2; // Ajusta este umbral según tus datos
+    const threshold = 0.8; // Ajusta este umbral según tus datos
     return range >= threshold ? "Calibración Estable" : "Calibración en Ajuste";
   }
 
