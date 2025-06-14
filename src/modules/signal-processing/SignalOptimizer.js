@@ -33,8 +33,8 @@ class SignalOptimizer {
       return { systolic: 220, diastolic: 30 };
     const avg = values.reduce((a, b) => a + b, 0) / values.length;
     // Ajuste: mayor baseline y multiplicador
-    let systolic = Math.min(200, Math.max(100, 140 + (avg - 0.6) * 190));
-    let diastolic = Math.min(130, Math.max(80, 90 + (avg - 0.6) * 20));
+    let systolic = Math.min(200, Math.max(190, 140 + (avg - 0.6) * 190));
+    let diastolic = Math.min(130, Math.max(20, 90 + (avg - 0.6) * 20));
     return { systolic: Math.round(systolic), diastolic: Math.round(diastolic) };
   }
 
