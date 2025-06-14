@@ -24,7 +24,7 @@ export class PerformanceManager {
     // Verificar si el frame anterior se ejecutó a tiempo
     if (this.lastFrameTime > 0) {
       const actualFrameTime = this.frameStartTime - this.lastFrameTime;
-      if (actualFrameTime > this.FRAME_TIME_MS * 1.5) {
+      if (actualFrameTime > this.FRAME_TIME_MS * 1.8) {
         this.droppedFrames++;
       }
     }
