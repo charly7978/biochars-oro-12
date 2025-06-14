@@ -9,6 +9,7 @@ export interface VitalSignsResult {
   heartRate: number;
   spo2: number;
   pressure: string;
+  vascularStiffnessIndex?: number;
   glucose: {
     estimatedGlucose: number;
     glucoseRange: [number, number];
@@ -119,6 +120,9 @@ export class VitalSignsProcessor {
     // Calcular presión real basada en características de pulso
     const pressure = this.calculateRealBloodPressure();
     
+    // Calcular el nuevo índice de rigidez vascular
+    const vascularStiffnessIndex = this.calculateVascularStiffnessIndex(this.signalBuffer);
+
     // Calcular glucosa real usando GlucoseProcessor
     const glucose = this.calculateRealGlucose();
     
@@ -132,6 +136,7 @@ export class VitalSignsProcessor {
       heartRate,
       spo2,
       pressure,
+      vascularStiffnessIndex,
       glucose,
       lipids,
       hemoglobin,
@@ -228,24 +233,14 @@ export class VitalSignsProcessor {
   }
 
   private calculateRealBloodPressure(): string {
-    if (this.signalBuffer.length < 60 || !this.isCalibrated) return "0/0";
-    
-    // Analizar forma de onda PPG para estimar presión
-    const recent = this.signalBuffer.slice(-60);
-    const amplitude = Math.max(...recent) - Math.min(...recent);
-    const baseline = recent.reduce((a, b) => a + b, 0) / recent.length;
-    
-    // Índice de rigidez arterial basado en forma de pulso
-    const stiffnessIndex = amplitude / baseline;
-    
-    // Estimación basada en características de pulso
-    const systolic = Math.round(90 + (stiffnessIndex * 40));
-    const diastolic = Math.round(60 + (stiffnessIndex * 20));
-    
-    const finalSystolic = Math.max(90, Math.min(180, systolic));
-    const finalDiastolic = Math.max(60, Math.min(120, diastolic));
-    
-    return `${finalSystolic}/${finalDiastolic}`;
+    // ESTA ES UNA MEDICIÓN TEMPORAL Y NO FISIOLÓGICAMENTE PRECISA.
+    // PARA UNA MEDICIÓN ROBUSTA Y NO SIMULADA DE LA PRESIÓN ARTERIAL DESDE DATOS PPG DE CÁMARA,
+    // SE REQUIERE UN ALGORITMO AVANZADO BASADO EN ANÁLISIS DE ONDAS DE PULSO (PWA), TIEMPO DE TRÁNSITO DE PULSO (PTT)
+    // (si se dispone de ECG o múltiples PPG), O MODELOS DE MACHINE LEARNING ENTRENADOS CON DATOS CLÍNICOS REALES.
+    // ESTO TAMBIÉN IMPLICA LA NECESIDAD DE CALIBRACIÓN PERIÓDICA.
+    // EN ESTE MOMENTO, SE DEVUELVEN VALORES CERO PARA INDICAR QUE NO HAY MEDICIÓN REAL.
+    // SE NECESITA UN DISEÑO ESPECÍFICO PARA ALGORITMOS AVANZADOS Y PRECISOS.
+    return "0/0";
   }
 
   private calculateRealGlucose(): VitalSignsResult['glucose'] {
@@ -331,5 +326,45 @@ export class VitalSignsProcessor {
     console.log("VitalSignsProcessor: Reset completo");
     this.reset();
     this.glucoseProcessor.reset(); // Asegurar el reset completo
+  }
+
+  // --- Nuevas funciones para el Índice de Rigidiez Vascular Estimado ---
+
+  private calculateAC(values: number[]): number {
+    if (values.length === 0) return 0;
+    return Math.max(...values) - Math.min(...values);
+  }
+
+  private calculateDC(values: number[]): number {
+    if (values.length === 0) return 0;
+    return values.reduce((a, b) => a + b, 0) / values.length;
+  }
+
+  private calculateVascularStiffnessIndex(values: number[]): number {
+    if (values.length < 10) return 0; // Se necesitan suficientes datos
+
+    const ac = this.calculateAC(values);
+    const dc = this.calculateDC(values);
+
+    if (dc === 0) return 0; // Evitar división por cero
+
+    const perfusionIndex = ac / dc;
+
+    // Este es un índice conceptual que relaciona el Perfusion Index (PI) con la rigidez vascular.
+    // Un PI más alto indica una mejor perfusión pulsátil y, conceptualmente, menos rigidez.
+    // Un PI más bajo podría sugerir mayor vasoconstricción o rigidez.
+    // Escala el PI (típicamente entre 0.02 y 20) a un índice de rigidez de 0 a 100.
+    // Esto es una simplificación y no una medida clínica directa de rigidez.
+    const minPI = 0.01;
+    const maxPI = 1.0; // Valores típicos, ajustables según la señal real.
+
+    if (perfusionIndex < minPI) return 100; // Muy baja perfusión, indicativo de alta rigidez
+    if (perfusionIndex > maxPI) return 0;   // Muy alta perfusión, indicativo de baja rigidez
+
+    // Mapeo lineal inverso del PI a un índice de rigidez:
+    // Cuanto mayor es el PI, menor es el índice de rigidez.
+    const scaledStiffness = 100 * (1 - (perfusionIndex - minPI) / (maxPI - minPI));
+    
+    return Math.max(0, Math.min(100, Math.round(scaledStiffness)));
   }
 }
