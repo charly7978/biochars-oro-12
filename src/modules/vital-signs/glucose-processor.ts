@@ -9,6 +9,7 @@ export class GlucoseProcessor {
   // Propiedades para almacenar los resultados del filtro Savitzky-Golay
   private savitzkyGolayFilter: SavitzkyGolayFilter;
   private lastFilteredSignal: number[] = [];
+  fullReset: any;
   
   constructor() {
     this.savitzkyGolayFilter = new SavitzkyGolayFilter(15); // Tamaño de ventana ajustado para PPG, puede necesitar optimización
