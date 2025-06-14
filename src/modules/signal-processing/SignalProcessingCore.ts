@@ -76,9 +76,9 @@ export class SignalProcessingCore {
     const maxVal = Math.max(...recentProcessedSignal);
     const currentAmplitude = maxVal - minVal;
 
-    const TARGET_AMPLITUDE = 90; // Amplitud deseada para la señal procesada
-    const MIN_AMP_FACTOR = 20;
-    const MAX_AMP_FACTOR = 80;
+    const TARGET_AMPLITUDE = 70; // Amplitud deseada para la señal procesada
+    const MIN_AMP_FACTOR = 15;
+    const MAX_AMP_FACTOR = 60;
 
     if (currentAmplitude < 1e-6) return MAX_AMP_FACTOR; // Evitar división por cero, amplificar mucho
 
