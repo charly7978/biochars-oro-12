@@ -16,6 +16,7 @@ export interface FingerDetectionResult {
   };
 }
 
+// Algoritmo mejorado para detección del dedo con umbral adaptativo y debounce.
 export class RealFingerDetector {
   private detectionHistory: boolean[] = [];
   private redHistory: number[] = [];
@@ -34,6 +35,12 @@ export class RealFingerDetector {
     CALIBRATION_SAMPLES: 14,
     MIN_CONFIDENCE: 0.9   // Umbral más bajo para dedos reales
   };
+
+  windowSize = 30;              // cantidad de muestras en la ventana
+  baseThreshold = 0.3;          // umbral base
+  debounceTime = 500;           // intervalo mínimo (ms) entre detecciones
+  lastDetectionTime = 0;        // tiempo de la última detección confirmada
+  samples: number[] = [];       // ventana móvil de muestras
   
   detectFinger(imageData: ImageData): FingerDetectionResult {
     // Extraer métricas básicas
@@ -325,6 +332,34 @@ export class RealFingerDetector {
       progress: Math.min(100, (this.calibrationSamples.length / this.REAL_THRESHOLDS.CALIBRATION_SAMPLES) * 100),
       baseline: this.baselineRed
     };
+  }
+
+  update(sample: number): boolean {
+    // Agregar la nueva muestra
+    this.samples.push(sample);
+    if (this.samples.length > this.windowSize) {
+      this.samples.shift();
+    }
+    const currentTime = Date.now();
+
+    // Calcular media y desviación estándar de la ventana
+    const mean = this.samples.reduce((a, b) => a + b, 0) / this.samples.length;
+    const std = Math.sqrt(
+      this.samples.map(x => Math.pow(x - mean, 2)).reduce((a, b) => a + b, 0) / this.samples.length
+    );
+
+    // Umbral adaptativo: se aumenta la sensibilidad suavizando el efecto del ruido
+    const adaptiveThreshold = this.baseThreshold + std * 0.5; // factor ajustable
+
+    // Se detecta el dedo si la diferencia respecto a la media supera el umbral adaptativo
+    if (
+      Math.abs(sample - mean) > adaptiveThreshold &&
+      (currentTime - this.lastDetectionTime > this.debounceTime)
+    ) {
+      this.lastDetectionTime = currentTime;
+      return true;
+    }
+    return false;
   }
 }
 
