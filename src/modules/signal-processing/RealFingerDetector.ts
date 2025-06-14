@@ -40,6 +40,8 @@ export class RealFingerDetector {
   baseThreshold = 0.3;          // umbral base
   debounceTime = 500;           // intervalo mínimo (ms) entre detecciones
   lastDetectionTime = 0;        // tiempo de la última detección confirmada
+  detectionConsecutiveRequired = 2; // número de muestras consecutivas necesarias
+  detectionCounter = 0;         // contador de muestras consecutivas que cumplen la condición
   samples: number[] = [];       // ventana móvil de muestras
   
   detectFinger(imageData: ImageData): FingerDetectionResult {
@@ -335,7 +337,7 @@ export class RealFingerDetector {
   }
 
   update(sample: number): boolean {
-    // Agregar la nueva muestra
+    // Agregar la nueva muestra a la ventana
     this.samples.push(sample);
     if (this.samples.length > this.windowSize) {
       this.samples.shift();
@@ -348,16 +350,20 @@ export class RealFingerDetector {
       this.samples.map(x => Math.pow(x - mean, 2)).reduce((a, b) => a + b, 0) / this.samples.length
     );
 
-    // Umbral adaptativo: se aumenta la sensibilidad suavizando el efecto del ruido
+    // Umbral adaptativo
     const adaptiveThreshold = this.baseThreshold + std * 0.5; // factor ajustable
 
-    // Se detecta el dedo si la diferencia respecto a la media supera el umbral adaptativo
-    if (
-      Math.abs(sample - mean) > adaptiveThreshold &&
-      (currentTime - this.lastDetectionTime > this.debounceTime)
-    ) {
-      this.lastDetectionTime = currentTime;
-      return true;
+    // Condición: se requiere que la señal supere la media más el umbral adaptativo
+    if ((sample - mean) > adaptiveThreshold) {
+      this.detectionCounter++;
+      if (this.detectionCounter >= this.detectionConsecutiveRequired &&
+          (currentTime - this.lastDetectionTime > this.debounceTime)) {
+        this.lastDetectionTime = currentTime;
+        this.detectionCounter = 0;
+        return true;
+      }
+    } else {
+      this.detectionCounter = 0;
     }
     return false;
   }
