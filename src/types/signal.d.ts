@@ -23,15 +23,29 @@ export interface OptimizedSignal {
   };
 }
 
-declare global {
-  interface Window {
-    heartBeatProcessor: HeartBeatProcessor;
-  }
+export interface PPGValues {
+  red: number;
+  ir: number; 
+  ambient: number;
 }
-  stop: () => void;
-  calibrate: () => Promise<boolean>;
-  onSignalReady?: (signal: ProcessedSignal) => void;
-  onError?: (error: ProcessingError) => void;
+
+export interface VitalSignsResult {
+  heartRate: number;
+  spo2: number;
+  pressure: string;
+  glucose?: number;
+  lipids?: {
+    total: number;
+    hdl: number;
+  };
+  hemoglobin?: number;
+}
+
+export interface SignalQuality {
+  overallQuality: number;
+  noiseLevel: number;
+  stabilityScore: number;
+  isValid: boolean;
 }
 
 declare global {
