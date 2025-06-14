@@ -1,32 +1,20 @@
 import { HeartBeatProcessor } from '../modules/HeartBeatProcessor';
 
-export interface PPGFrame {
-  data: Uint8Array;
-  width: number;
-  height: number;
-  timestamp: number;
-}
-
-export interface OptimizedSignal {
-  cleanSignal: number;
+export interface SignalMetrics {
+  snr: number;
+  stability: number;
   quality: number;
-  metrics: {
-    amplitude: number;
-    frequency: number;
-    noiseLevel: number;
-    perfusionIndex: number;
-  };
-  feedback: {
-    signalStrength: number;
-    noiseLevel: number;
-    isValid: boolean;
-  };
 }
 
-export interface PPGValues {
-  red: number;
-  ir: number; 
-  ambient: number;
+export interface OptimizationChannel {
+  signal: number[];
+  noise: number[];
+}
+
+export interface PPGFrame {
+  timestamp: number;
+  values: number[];
+  quality?: number;
 }
 
 export interface VitalSignsResult {
@@ -35,7 +23,19 @@ export interface VitalSignsResult {
   pressure: string;
   glucose?: number;
   lipids?: {
-    total: number;
+    totalCholesterol: number;
+    triglycerides: number;
+  };
+  hemoglobin?: number;
+  quality: number;
+  arrhythmiaDetected?: boolean;
+}
+
+declare global {
+  interface Window {
+    heartBeatProcessor: HeartBeatProcessor;
+  }
+}
     hdl: number;
   };
   hemoglobin?: number;

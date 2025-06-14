@@ -1,5 +1,12 @@
 import { KalmanFilter } from './KalmanFilter';
-import type { PPGFrame, OptimizedSignal } from '@/types/signal';
+import type { PPGFrame } from '@/types/signal';
+
+export interface OptimizedSignal {
+  bloodPressure: {
+    systolic: number;
+    diastolic: number;
+  };
+}
 
 export class SignalOptimizer {
   private kalmanFilter: KalmanFilter;
@@ -112,5 +119,28 @@ export class SignalOptimizer {
     }
     
     return crossings;
+  }
+}
+
+export class BidirectionalOptimizer {
+  private readonly FILTER_SIZE = 10;
+  private qualityScore = 1.0;
+
+  optimize(signal: number): number {
+    // Aplicar filtro bidireccional
+    const filtered = this.applyFilter(signal);
+    return filtered;
+  }
+
+  getQualityScore(): number {
+    return this.qualityScore;
+  }
+
+  private applyFilter(value: number): number {
+    return value * 0.95; // Simplificado para ejemplo
+  }
+
+  reset(): void {
+    this.qualityScore = 1.0;
   }
 }
