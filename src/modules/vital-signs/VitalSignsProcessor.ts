@@ -3,125 +3,126 @@
  * Cálculos basados únicamente en mediciones físicas reales del PPG
  */
 
-import { GlucoseProcessor } from "./glucose-processor";
-
-export interface VitalSignsResult {
-  heartRate: number;
-  spo2: number;
-  pressure: string;
-  vascularStiffnessIndex?: number;
-  glucose: {
-    estimatedGlucose: number;
-    glucoseRange: [number, number];
-    confidence: number;
-    variability: number;
-    features: {
-      spectralGlucoseIndicator: number;
-      vascularResistanceIndex: number;
-      pulseMorphologyScore: number;
-    };
-  };
-  lipids: {
-    totalCholesterol: number;
-    triglycerides: number;
-  };
-  hemoglobin: number;
-  arrhythmiaStatus: string;
-  lastArrhythmiaData?: {
-    timestamp: number;
-    rmssd: number;
-    rrVariation: number;
-  };
-  calibration?: {
-    isCalibrating: boolean;
-    progress: {
-      heartRate: number;
-      spo2: number;
-      pressure: number;
-      arrhythmia: number;
-      glucose: number;
-      lipids: number;
-      hemoglobin: number;
-    };
-  };
-}
+import { SignalOptimizer } from '../signal-processing/SignalOptimizer';
+import type { PPGFrame, VitalSignsResult } from '@/types/signal';
 
 export class VitalSignsProcessor {
-  private signalBuffer: number[] = [];
-  private peakTimes: number[] = [];
+  private readonly WINDOW_SIZE = 300;
+  private readonly PERFUSION_INDEX_THRESHOLD = 0.05;
+  private readonly RR_WINDOW_SIZE = 5;
+  private readonly ARRHYTHMIA_LEARNING_PERIOD = 3000;
+
+  private ppgValues: number[] = [];
+  private lastPeakTime: number | null = null;
   private rrIntervals: number[] = [];
-  private calibrationBaseline: number = 0;
-  private isCalibrated = false;
-  private frameCount = 0;
-  private lastValidResults: VitalSignsResult | null = null;
-  private glucoseProcessor: GlucoseProcessor;
+  private isLearningPhase = true;
+  private arrhythmiaDetected = false;
+  private measurementStartTime: number;
+  private signalOptimizer: SignalOptimizer;
+  private debugCallback: ((message: string) => void) | null = null;
 
   constructor() {
-    console.log("VitalSignsProcessor: Inicializado (SIN SIMULACIONES)");
-    this.glucoseProcessor = new GlucoseProcessor();
+    this.measurementStartTime = Date.now();
+    this.signalOptimizer = new SignalOptimizer();
   }
 
-  startCalibration(): void {
-    console.log("VitalSignsProcessor: Iniciando calibración REAL");
-    this.calibrationBaseline = 0;
-    this.signalBuffer = [];
-    this.peakTimes = [];
+  setDebugCallback(callback: (message: string) => void): void {
+    this.debugCallback = callback;
+  }
+
+  processFrame(frame: PPGFrame): VitalSignsResult {
+    // Optimizar señal con el nuevo SignalOptimizer
+    const { optimizedSignal, quality, metrics } = 
+      this.signalOptimizer.optimize(frame);
+
+    // Actualizar buffer de valores PPG
+    this.ppgValues.push(optimizedSignal);
+    if (this.ppgValues.length > this.WINDOW_SIZE) {
+      this.ppgValues.shift();
+    }
+
+    // Procesar intervalos RR si están disponibles
+    if (metrics.peakDetected) {
+      this.processHeartBeat(frame.timestamp);
+    }
+
+    // Verificar fase de aprendizaje
+    const currentTime = Date.now();
+    const timeSinceStart = currentTime - this.measurementStartTime;
+    if (timeSinceStart > this.ARRHYTHMIA_LEARNING_PERIOD) {
+      this.isLearningPhase = false;
+    }
+
+    // Generar resultado con datos reales
+    return {
+      spo2: metrics.spo2,
+      pressure: {
+        systolic: metrics.systolicPressure,
+        diastolic: metrics.diastolicPressure
+      },
+      arrhythmiaStatus: this.getArrhythmiaStatus(),
+      quality: quality,
+      timestamp: frame.timestamp
+    };
+  }
+
+  private processHeartBeat(timestamp: number): void {
+    if (!this.lastPeakTime) {
+      this.lastPeakTime = timestamp;
+      return;
+    }
+
+    const rrInterval = timestamp - this.lastPeakTime;
+    this.rrIntervals.push(rrInterval);
+    
+    if (this.rrIntervals.length > 20) {
+      this.rrIntervals.shift();
+    }
+
+    if (!this.isLearningPhase && this.rrIntervals.length >= this.RR_WINDOW_SIZE) {
+      this.detectArrhythmia();
+    }
+
+    this.lastPeakTime = timestamp;
+  }
+
+  private detectArrhythmia(): void {
+    if (this.rrIntervals.length < this.RR_WINDOW_SIZE) {
+      this.debugLog("Insuficientes intervalos RR");
+      return;
+    }
+
+    const recentRR = this.rrIntervals.slice(-this.RR_WINDOW_SIZE);
+    const analysis = this.signalOptimizer.analyzeRRIntervals(recentRR);
+    
+    this.arrhythmiaDetected = analysis.isArrhythmic;
+    this.debugLog(`Estado arritmia: ${this.arrhythmiaDetected}`);
+  }
+
+  private getArrhythmiaStatus(): string {
+    if (this.isLearningPhase) return "--";
+    return this.arrhythmiaDetected ? "ARRITMIA DETECTADA" : "SIN ARRITMIAS";
+  }
+
+  private debugLog(message: string): void {
+    if (this.debugCallback) {
+      this.debugCallback(message);
+    }
+  }
+
+  reset(): void {
+    this.ppgValues = [];
+    this.lastPeakTime = null;
     this.rrIntervals = [];
-    this.isCalibrated = false;
-    this.frameCount = 0;
-    this.glucoseProcessor.reset(); // Resetear el procesador de glucosa también
+    this.isLearningPhase = true;
+    this.arrhythmiaDetected = false;
+    this.measurementStartTime = Date.now();
+    this.signalOptimizer.reset();
   }
-
-  forceCalibrationCompletion(): void {
-    console.log("VitalSignsProcessor: Forzando completion de calibración");
-    this.isCalibrated = true;
-    this.glucoseProcessor.calibrate(95); // Forzar una calibración con un valor base
-  }
-
-  isCurrentlyCalibrating(): boolean {
-    return !this.isCalibrated && this.frameCount < 60; // 2 segundos aprox
-  }
-
-  getCalibrationProgress(): number {
-    if (this.isCalibrated) return 100;
-    return Math.min(100, (this.frameCount / 60) * 100);
-  }
-
-  processSignal(ppgValue: number, rrData?: { intervals: number[]; lastPeakTime: number | null }): VitalSignsResult {
-    this.frameCount++;
-    
-    // Almacenar señal real
-    this.signalBuffer.push(ppgValue);
-    if (this.signalBuffer.length > 300) {
-      this.signalBuffer.shift();
-    }
-
-    // Establecer baseline durante calibración
-    if (!this.isCalibrated) {
-      if (this.frameCount >= 60) {
-        this.calibrationBaseline = this.signalBuffer.reduce((a, b) => a + b, 0) / this.signalBuffer.length;
-        this.isCalibrated = true;
-        this.glucoseProcessor.calibrate(this.glucoseProcessor.calculateGlucose(this.signalBuffer).estimatedGlucose); // Calibrar glucosa con el primer valor estimado
-        console.log("VitalSignsProcessor: Calibración completada, baseline:", this.calibrationBaseline);
-      }
-    }
-
-    // Usar datos RR reales si están disponibles
-    if (rrData?.intervals && rrData.intervals.length > 0) {
-      this.rrIntervals = [...rrData.intervals];
-    }
-
-    // Calcular BPM real basado en intervalos RR
-    const heartRate = this.calculateRealBPM();
-    
-    // Calcular SpO2 real basado en ratio AC/DC
-    const spo2 = this.calculateRealSpO2();
-    
-    // Calcular presión real basada en características de pulso
-    const pressure = this.calculateRealBloodPressure();
+}
     
     // Calcular el nuevo índice de rigidez vascular
-    const vascularStiffnessIndex = this.calculateVascularStiffnessIndex(this.signalBuffer);
+    const vascularStiffnessIndex = this.calculateVascularStiffnessIndex(this.ppgBuffer);
 
     // Calcular glucosa real usando GlucoseProcessor
     const glucose = this.calculateRealGlucose();
@@ -175,9 +176,9 @@ export class VitalSignsProcessor {
     }
 
     // Fallback: detección de picos en señal PPG real
-    if (this.signalBuffer.length < 20) return 0;
+    if (this.ppgBuffer.length < 20) return 0;
     
-    const recent = this.signalBuffer.slice(-60); // Últimos 2 segundos
+    const recent = this.ppgBuffer.slice(-60); // Últimos 2 segundos
     const peaks = this.detectRealPeaks(recent);
     
     if (peaks.length >= 2) {
@@ -210,10 +211,10 @@ export class VitalSignsProcessor {
   }
 
   private calculateRealSpO2(): number {
-    if (this.signalBuffer.length < 30 || !this.isCalibrated) return 0;
+    if (this.ppgBuffer.length < 30 || !this.isCalibrated) return 0;
     
     // Calcular componente AC (amplitud de pulsación)
-    const recent = this.signalBuffer.slice(-30);
+    const recent = this.ppgBuffer.slice(-30);
     const max = Math.max(...recent);
     const min = Math.min(...recent);
     const ac = max - min;
@@ -244,7 +245,7 @@ export class VitalSignsProcessor {
   }
 
   private calculateRealGlucose(): VitalSignsResult['glucose'] {
-    if (this.signalBuffer.length < 90 || !this.isCalibrated) {
+    if (this.ppgBuffer.length < 90 || !this.isCalibrated) {
       return {
         estimatedGlucose: 0,
         glucoseRange: [0, 0],
@@ -259,16 +260,16 @@ export class VitalSignsProcessor {
     }
     
     // Utilizar el procesador de glucosa para obtener resultados detallados
-    return this.glucoseProcessor.calculateGlucose(this.signalBuffer);
+    return this.glucoseProcessor.calculateGlucose(this.ppgBuffer);
   }
 
   private calculateRealLipids(): { totalCholesterol: number; triglycerides: number } {
-    if (this.signalBuffer.length < 120 || !this.isCalibrated) {
+    if (this.ppgBuffer.length < 120 || !this.isCalibrated) {
       return { totalCholesterol: 0, triglycerides: 0 };
     }
     
     // Análisis de perfusión para estimación lipídica
-    const recent = this.signalBuffer.slice(-120);
+    const recent = this.ppgBuffer.slice(-120);
     
     // Calcular índice de perfusión
     const max = Math.max(...recent);
@@ -291,10 +292,10 @@ export class VitalSignsProcessor {
   }
 
   private calculateRealHemoglobin(): number {
-    if (this.signalBuffer.length < 60 || !this.isCalibrated) return 0;
+    if (this.ppgBuffer.length < 60 || !this.isCalibrated) return 0;
     
     // Análisis de absorción de luz para hemoglobina
-    const recent = this.signalBuffer.slice(-60);
+    const recent = this.ppgBuffer.slice(-60);
     const intensity = recent.reduce((a, b) => a + b, 0) / recent.length;
     
     // Ley de Beer-Lambert simplificada
@@ -310,8 +311,7 @@ export class VitalSignsProcessor {
     console.log("VitalSignsProcessor: Reset manteniendo últimos resultados");
     const savedResults = this.lastValidResults;
     
-    this.signalBuffer = [];
-    this.peakTimes = [];
+    this.ppgBuffer = [];
     this.rrIntervals = [];
     this.frameCount = 0;
     this.isCalibrated = false;

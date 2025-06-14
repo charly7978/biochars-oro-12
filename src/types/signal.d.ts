@@ -1,29 +1,33 @@
 import { HeartBeatProcessor } from '../modules/HeartBeatProcessor';
 
-export interface ProcessedSignal {
+export interface PPGFrame {
+  data: Uint8Array;
+  width: number;
+  height: number;
   timestamp: number;
-  rawValue: number;
-  filteredValue: number;
+}
+
+export interface OptimizedSignal {
+  cleanSignal: number;
   quality: number;
-  fingerDetected: boolean;
-  roi: {
-    x: number;
-    y: number;
-    width: number;
-    height: number;
+  metrics: {
+    amplitude: number;
+    frequency: number;
+    noiseLevel: number;
+    perfusionIndex: number;
   };
-  perfusionIndex?: number;
+  feedback: {
+    signalStrength: number;
+    noiseLevel: number;
+    isValid: boolean;
+  };
 }
 
-export interface ProcessingError {
-  code: string;
-  message: string;
-  timestamp: number;
+declare global {
+  interface Window {
+    heartBeatProcessor: HeartBeatProcessor;
+  }
 }
-
-export interface SignalProcessor {
-  initialize: () => Promise<void>;
-  start: () => void;
   stop: () => void;
   calibrate: () => Promise<boolean>;
   onSignalReady?: (signal: ProcessedSignal) => void;
