@@ -33,7 +33,7 @@ export class SignalProcessingCore {
       this.baseline = redValue;
     } else {
       // Adaptación lenta del baseline
-      this.baseline = this.baseline * 0.99 + redValue * 0.01;
+      this.baseline = this.baseline * 0.89 + redValue * 0.01;
     }
     
     // Filtrado Kalman
@@ -76,9 +76,9 @@ export class SignalProcessingCore {
     const maxVal = Math.max(...recentProcessedSignal);
     const currentAmplitude = maxVal - minVal;
 
-    const TARGET_AMPLITUDE = 70; // Amplitud deseada para la señal procesada
-    const MIN_AMP_FACTOR = 10;
-    const MAX_AMP_FACTOR = 60;
+    const TARGET_AMPLITUDE = 90; // Amplitud deseada para la señal procesada
+    const MIN_AMP_FACTOR = 20;
+    const MAX_AMP_FACTOR = 80;
 
     if (currentAmplitude < 1e-6) return MAX_AMP_FACTOR; // Evitar división por cero, amplificar mucho
 
