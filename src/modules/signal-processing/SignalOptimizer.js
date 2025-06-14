@@ -17,6 +17,8 @@ class SignalOptimizer {
     const temperature = this.calculateOptimizedTemperature(signalData);
     const arrhythmia = this.calculateOptimizedArrhythmia(signalData);
     const calibrationFeedback = this.getCalibrationFeedback(signalData);
+    const vascularStiffnessIndex = this.calculateVascularStiffnessIndex(signalData);
+
     return {
       spo2,
       bloodPressure: bp,
@@ -24,18 +26,20 @@ class SignalOptimizer {
       respiration,
       temperature,
       arrhythmia,
-      calibrationFeedback // retroalimentación real
+      calibrationFeedback,
+      vascularStiffnessIndex
     };
   }
 
   calculateAdvancedBloodPressure(values) {
-    if (values.length === 0) 
-      return { systolic: 220, diastolic: 30 };
-    const avg = values.reduce((a, b) => a + b, 0) / values.length;
-    // Ajuste: mayor baseline y multiplicador
-    let systolic = Math.min(200, Math.max(190, 140 + (avg - 0.6) * 190));
-    let diastolic = Math.min(130, Math.max(20, 90 + (avg - 0.6) * 20));
-    return { systolic: Math.round(systolic), diastolic: Math.round(diastolic) };
+    // ESTA ES UNA MEDICIÓN TEMPORAL Y NO FISIOLÓGICAMENTE PRECISA.
+    // PARA UNA MEDICIÓN ROBUSTA Y NO SIMULADA DE LA PRESIÓN ARTERIAL DESDE DATOS PPG DE CÁMARA,
+    // SE REQUIERE UN ALGORITMO AVANZADO BASADO EN ANÁLISIS DE ONDAS DE PULSO (PWA), TIEMPO DE TRÁNSITO DE PULSO (PTT)
+    // (si se dispone de ECG o múltiples PPG), O MODELOS DE MACHINE LEARNING ENTRENADOS CON DATOS CLÍNICOS REALES.
+    // ESTO TAMBIÉN IMPLICA LA NECESIDAD DE CALIBRACIÓN PERIÓDICA.
+    // EN ESTE MOMENTO, SE DEVUELVEN VALORES CERO PARA INDICAR QUE NO HAY MEDICIÓN REAL.
+    // SE NECESITA UN DISEÑO ESPECÍFICO PARA ALGORITMOS AVANZADOS Y PRECISOS.
+    return { systolic: 0, diastolic: 0 };
   }
 
   getCalibrationFeedback(values) {
@@ -88,10 +92,43 @@ class SignalOptimizer {
     const variance = values.reduce((acc, v) => acc + Math.pow(v - mean, 2), 0) / values.length;
     return variance > 1 ? "ARRITMIA DETECTADA" : "SIN ARRITMIAS";
   }
-}
 
-export default SignalOptimizer;
-    return variance > 1 ? "ARRITMIA DETECTADA" : "SIN ARRITMIAS";
+  calculateAC(values) {
+    if (values.length === 0) return 0;
+    return Math.max(...values) - Math.min(...values);
+  }
+
+  calculateDC(values) {
+    if (values.length === 0) return 0;
+    return values.reduce((a, b) => a + b, 0) / values.length;
+  }
+
+  calculateVascularStiffnessIndex(values) {
+    if (values.length < 10) return 0; // Se necesitan suficientes datos
+
+    const ac = this.calculateAC(values);
+    const dc = this.calculateDC(values);
+
+    if (dc === 0) return 0; // Evitar división por cero
+
+    const perfusionIndex = ac / dc;
+
+    // Este es un índice conceptual que relaciona el Perfusion Index (PI) con la rigidez vascular.
+    // Un PI más alto indica una mejor perfusión pulsátil y, conceptualmente, menos rigidez.
+    // Un PI más bajo podría sugerir mayor vasoconstricción o rigidez.
+    // Escala el PI (típicamente entre 0.02 y 20) a un índice de rigidez de 0 a 100.
+    // Esto es una simplificación y no una medida clínica directa de rigidez.
+    const minPI = 0.01;
+    const maxPI = 1.0; // Valores típicos, ajustables según la señal real.
+
+    if (perfusionIndex < minPI) return 100; // Muy baja perfusión, indicativo de alta rigidez
+    if (perfusionIndex > maxPI) return 0;   // Muy alta perfusión, indicativo de baja rigidez
+
+    // Mapeo lineal inverso del PI a un índice de rigidez:
+    // Cuanto mayor es el PI, menor es el índice de rigidez.
+    const scaledStiffness = 100 * (1 - (perfusionIndex - minPI) / (maxPI - minPI));
+    
+    return Math.max(0, Math.min(100, Math.round(scaledStiffness)));
   }
 }
 
