@@ -8,19 +8,19 @@ import { ProcessedSignal } from '../../types/signal';
 export class FrameProcessor {
   private readonly CONFIG: { TEXTURE_GRID_SIZE: number, ROI_SIZE_FACTOR: number };
   // Parámetros ajustados para mejor extracción de señal
-  private readonly RED_GAIN = 1.4; // Aumentado para mejor amplificación de señal roja (antes 1.2)
+  private readonly RED_GAIN = 1.9; // Aumentado para mejor amplificación de señal roja (antes 1.2)
   private readonly GREEN_SUPPRESSION = 0.8; // Menos supresión para mantener información (antes 0.85)
-  private readonly SIGNAL_GAIN = 1.3; // Aumentado para mejor detección (antes 1.1)
-  private readonly EDGE_ENHANCEMENT = 0.15; // Ajustado para mejor detección de bordes (antes 0.12)
+  private readonly SIGNAL_GAIN = 1.9; // Aumentado para mejor detección (antes 1.1)
+  private readonly EDGE_ENHANCEMENT = 0.20; // Ajustado para mejor detección de bordes (antes 0.12)
   
   // Historia para calibración adaptativa
   private lastFrames: Array<{red: number, green: number, blue: number}> = [];
-  private readonly HISTORY_SIZE = 15; // Reducido para adaptación más rápida (antes 20)
+  private readonly HISTORY_SIZE = 10; // Reducido para adaptación más rápida (antes 20)
   private lastLightLevel: number = -1;
   
   // Nuevo: historial de ROIs para estabilidad
   private roiHistory: Array<{x: number, y: number, width: number, height: number}> = [];
-  private readonly ROI_HISTORY_SIZE = 5;
+  private readonly ROI_HISTORY_SIZE = 10;
   
   constructor(config: { TEXTURE_GRID_SIZE: number, ROI_SIZE_FACTOR: number }) {
     // Aumentar tamaño de ROI para capturar más área
